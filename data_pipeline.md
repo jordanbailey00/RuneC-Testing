@@ -35,12 +35,12 @@ The only normal user data acquisition path should be:
 ./scripts/setup-data.sh
 ```
 
-That command should read `runtime-data.lock`, download RuneC-published runtime
-data when the lock points to an official release, verify checksums, and install
-it locally. While the lock is draft/non-official, it must refuse default remote
-downloads and require either `--offline dist-data` or explicit release URL
-overrides. It should not clone or read RuneLite, RSMod, osrsreboxed, data_osrs,
-VoidPS, 2011Scape, Near-Reality, Zenyte, or RuneC-DB.
+That command reads `runtime-data.lock`, downloads the RuneC-published runtime
+data release, verifies checksums, and installs it locally. If a future lock is
+draft/non-official, setup must refuse default remote downloads and require
+either `--offline dist-data` or explicit release URL overrides. It should not
+clone or read RuneLite, RSMod, osrsreboxed, data_osrs, VoidPS, 2011Scape,
+Near-Reality, Zenyte, or RuneC-DB.
 
 Maintainer rebuilds may use raw b237 cache input, but that input should live
 outside the RuneC repo root and be passed explicitly. The pipeline should never
@@ -294,10 +294,10 @@ generated/reports/data-v1-summary.json
 generated/reports/data-v1-summary.txt
 ```
 
-The current expected release status is `not_publishable_source_gaps` until the
-remaining source-authority gaps are resolved. `tools/validate_runtime_data_lock.py`
-keeps `runtime-data.lock` in draft/non-official mode, with empty release URLs
-and checksums, while that status remains.
+The current expected release status is `publishable`. Formal source-authority
+gaps are empty, and `tools/validate_runtime_data_lock.py` validates that
+`runtime-data.lock` points to an official release with manifest URL, manifest
+checksum, pack base URL, and release tag.
 
 ## Native Replacement Tasks
 
@@ -503,9 +503,9 @@ The data pipeline is self-contained when:
 
 - A clean clone can build RuneC code without any external RS repo checkout.
 - A clean clone can run after `./scripts/setup-data.sh` downloads RuneC-owned
-  runtime packs from an official `runtime-data.lock` release, or after a
+  runtime packs from the official `runtime-data.lock` release, or after a
   maintainer installs locally generated packs with
-  `./scripts/setup-data.sh --offline dist-data` while the lock remains draft.
+  `./scripts/setup-data.sh --offline dist-data`.
 - No nested `.git` directories or submodules exist under the RuneC root.
 - No active exporter reads `data/source/*` repo mirrors.
 - No active exporter reads `tools/cache_pipeline/source/rsmod` or
