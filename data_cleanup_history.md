@@ -366,6 +366,58 @@ active plan. Remaining work is tracked only in `data_cleanup.md`.
   - ran `./scripts/setup-data.sh --verify`, which passed for manifest and all
     installed packs.
 
+## Final Closure Verification
+
+- Corrected stale release-status documentation:
+  - `data_pipeline.md` now describes the current official runtime-data release
+    path instead of draft/source-gap mode.
+  - `data_pipeline.md` documents the clean-release-install behavior for
+    `python3 tools/data_pipeline.py --check`.
+- Fixed the pipeline checker so clean release installs are valid verification
+  inputs:
+  - `--check` validates `data/manifest.json`, `data/packs/`, and loose runtime
+    assets when local maintainer `dist-data/` is absent.
+  - `--check` refreshes the ignored generated report snapshot from tracked
+    `tools/reports` inputs when `generated/reports` is absent in a clean clone.
+  - Source-authority gap reports are regenerated during `--check`; the gap list
+    is empty.
+- Fixed release-style CTest execution:
+  - CMake now undefines `NDEBUG` for test binaries in every build type.
+  - This keeps test assertions active under `RelWithDebInfo`; the previous
+    clean-clone CTest failure was caused by side-effectful test `assert(...)`
+    calls being compiled out.
+- Verified main checkout gates:
+  - `python3 tools/data_pipeline.py --check` passed with
+    `release_status=publishable` and `source_gaps=none`.
+  - `ctest --test-dir build --output-on-failure` passed 69/69 tests.
+- Verified final clean clone from `/tmp/runec-final.ChO7ES/repo`:
+  - `./scripts/setup-data.sh` downloaded the official public release, verified
+    all pack checksums, and unpacked 34,641 loose runtime assets.
+  - `./scripts/setup-data.sh --verify` passed for `data/manifest.json` and all
+    16 installed packs.
+  - `python3 tools/data_pipeline.py --check` passed:
+    - external repo guard passed;
+    - source lock passed;
+    - runtime-data lock passed with `official_release=true`,
+      `release_status=publishable`, and `source_gaps=none`;
+    - source authority, content layout, direct global access, schema, pack,
+      loose asset, and report validation gates passed.
+  - `cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo` passed.
+  - `cmake --build build -j2` passed; remaining output was existing
+    `rc-viewer/ui.c` `snprintf` truncation warnings.
+  - `ctest --test-dir build --output-on-failure` passed 69/69 tests in
+    29.45 seconds.
+- Confirmed artifact classification:
+  - `data/` is an ignored local runtime-data install created by setup.
+  - `data/packs/` is the ignored installed pack location for clean users.
+  - `dist-data/` is maintainer packaging output and release-upload input.
+  - `generated/` is ignored pipeline/report output.
+  - `tools/reports/` and `data-sources/` are tracked source/report inputs.
+  - Official release artifacts live on the public GitHub release referenced by
+    `runtime-data.lock`.
+- Closed the first data-cleanup release gate. Remaining active work is the
+  post-release parity/deepening list in `data_cleanup.md`.
+
 ## Validation Already Run
 
 - `cmake --build build -j2 --target rc-viewer test_game_data_validation`

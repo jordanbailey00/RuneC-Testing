@@ -9,39 +9,15 @@ it is closed.
 
 ## Done Means
 
-Remaining data cleanup is done when all of these are true:
+The first data-cleanup release gate is closed. Remaining work in this file is
+post-release parity/deepening work only.
 
-- `runtime-data.lock` points to official runtime-data artifacts with URLs and
-  checksums, and a clean clone can install them.
-- Early v1 viewer validation limitations are documented as follow-up parity
-  work instead of blocking the runtime-data release.
-- `python3 tools/data_pipeline.py --check` and the CTest suite pass from a clean
-  checkout after documented data setup.
+Post-release parity work is done when the early-v1 follow-up parity list is
+explicitly resolved or superseded by a newer validation scope.
 
 ## Ordered Work
 
-### 1. Final Closure Verification
-
-Required work:
-1. Correct stale planning/docs so they match the final repo state.
-2. Re-run source/provenance validators and ensure blocked private/wrong-game
-   provenance is absent from active required runtime data.
-3. Confirm any accepted RuneLite/RSMod/wiki evidence is documented as evidence,
-   not as a local checkout dependency.
-4. Split or organize the staged work so source imports, runtime code, tooling,
-   generated data policy, and docs are reviewable.
-5. From a clean checkout after documented data setup, run:
-   - `python3 tools/data_pipeline.py --check`
-   - `ctest --test-dir build --output-on-failure`
-6. Confirm generated artifacts, source-controlled inputs, release artifacts, and
-   ignored local installs are classified correctly.
-
-Close when:
-- The clean-checkout validation passes.
-- The release gate is publishable.
-- Early v1 parity limitations are documented as follow-up work.
-
-### 2. Parity Work After Release
+### 1. Parity Work After Release
 
 Current state:
 - Full Varrock startup remains the baseline.
@@ -57,8 +33,9 @@ Current state:
   rebuilt and included in runtime packs.
 - The external reference icon overlay is missing 26 newest b237 item icons; the
   current build keeps the b237-rendered icons for those items.
-- `python3 tools/data_pipeline.py --check`, loose/pack viewer smoke, and CTest
-  currently pass.
+- `runtime-data.lock` points to the official public release.
+- Clean-clone `./scripts/setup-data.sh`, `python3 tools/data_pipeline.py
+  --check`, and CTest pass.
 - Some manual validation paths still have early-v1 parity issues. These are
   accepted as post-release follow-up unless a gap blocks clean install, pack
   loading, agreed validation startup, or source/provenance correctness.
@@ -69,10 +46,6 @@ Required work:
 3. Animation parity.
 4. Missing/partial scene visuals.
 5. Deeper boss/mechanic polish.
-
-Close when:
-- The early-v1 follow-up parity list is explicitly resolved or superseded by a
-  newer validation scope.
 
 ## Deferred Technical Debt
 
