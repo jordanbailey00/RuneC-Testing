@@ -141,9 +141,14 @@ python3 tools/data_pipeline.py --clean-generated all
 python3 tools/data_pipeline.py list-stages
 ```
 
-`--check` validates the current local generated outputs without rebuilding
-runtime packs. `--clean-generated` removes only pipeline-owned generated
-manifests, packs, reports, and records before running the selected command.
+`--check` validates the installed runtime data without rebuilding runtime
+packs. In a maintainer checkout it validates local `dist-data/` packs when
+present; in a clean release checkout it validates `data/manifest.json`,
+`data/packs/`, and the loose install created by `./scripts/setup-data.sh`.
+If the ignored generated report snapshot is absent, it refreshes that snapshot
+from tracked report inputs before running the report gate. `--clean-generated`
+removes only pipeline-owned generated manifests, packs, reports, and records
+before running the selected command.
 
 The stages should be:
 

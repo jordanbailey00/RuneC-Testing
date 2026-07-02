@@ -1059,6 +1059,10 @@ def stage_generate_reports(ctx: PipelineContext, record: dict[str, Any]) -> None
         record,
     )
     run_command([sys.executable, "tools/report_database_completion.py"], record)
+    copy_tracked_report_snapshot(ctx, record)
+
+
+def copy_tracked_report_snapshot(ctx: PipelineContext, record: dict[str, Any]) -> None:
     ctx.report_root.mkdir(parents=True, exist_ok=True)
     copied: list[dict[str, Any]] = []
     for source_dir_name in REPORT_SOURCE_DIRS:
@@ -1215,7 +1219,7 @@ def run_check(ctx: PipelineContext) -> None:
     print("Checking repository validators")
     transient_record: dict[str, Any] = {"commands": []}
     stage_validate_repo_self_contained(ctx, transient_record)
-    run_source_authority_validators(ctx, transient_record, write_gap_report=False)
+    run_source_authority_validators(ctx, transient_record, write_gap_report=True)
     stage_validate_content(ctx, transient_record)
 
     print("Checking required rebuild coverage")
@@ -1240,14 +1244,24 @@ def run_check(ctx: PipelineContext) -> None:
 
     print("Checking runtime packs")
     dist_manifest = ctx.dist_root / "manifest.json"
-    if not dist_manifest.is_file():
-        raise PipelineError(f"Missing {rel(dist_manifest)}; run `python3 tools/data_pipeline.py all`")
-    pack_failures = manifest_pack_checks(dist_manifest, ctx.dist_root / "packs")
+    if dist_manifest.is_file():
+        pack_manifest = dist_manifest
+        packs_dir = ctx.dist_root / "packs"
+    else:
+        pack_manifest = data_manifest
+        packs_dir = ctx.data_root / "packs"
+    if not packs_dir.is_dir():
+        raise PipelineError(f"Missing runtime pack directory: {rel(packs_dir)}")
+    pack_failures = manifest_pack_checks(pack_manifest, packs_dir)
     if pack_failures:
         sample = ", ".join(f"{f['path']}:{f['reason']}" for f in pack_failures[:5])
         raise PipelineError(f"Runtime pack check failed for {len(pack_failures)} packs: {sample}")
 
     print("Checking generated reports")
+    report_snapshot = ctx.report_root / "current" / "reports"
+    if not report_snapshot.is_dir():
+        print("Refreshing generated report snapshot from tracked reports")
+        copy_tracked_report_snapshot(ctx, transient_record)
     missing_reports = [
         rel(path)
         for path in (
