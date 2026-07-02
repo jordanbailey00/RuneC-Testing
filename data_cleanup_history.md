@@ -340,6 +340,32 @@ active plan. Remaining work is tracked only in `data_cleanup.md`.
     RUNEC_ASSET_BACKEND=pack ./build/rc-viewer`;
   - `ctest --test-dir build --output-on-failure` passed 69/69 tests.
 
+## Official Runtime-Data Release
+
+- Created immutable data release tag `data-v2026.07.02-b237` for the rebuilt
+  early-v1 runtime data.
+- Published the official user-facing release to the public GitHub repo:
+  `https://github.com/jordanbailey00/RuneC/releases/tag/data-v2026.07.02-b237`.
+- Uploaded `dist-data/manifest.json` plus the 16 runtime packs from
+  `dist-data/packs/`.
+- Recorded manifest SHA-256 in `runtime-data.lock`:
+  `9d025bb17fd8882304ddb3678c8a7ff983386b77a5ae236309f6460a28cbe957`.
+- Updated `runtime-data.lock` to:
+  - `status = "released"`;
+  - `official_release = true`;
+  - `release_status = "publishable"`;
+  - public manifest and pack base URLs for `data-v2026.07.02-b237`.
+- Updated README/setup text so normal users run `./scripts/setup-data.sh`
+  instead of building local `dist-data`.
+- Verified lock validation with `python3 tools/validate_runtime_data_lock.py`.
+- Verified clean-clone install from official public release:
+  - cloned into `/tmp/runec-clean.uouEzj/repo` without local `dist-data`;
+  - ran default `./scripts/setup-data.sh`;
+  - downloaded and verified the manifest and all packs from the public release;
+  - unpacked 34,641 loose runtime assets;
+  - ran `./scripts/setup-data.sh --verify`, which passed for manifest and all
+    installed packs.
+
 ## Validation Already Run
 
 - `cmake --build build -j2 --target rc-viewer test_game_data_validation`

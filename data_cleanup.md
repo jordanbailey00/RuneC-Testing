@@ -13,75 +13,14 @@ Remaining data cleanup is done when all of these are true:
 
 - `runtime-data.lock` points to official runtime-data artifacts with URLs and
   checksums, and a clean clone can install them.
-- The viewer is ready for manual validation across the agreed destinations,
-  including non-Varrock scenes and projectile visuals.
+- Early v1 viewer validation limitations are documented as follow-up parity
+  work instead of blocking the runtime-data release.
 - `python3 tools/data_pipeline.py --check` and the CTest suite pass from a clean
   checkout after documented data setup.
 
 ## Ordered Work
 
-### 1. Official Clean-Clone Runtime-Data Release
-
-Current state:
-- The full rebuild pipeline and `tools/data_pipeline.py --check` pass with
-  `release_status=publishable`.
-- Local/offline setup can use generated `dist-data`.
-- `runtime-data.lock` is still non-official; a clean clone cannot fetch official
-  runtime-data artifacts from lockfile URLs yet.
-
-Required work:
-1. Build official runtime-data packs from the approved pipeline output.
-2. Publish official artifacts and record:
-   - artifact URLs;
-   - pack checksums;
-   - manifest checksum;
-   - data version;
-   - source/build metadata.
-3. Update `runtime-data.lock` from draft/non-official to official.
-4. Verify a clean clone can run documented setup without local-only artifacts.
-
-Close when:
-- `scripts/setup-data.sh` works from official artifact URLs in a clean clone.
-- The lockfile validator accepts the official release metadata.
-- Pack, loose, and manifest checksums agree.
-
-### 2. Viewer Validation Readiness
-
-Current state:
-- Full Varrock startup remains the baseline.
-- Automated loose/pack smoke checks now verify scene assets for the current
-  first-release validation set:
-  - dev boss destinations: Graardor, KBD, Vorkath, Jad;
-  - object/traversal smoke destinations: Edgeville dungeon, Varrock Rat Pits,
-    Varrock sewer, Wilderness lever/coffin, Observatory ladder, Yanille
-    railing.
-- Validation-bank wielding now passes automated coverage for the current
-  validation item set.
-- Explicit player/NPC/object/all animation packs and projectile model packs are
-  rebuilt and included in runtime packs.
-- The external reference icon overlay is missing 26 newest b237 item icons; the
-  current build keeps the b237-rendered icons for those items.
-- `python3 tools/data_pipeline.py --check`, loose/pack viewer smoke, and CTest
-  currently pass.
-- Manual validation has not passed yet.
-
-Required work:
-1. User manually validates `./build/rc-viewer` for:
-   - startup Varrock;
-   - boss validation teleports;
-   - the object/traversal smoke destinations listed above;
-   - local NPCs, terrain, objects, object animations, projectile visuals,
-     player/NPC animations, item icons, and wielding.
-2. Fix any manual-validation issues found.
-3. If a failed route is outside the listed validation set, explicitly decide
-   whether it is first-release scope before adding scene coverage for it.
-
-Close when:
-- User manually validates pack/loose startup and the agreed destination set.
-- Bosses, dungeons, transports, local NPCs, terrain, objects, and projectile
-  visuals render for the agreed validation scope.
-
-### 3. Final Closure Verification
+### 1. Final Closure Verification
 
 Required work:
 1. Correct stale planning/docs so they match the final repo state.
@@ -100,7 +39,40 @@ Required work:
 Close when:
 - The clean-checkout validation passes.
 - The release gate is publishable.
-- Manual viewer validation has passed for the agreed scope.
+- Early v1 parity limitations are documented as follow-up work.
+
+### 2. Parity Work After Release
+
+Current state:
+- Full Varrock startup remains the baseline.
+- Automated loose/pack smoke checks now verify scene assets for the current
+  first-release validation set:
+  - dev boss destinations: Graardor, KBD, Vorkath, Jad;
+  - object/traversal smoke destinations: Edgeville dungeon, Varrock Rat Pits,
+    Varrock sewer, Wilderness lever/coffin, Observatory ladder, Yanille
+    railing.
+- Validation-bank wielding now passes automated coverage for the current
+  validation item set.
+- Explicit player/NPC/object/all animation packs and projectile model packs are
+  rebuilt and included in runtime packs.
+- The external reference icon overlay is missing 26 newest b237 item icons; the
+  current build keeps the b237-rendered icons for those items.
+- `python3 tools/data_pipeline.py --check`, loose/pack viewer smoke, and CTest
+  currently pass.
+- Some manual validation paths still have early-v1 parity issues. These are
+  accepted as post-release follow-up unless a gap blocks clean install, pack
+  loading, agreed validation startup, or source/provenance correctness.
+
+Required work:
+1. Item icon correctness.
+2. Exact item bonuses for cache fallback rows.
+3. Animation parity.
+4. Missing/partial scene visuals.
+5. Deeper boss/mechanic polish.
+
+Close when:
+- The early-v1 follow-up parity list is explicitly resolved or superseded by a
+  newer validation scope.
 
 ## Deferred Technical Debt
 
@@ -109,7 +81,7 @@ we explicitly change the release bar:
 
 - Removing every remaining `RcGameData` compatibility global.
 - Moving all legacy immutable tables into `RcGameData`.
-- Perfecting every boss mechanic.
-- Full-world visual coverage beyond the agreed validation destinations.
+- Perfecting every boss mechanic beyond the post-release parity scope.
+- Full-world visual coverage beyond the post-release parity scope.
 - Dialogue behavior validation beyond ensuring dialogue data is not loaded by
   viewer startup unless explicitly requested.

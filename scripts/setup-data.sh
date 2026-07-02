@@ -15,11 +15,10 @@ usage() {
     cat >&2 <<EOF
 Usage: scripts/setup-data.sh [--offline DIST_DATA_DIR] [--verify]
 
-Installs validated RuneC runtime data from runtime-data.lock. Because the
-current lock is draft/non-official, default remote downloads are disabled
-until an approved release URL is recorded. Use --offline dist-data for local
-pipeline output, or set RUNEC_DATA_MANIFEST_URL and RUNEC_DATA_BASE_URL to an
-explicit release location.
+Installs validated RuneC runtime data from runtime-data.lock. Official locks
+download the recorded release by default. Draft/non-official locks require
+--offline dist-data for local pipeline output, or explicit
+RUNEC_DATA_MANIFEST_URL and RUNEC_DATA_BASE_URL overrides.
 
 Environment:
   RUNEC_DATA_DIR              Install root (default: ./data)

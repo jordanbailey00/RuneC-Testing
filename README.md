@@ -48,18 +48,17 @@ builds do not require a separate Raylib install.
 ```bash
 git clone https://github.com/jordanbailey00/RuneC.git
 cd RuneC
-python3 tools/data_pipeline.py pack-runtime-data
-./scripts/setup-data.sh --offline dist-data
+./scripts/setup-data.sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build --parallel
 ./build/rc-viewer
 ```
 
-`runtime-data.lock` is currently a draft pointer because the data-v1 release
-gate still has source-authority gaps. Until an official runtime-data release is
-recorded there, `./scripts/setup-data.sh` intentionally refuses a default remote
-download. Maintainer/dev checkouts should generate `dist-data/` locally and
-install from it with `--offline`.
+`runtime-data.lock` points to the official early-v1 runtime-data release.
+`./scripts/setup-data.sh` downloads the locked manifest and packs, verifies
+checksums, and installs them into the local ignored `data/` directory.
+Maintainer/dev checkouts can still generate `dist-data/` locally and install
+from it with `--offline dist-data`.
 
 ## Validation Tools
 
@@ -167,11 +166,11 @@ data/
   ui/
 ```
 
-Once `runtime-data.lock` points to an official release, `./scripts/setup-data.sh`
-will download the locked manifest and packs by default. While the lock remains
-draft, use `--offline dist-data` or explicit `RUNEC_DATA_BASE_URL` /
-`RUNEC_DATA_MANIFEST_URL` overrides. The script expands packs into loose local
-runtime files so the viewer uses the fast file-loading path. Set
+`./scripts/setup-data.sh` downloads the locked manifest and packs by default.
+Use `--offline dist-data` for maintainer-built local packs, or explicit
+`RUNEC_DATA_BASE_URL` / `RUNEC_DATA_MANIFEST_URL` overrides for a temporary
+alternate release location. The script expands packs into loose local runtime
+files so the viewer uses the fast file-loading path. Set
 `RUNEC_DATA_UNPACK=0` to keep only the manifest and packs, or
 `RUNEC_DATA_UNPACK_FORCE=1` to rewrite already extracted files.
 
