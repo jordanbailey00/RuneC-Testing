@@ -85,13 +85,9 @@ foreach(TEST_SRC ${TEST_SOURCES})
         RC_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
     )
     if (CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-        target_compile_options(${TEST_NAME} PRIVATE
-            "$<$<CONFIG:Release>:-UNDEBUG>"
-        )
+        target_compile_options(${TEST_NAME} PRIVATE -UNDEBUG)
     elseif(MSVC)
-        target_compile_options(${TEST_NAME} PRIVATE
-            "$<$<CONFIG:Release>:/UNDEBUG>"
-        )
+        target_compile_options(${TEST_NAME} PRIVATE /UNDEBUG)
     endif()
     if (NOT TEST_NAME STREQUAL "test_collision")
         add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
