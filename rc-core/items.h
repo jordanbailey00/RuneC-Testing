@@ -71,10 +71,26 @@ enum {
     RC_GROUND_TAKE_STALE = -2,
 };
 
+typedef struct {
+    int total_rows;
+    int matched_filter;
+    int spawned;
+    int skipped_filtered;
+    int skipped_plane;
+    int skipped_invalid;
+    int skipped_capacity;
+} RcGroundItemSpawnLoadStats;
+
 int rc_player_take_ground_item(RcWorld *world, int ground_item_idx,
                                int expected_uid, int expected_version);
 int rc_ground_item_spawn(RcWorld *world, int item_id, int quantity,
                          int x, int y, int plane, int owner_uid);
+int rc_load_ground_item_spawns_rect_stats(RcWorld *world, const char *path,
+                                          int min_x, int min_y,
+                                          int max_x, int max_y,
+                                          int min_plane, int max_plane,
+                                          RcGroundItemSpawnLoadStats *stats);
+void rc_clear_static_ground_items(RcWorld *world);
 
 // Equipment bonus recalculation
 void rc_recalc_bonuses(RcPlayer *player);

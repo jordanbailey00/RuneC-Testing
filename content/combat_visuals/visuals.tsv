@@ -3417,7 +3417,7 @@ npc|2215|ranged|7021|1203|1202|1203|28083|7022|3|3|163|146|31|16|29|11|5|curated
 npc|2216|melee|6154|-|-|-|-|-|-|-|-|-|-|-|-|-|-|curated:b237:bandos:strongstack_melee|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|Melee|-|-|-|-|none|none|none|none|none|curated
 npc|2217|magic|7071|1216|1217|1218|28104|7069|3|3|144|124|30|16|6|64|10|curated:b237:bandos:steelwill_magic|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|Magic Bolt|-|-|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
 npc|2218|ranged|7073|1219|1220|-|28099|7074|2|2|163|146|32|15|0|11|5|curated:b237:bandos:grimspike_ranged|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|Ranged Spear|-|-|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
-npc|3127|magic|2656|439|445|446|9335|2648|3|3|172|124|41|16|0|64|5|curated:b237:jad_magic|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|Magic|92|-|-|-|travel_projectile|source_center|target_actor|source_actor|target_actor|curated
+npc|3127|magic|2656|439|448|157|-|-|3|3|172|124|41|16|0|64|5|curated:b237:jad_magic|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|Magic|92|-|-|-|travel_projectile|source_center|target_actor|source_actor|target_actor|curated
 npc|3127|melee|2655|-|-|-|-|-|-|-|-|-|-|-|-|-|-|curated:b237:jad_melee|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|Melee|-|-|-|-|none|none|none|none|none|curated
 npc|3127|ranged|2652|440|-|451|-|-|3|3|768|52|60|0|0|0|0|curated:b237:jad_ranged|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|Ranged|-|52|-|-|fixed_tile_impact|target_tile|target_tile|none|fixed_tile|curated
 npc|8061|magic|7952|-|1479|1480|35033|7884|3|3|172|124|51|16|-5|64|10|curated:b237:vorkath:magic|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|Magic|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|curated

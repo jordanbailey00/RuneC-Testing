@@ -258,6 +258,8 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
 
     if (flags & RC_ACTIVE_AREA_CLEAR_NPCS)
         clear_active_npcs(world);
+    if (flags & RC_ACTIVE_AREA_CLEAR_STATIC_GROUND_ITEMS)
+        rc_clear_static_ground_items(world);
 
     RcNpcSpawnLoadStats npc_stats;
     memset(&npc_stats, 0, sizeof(npc_stats));
@@ -266,10 +268,28 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
         const char *path = request->npc_spawns_path && request->npc_spawns_path[0]
                          ? request->npc_spawns_path : world->npc_spawns_path;
         if (path && path[0]) {
-            spawned = rc_load_npc_spawns_rect_stats(
+            uint32_t npc_load_flags = 0;
+            if (flags & RC_ACTIVE_AREA_INCLUDE_INSTANCE_NPCS)
+                npc_load_flags |= RC_NPC_SPAWN_LOAD_INCLUDE_INSTANCE;
+            spawned = rc_load_npc_spawns_rect_stats_flags(
                 world, path, min_x, min_y, max_x, max_y,
-                request->min_plane, request->max_plane, &npc_stats);
+                request->min_plane, request->max_plane, npc_load_flags,
+                &npc_stats);
             if (spawned < 0)
+                return -1;
+        }
+    }
+
+    RcGroundItemSpawnLoadStats ground_item_stats;
+    memset(&ground_item_stats, 0, sizeof(ground_item_stats));
+    int spawned_ground_items = 0;
+    if (flags & RC_ACTIVE_AREA_LOAD_STATIC_GROUND_ITEMS) {
+        const char *path = request->ground_item_spawns_path;
+        if (path && path[0]) {
+            spawned_ground_items = rc_load_ground_item_spawns_rect_stats(
+                world, path, min_x, min_y, max_x, max_y,
+                request->min_plane, request->max_plane, &ground_item_stats);
+            if (spawned_ground_items < 0)
                 return -1;
         }
     }
@@ -289,7 +309,9 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
     if (stats) {
         stats->collision_regions = collision_regions;
         stats->spawned_npcs = spawned;
+        stats->spawned_ground_items = spawned_ground_items;
         stats->npc_stats = npc_stats;
+        stats->ground_item_stats = ground_item_stats;
         stats->active_area = world->active_area;
     }
     return 1;

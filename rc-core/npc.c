@@ -315,6 +315,7 @@ static int load_npc_spawns_filtered(RcWorld *world, const char *path,
                                     int use_filter, int min_x, int min_y,
                                     int max_x, int max_y,
                                     int min_plane, int max_plane,
+                                    uint32_t load_flags,
                                     RcNpcSpawnLoadStats *stats) {
     if (!world || !path) return -1;
     if (stats) memset(stats, 0, sizeof(*stats));
@@ -374,11 +375,11 @@ static int load_npc_spawns_filtered(RcWorld *world, const char *path,
                 stats->matched_plane_counts[plane]++;
         }
 
-        // Instance-only NPCs live in dynamic arenas created on player
-        // entry (Zulrah shrine, Vorkath, Fight Cave, etc.). Skip them
-        // during static world-spawn loading; runtime code spawns them
-        // when the player enters the instance.
-        if (flags & NSPN_FLAG_INSTANCE) {
+        // Instance-marked NPCs are skipped by default for conservative static
+        // world loading. Viewers/validators can opt in when the active scene
+        // window is the instance/dungeon map being inspected.
+        if ((flags & NSPN_FLAG_INSTANCE)
+                && !(load_flags & RC_NPC_SPAWN_LOAD_INCLUDE_INSTANCE)) {
             if (stats) stats->skipped_instance++;
             continue;
         }
@@ -417,7 +418,7 @@ static int load_npc_spawns_filtered(RcWorld *world, const char *path,
 int rc_load_npc_spawns(RcWorld *world, const char *path) {
     RcNpcSpawnLoadStats stats;
     return load_npc_spawns_filtered(world, path, 0, 0, 0, 0, 0, 0, 0,
-                                    &stats);
+                                    0, &stats);
 }
 
 int rc_load_npc_spawns_rect(RcWorld *world, const char *path,
@@ -429,7 +430,7 @@ int rc_load_npc_spawns_rect(RcWorld *world, const char *path,
     }
     RcNpcSpawnLoadStats stats;
     return load_npc_spawns_filtered(world, path, 1, min_x, min_y, max_x,
-                                    max_y, min_plane, max_plane, &stats);
+                                    max_y, min_plane, max_plane, 0, &stats);
 }
 
 int rc_load_npc_spawns_rect_stats(RcWorld *world, const char *path,
@@ -442,7 +443,22 @@ int rc_load_npc_spawns_rect_stats(RcWorld *world, const char *path,
         return -1;
     }
     return load_npc_spawns_filtered(world, path, 1, min_x, min_y, max_x,
-                                    max_y, min_plane, max_plane, stats);
+                                    max_y, min_plane, max_plane, 0, stats);
+}
+
+int rc_load_npc_spawns_rect_stats_flags(RcWorld *world, const char *path,
+                                        int min_x, int min_y,
+                                        int max_x, int max_y,
+                                        int min_plane, int max_plane,
+                                        uint32_t load_flags,
+                                        RcNpcSpawnLoadStats *stats) {
+    if (!world || !path || !stats || min_x > max_x || min_y > max_y
+            || min_plane > max_plane) {
+        return -1;
+    }
+    return load_npc_spawns_filtered(world, path, 1, min_x, min_y, max_x,
+                                    max_y, min_plane, max_plane, load_flags,
+                                    stats);
 }
 
 int rc_load_npc_spawns_near(RcWorld *world, const char *path,

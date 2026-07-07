@@ -46,6 +46,10 @@ VALIDATION_SCENES = (
     ValidationScene("edgeville_dungeon", "Edgeville dungeon", 3117, 9852, 0, 1, "object transport smoke destination"),
     ValidationScene("varrock_rat_pits", "Varrock Rat Pits", 2894, 5097, 0, 1, "object transport smoke destination"),
     ValidationScene("varrock_sewer", "Varrock sewer", 3237, 9858, 0, 1, "object transport smoke destination"),
+    ValidationScene("stronghold_security_1", "Stronghold of Security level 1", 1888, 5216, 0, 1, "object transport smoke destination"),
+    ValidationScene("stronghold_security_2", "Stronghold of Security level 2", 2016, 5216, 0, 1, "object transport smoke destination"),
+    ValidationScene("stronghold_security_3", "Stronghold of Security level 3", 2144, 5280, 0, 1, "object transport smoke destination"),
+    ValidationScene("stronghold_security_4", "Stronghold of Security level 4", 2336, 5216, 0, 1, "object transport smoke destination"),
     ValidationScene("wilderness_lever", "Wilderness lever/coffin", 3154, 3924, 0, 1, "object transport smoke destination"),
     ValidationScene("observatory_ladder", "Observatory ladder", 2465, 3495, 1, 1, "object traversal smoke destination"),
     ValidationScene("yanille_railing", "Yanille railing", 2519, 3163, 0, 1, "skill traversal smoke destination"),
@@ -74,7 +78,7 @@ def run_scene_export(cache: Path, output_dir: Path, scene: ValidationScene) -> N
         "--output-prefix",
         str(prefix),
         "--planes",
-        str(scene.plane),
+        "0,1,2,3",
     ]
     print("$ " + " ".join(args), flush=True)
     subprocess.run(args, cwd=ROOT, check=True)
@@ -91,6 +95,7 @@ def write_manifest(output_dir: Path, scenes: tuple[ValidationScene, ...]) -> Non
                 "center_x": scene.center_x,
                 "center_y": scene.center_y,
                 "plane": scene.plane,
+                "exported_planes": [0, 1, 2, 3],
                 "radius_regions": scene.radius_regions,
                 "origin_x": scene.origin_x,
                 "origin_y": scene.origin_y,

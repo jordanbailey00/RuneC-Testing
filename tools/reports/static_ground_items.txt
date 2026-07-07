@@ -1,0 +1,6 @@
+Static Ground Items
+
+source: content/world/static_ground_items.tsv
+authority: runec_owned_static_ground_item_source
+rows: 1829
+output: data/spawns/world.ground-items.bin

@@ -613,6 +613,239 @@ def visual_source_plane(rt: RegionTerrain, tx: int, ty: int, target_plane: int) 
     return target_plane
 
 
+TILE_SHAPE_POINTS: tuple[tuple[int, ...], ...] = (
+    (1, 3, 5, 7),
+    (1, 3, 5, 7),
+    (1, 3, 5, 7),
+    (1, 3, 5, 7, 6),
+    (1, 3, 5, 7, 6),
+    (1, 3, 5, 7, 6),
+    (1, 3, 5, 7, 6),
+    (1, 3, 5, 7, 2, 6),
+    (1, 3, 5, 7, 2, 8),
+    (1, 3, 5, 7, 2, 8),
+    (1, 3, 5, 7, 11, 12),
+    (1, 3, 5, 7, 11, 12),
+    (1, 3, 5, 7, 13, 14),
+)
+
+TILE_SHAPE_PATHS: tuple[tuple[int, ...], ...] = (
+    (0, 1, 2, 3, 0, 0, 1, 3),
+    (1, 1, 2, 3, 1, 0, 1, 3),
+    (0, 1, 2, 3, 1, 0, 1, 3),
+    (0, 0, 1, 2, 0, 0, 2, 4, 1, 0, 4, 3),
+    (0, 0, 1, 4, 0, 0, 4, 3, 1, 1, 2, 4),
+    (0, 0, 4, 3, 1, 0, 1, 2, 1, 0, 2, 4),
+    (0, 1, 2, 4, 1, 0, 1, 4, 1, 0, 4, 3),
+    (0, 4, 1, 2, 0, 4, 2, 5, 1, 0, 4, 5, 1, 0, 5, 3),
+    (0, 4, 1, 2, 0, 4, 2, 3, 0, 4, 3, 5, 1, 0, 4, 5),
+    (0, 0, 4, 5, 1, 4, 1, 2, 1, 4, 2, 3, 1, 4, 3, 5),
+    (
+        0, 0, 1, 5, 0, 1, 4, 5, 0, 1, 2, 4,
+        1, 0, 5, 3, 1, 5, 4, 3, 1, 4, 2, 3,
+    ),
+    (
+        1, 0, 1, 5, 1, 1, 4, 5, 1, 1, 2, 4,
+        0, 0, 5, 3, 0, 5, 4, 3, 0, 4, 2, 3,
+    ),
+    (
+        1, 0, 5, 4, 1, 0, 1, 5, 0, 0, 4, 3,
+        0, 4, 5, 3, 0, 5, 2, 3, 0, 1, 2, 5,
+    ),
+)
+
+
+def _rotate_scene_tile_point(point: int, rotation: int) -> int:
+    rotation &= 3
+    if (point & 1) == 0 and point <= 8:
+        return ((point - rotation - rotation - 1) & 7) + 1
+    if 8 < point <= 12:
+        return ((point - 9 - rotation) & 3) + 9
+    if 12 < point <= 16:
+        return ((point - 13 - rotation) & 3) + 13
+    return point
+
+
+def _scene_tile_vertex(
+    point: int,
+    wx: float,
+    wz: float,
+    heights: tuple[int, int, int, int],
+    y_offset: float = 0.0,
+) -> tuple[float, float, float]:
+    h_sw, h_se, h_ne, h_nw = heights
+    scale_h = -1.0 / 128.0
+    table = {
+        1: (0.0, 0.0, h_sw),
+        2: (0.5, 0.0, (h_sw + h_se) * 0.5),
+        3: (1.0, 0.0, h_se),
+        4: (1.0, 0.5, (h_se + h_ne) * 0.5),
+        5: (1.0, 1.0, h_ne),
+        6: (0.5, 1.0, (h_ne + h_nw) * 0.5),
+        7: (0.0, 1.0, h_nw),
+        8: (0.0, 0.5, (h_nw + h_sw) * 0.5),
+        9: (0.5, 0.25, (h_sw + h_se) * 0.5),
+        10: (0.75, 0.5, (h_se + h_ne) * 0.5),
+        11: (0.5, 0.75, (h_ne + h_nw) * 0.5),
+        12: (0.25, 0.5, (h_nw + h_sw) * 0.5),
+        13: (0.25, 0.25, h_sw),
+        14: (0.75, 0.25, h_se),
+        15: (0.75, 0.75, h_ne),
+        16: (0.25, 0.75, h_nw),
+    }
+    fx, fy, height = table.get(point, table[1])
+    return wx + fx, float(height * scale_h + y_offset), -(wz + fy)
+
+
+def _emit_terrain_quad(
+    verts: list[float],
+    colors: list[int],
+    wx: float,
+    wz: float,
+    heights: tuple[int, int, int, int],
+    rgb: tuple[int, int, int],
+    x0: float = 0.0,
+    y0: float = 0.0,
+    x1: float = 1.0,
+    y1: float = 1.0,
+    y_offset: float = 0.0,
+) -> None:
+    h_sw, h_se, h_ne, h_nw = heights
+    scale_h = -1.0 / 128.0
+
+    def height_at(fx: float, fy: float) -> float:
+        south = h_sw * (1.0 - fx) + h_se * fx
+        north = h_nw * (1.0 - fx) + h_ne * fx
+        return float((south * (1.0 - fy) + north * fy) * scale_h + y_offset)
+
+    def point(fx: float, fy: float) -> tuple[float, float, float]:
+        return wx + fx, height_at(fx, fy), -(wz + fy)
+
+    p_sw = point(x0, y0)
+    p_se = point(x1, y0)
+    p_ne = point(x1, y1)
+    p_nw = point(x0, y1)
+    r, g, b = rgb
+
+    for p in (p_sw, p_se, p_ne, p_sw, p_ne, p_nw):
+        verts.extend(p)
+        colors.extend([r, g, b, 255])
+
+
+def _emit_terrain_triangle(
+    verts: list[float],
+    colors: list[int],
+    points: tuple[tuple[float, float, float], ...],
+    rgb: tuple[int, int, int],
+    y_offset: float = 0.0,
+) -> None:
+    r, g, b = rgb
+    for x, y, z in points:
+        verts.extend((x, y + y_offset, z))
+        colors.extend([r, g, b, 255])
+
+
+def _emit_shaped_terrain_tile(
+    verts: list[float],
+    colors: list[int],
+    wx: float,
+    wz: float,
+    heights: tuple[int, int, int, int],
+    shape: int,
+    rotation: int,
+    base_rgb: tuple[int, int, int] | None,
+    overlay_rgb: tuple[int, int, int],
+) -> int:
+    if shape < 0 or shape >= len(TILE_SHAPE_POINTS):
+        return 0
+
+    rotation &= 3
+    points = tuple(
+        _scene_tile_vertex(
+            _rotate_scene_tile_point(point, rotation),
+            wx,
+            wz,
+            heights,
+        )
+        for point in TILE_SHAPE_POINTS[shape]
+    )
+    emitted = 0
+    path = TILE_SHAPE_PATHS[shape]
+    for i in range(0, len(path), 4):
+        color_kind = path[i]
+        ia, ib, ic = path[i + 1], path[i + 2], path[i + 3]
+        if ia < 4:
+            ia = (ia - rotation) & 3
+        if ib < 4:
+            ib = (ib - rotation) & 3
+        if ic < 4:
+            ic = (ic - rotation) & 3
+
+        rgb = base_rgb if color_kind == 0 else overlay_rgb
+        if rgb is None:
+            continue
+        if ia >= len(points) or ib >= len(points) or ic >= len(points):
+            continue
+        _emit_terrain_triangle(
+            verts,
+            colors,
+            (points[ia], points[ib], points[ic]),
+            rgb,
+            0.0,
+        )
+        emitted += 1
+    return emitted
+
+
+def _lit_underlay_rgb(
+    rt: RegionTerrain,
+    z: int,
+    tx: int,
+    ty: int,
+    underlays: dict[int, FloorDef],
+    avg_light: int,
+) -> tuple[int, int, int] | None:
+    uid = rt.underlay_ids[z][tx][ty]
+    if uid <= 0:
+        return None
+
+    blend_h, blend_s, blend_l, blend_m, blend_c = 0, 0, 0, 0, 0
+    for bx in range(max(0, tx - 5), min(64, tx + 6)):
+        for by in range(max(0, ty - 5), min(64, ty + 6)):
+            uid2 = rt.underlay_ids[z][bx][by]
+            if uid2 > 0:
+                flo = underlays.get(uid2 - 1)
+                if flo:
+                    blend_h += flo.blend_hue
+                    blend_s += flo.saturation
+                    blend_l += flo.luminance
+                    blend_m += flo.blend_hue_multiplier
+                    blend_c += 1
+
+    if blend_c <= 0 or blend_m <= 0:
+        return None
+    avg_hue = (blend_h * 256) // blend_m
+    avg_sat = blend_s // blend_c
+    avg_lum = blend_l // blend_c
+    return hsl16_to_rgb(apply_light(hsl_encode(avg_hue, avg_sat, avg_lum),
+                                    avg_light))
+
+
+def _lit_overlay_rgb(
+    oflo: FloorDef | None,
+    tex_colors: dict[int, int] | None,
+    avg_light: int,
+) -> tuple[int, int, int] | None:
+    if not oflo or oflo.rgb == 0xFF00FF:
+        return None
+    if oflo.texture >= 0 and tex_colors:
+        tex_hsl = tex_colors.get(oflo.texture)
+        if tex_hsl is not None:
+            return hsl16_to_rgb(apply_light(tex_hsl, avg_light))
+    overlay_hsl16 = hsl_encode(oflo.hue, oflo.saturation, oflo.lightness)
+    return hsl16_to_rgb(apply_light(overlay_hsl16, avg_light))
+
+
 def build_terrain_mesh(
     regions: dict[tuple[int, int], RegionTerrain],
     underlays: dict[int, FloorDef],
@@ -666,111 +899,79 @@ def build_terrain_mesh(
         for ty in range(64):
             for tx in range(64):
                 z = visual_source_plane(rt, tx, ty, target_plane)
-                uid = rt.underlay_ids[z][tx][ty]
                 oid = rt.overlay_ids[z][tx][ty] & 0xFFFF
+                shape = rt.shapes[z][tx][ty]
+                rotation = rt.rotations[z][tx][ty]
 
-                # default: dark ground color
-                tile_rgb = (40, 50, 30)
+                # get 4 corner heights
+                h_sw = rt.heights[z][tx][ty]
+                h_se = rt.heights[z][min(tx + 1, 64)][ty]
+                h_ne = rt.heights[z][min(tx + 1, 64)][min(ty + 1, 64)]
+                h_nw = rt.heights[z][tx][min(ty + 1, 64)]
+                heights = (h_sw, h_se, h_ne, h_nw)
 
-                if uid > 0 or oid > 0:
-                    # get 4 corner heights
-                    h_sw = rt.heights[z][tx][ty]
-                    h_se = rt.heights[z][min(tx + 1, 64)][ty]
-                    h_ne = rt.heights[z][min(tx + 1, 64)][min(ty + 1, 64)]
-                    h_nw = rt.heights[z][tx][min(ty + 1, 64)]
+                # corner lighting
+                intensity = intensities[z]
+                l_sw = intensity[tx][ty]
+                l_se = intensity[min(tx + 1, 64)][ty]
+                l_ne = intensity[min(tx + 1, 64)][min(ty + 1, 64)]
+                l_nw = intensity[tx][min(ty + 1, 64)]
+                avg_light = (l_sw + l_se + l_ne + l_nw) // 4
 
-                    # underlay color: blend in 11x11 window
-                    if uid > 0:
-                        blend_h, blend_s, blend_l, blend_m, blend_c = 0, 0, 0, 0, 0
-                        for bx in range(max(0, tx - 5), min(64, tx + 6)):
-                            for by in range(max(0, ty - 5), min(64, ty + 6)):
-                                uid2 = rt.underlay_ids[z][bx][by]
-                                if uid2 > 0:
-                                    flo = underlays.get(uid2 - 1)
-                                    if flo:
-                                        blend_h += flo.blend_hue
-                                        blend_s += flo.saturation
-                                        blend_l += flo.luminance
-                                        blend_m += flo.blend_hue_multiplier
-                                        blend_c += 1
+                underlay_rgb = _lit_underlay_rgb(
+                    rt, z, tx, ty, underlays, avg_light)
+                oflo = overlays.get(oid - 1) if oid > 0 else None
+                overlay_rgb = _lit_overlay_rgb(oflo, tex_colors, avg_light)
 
-                        if blend_c > 0 and blend_m > 0:
-                            avg_hue = (blend_h * 256) // blend_m
-                            avg_sat = blend_s // blend_c
-                            avg_lum = blend_l // blend_c
-                            underlay_hsl16 = hsl_encode(avg_hue, avg_sat, avg_lum)
-                        else:
-                            underlay_hsl16 = -1
-                    else:
-                        underlay_hsl16 = -1
+                base_rgb = underlay_rgb
+                tile_rgb = overlay_rgb or base_rgb
+                if tile_rgb is None:
+                    continue
 
-                    # corner lighting
-                    intensity = intensities[z]
-                    l_sw = intensity[tx][ty]
-                    l_se = intensity[min(tx + 1, 64)][ty]
-                    l_ne = intensity[min(tx + 1, 64)][min(ty + 1, 64)]
-                    l_nw = intensity[tx][min(ty + 1, 64)]
-                    avg_light = (l_sw + l_se + l_ne + l_nw) // 4
+                wx = float(base_wx + tx)
+                wz = float(base_wy + ty)
 
-                    if oid > 0:
-                        # overlay tile
-                        oflo = overlays.get(oid - 1)
-                        if oflo and oflo.rgb == 0xFF00FF:
-                            continue  # void tile — skip geometry so objects show through
-                        elif oflo and oflo.texture >= 0 and tex_colors:
-                            # textured overlay: use texture average color (water, dirt, stone)
-                            tex_hsl = tex_colors.get(oflo.texture)
-                            if tex_hsl is not None:
-                                lit = apply_light(tex_hsl, avg_light)
-                                tile_rgb = hsl16_to_rgb(lit)
-                            elif underlay_hsl16 >= 0:
-                                lit = apply_light(underlay_hsl16, avg_light)
-                                tile_rgb = hsl16_to_rgb(lit)
-                        elif oflo and oflo.texture < 0:
-                            overlay_hsl16 = hsl_encode(oflo.hue, oflo.saturation, oflo.lightness)
-                            lit = apply_light(overlay_hsl16, avg_light)
-                            tile_rgb = hsl16_to_rgb(lit)
-                        else:
-                            # no overlay def — use underlay
-                            if underlay_hsl16 >= 0:
-                                lit = apply_light(underlay_hsl16, avg_light)
-                                tile_rgb = hsl16_to_rgb(lit)
-                    else:
-                        # pure underlay tile
-                        if underlay_hsl16 >= 0:
-                            lit = apply_light(underlay_hsl16, avg_light)
-                            tile_rgb = hsl16_to_rgb(lit)
+                if oid <= 0 or not overlay_rgb:
+                    _emit_terrain_quad(verts, colors, wx, wz, heights,
+                                       tile_rgb)
+                    continue
 
-                    # emit 2 triangles (SW, SE, NE) and (SW, NE, NW)
-                    # world position: tile (tx, ty) in region (rx, ry)
-                    wx = float(base_wx + tx)
-                    wz = float(base_wy + ty)
+                scene_shape = shape + 1
+                if scene_shape == 1:
+                    _emit_terrain_quad(verts, colors, wx, wz, heights,
+                                       tile_rgb)
+                    continue
 
-                    # OSRS heights are negative (higher = more negative)
-                    # negate so mountains go up, scale by 1/128 to get tile units
-                    scale_h = -1.0 / 128.0
+                if base_rgb:
+                    if _emit_shaped_terrain_tile(
+                        verts,
+                        colors,
+                        wx,
+                        wz,
+                        heights,
+                        scene_shape,
+                        rotation,
+                        base_rgb,
+                        overlay_rgb,
+                    ):
+                        continue
+                    _emit_terrain_quad(verts, colors, wx, wz, heights,
+                                       tile_rgb)
+                    continue
 
-                    y_sw = float(h_sw) * scale_h
-                    y_se = float(h_se) * scale_h
-                    y_ne = float(h_ne) * scale_h
-                    y_nw = float(h_nw) * scale_h
-
-                    r, g, b = tile_rgb
-
-                    # negate Z so OSRS north (+Y) maps to -Z (correct for right-handed coords)
-                    nz = -wz
-
-                    # triangle 1: SW, SE, NE (with negated Z, gives upward normals)
-                    verts.extend([wx, y_sw, nz, wx + 1, y_se, nz, wx + 1, y_ne, nz - 1])
-                    colors.extend([r, g, b, 255] * 3)
-
-                    # triangle 2: SW, NE, NW
-                    verts.extend([wx, y_sw, nz, wx + 1, y_ne, nz - 1, wx, y_nw, nz - 1])
-                    colors.extend([r, g, b, 255] * 3)
-
-                else:
-                    # empty tile (no underlay or overlay) — skip entirely
-                    pass
+                if not _emit_shaped_terrain_tile(
+                    verts,
+                    colors,
+                    wx,
+                    wz,
+                    heights,
+                    scene_shape,
+                    rotation,
+                    None,
+                    overlay_rgb,
+                ):
+                    _emit_terrain_quad(verts, colors, wx, wz, heights,
+                                       overlay_rgb)
 
     return verts, colors
 

@@ -16,6 +16,7 @@ definitions for appearance details, and writes:
 from __future__ import annotations
 
 import argparse
+import csv
 import io
 import struct
 import tomllib
@@ -772,38 +773,67 @@ def parse_dev_validation_item_names(path: Path) -> list[str]:
     return names
 
 
+def parse_static_ground_item_ids(source: Path) -> list[int]:
+    if not source.is_file():
+        raise SystemExit(f"static ground item source missing: {source}")
+    ids: set[int] = set()
+    with source.open(newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f, delimiter="\t")
+        if not reader.fieldnames or "item_id" not in reader.fieldnames:
+            raise SystemExit(f"{source} missing item_id column")
+        for row in reader:
+            raw = (row.get("item_id") or "").strip()
+            if raw:
+                ids.add(int(raw))
+    return sorted(ids)
+
+
 def parse_item_ids(
     raw: str | None,
     items: dict[int, ItemRenderDef],
     dev_validation_source: Path,
+    static_ground_items_source: Path,
 ) -> list[int]:
     if not raw:
         return DEFAULT_ITEM_IDS
-    if raw.strip().lower() == "default":
-        return DEFAULT_ITEM_IDS
-    if raw.strip().lower() == "all-equippable":
-        return sorted(
-            item.item_id
-            for item in items.values()
-            if item.flags & IDEF_HAS_EQUIPMENT
-            and not (item.flags & (IDEF_NOTED | IDEF_PLACEHOLDER))
-        )
-    if raw.strip().lower() == "combat-validation":
-        ids = set(DEFAULT_ITEM_IDS)
-        missing: list[str] = []
-        for name in parse_dev_validation_item_names(dev_validation_source):
-            item_id = resolve_unnoted_item_id(items, name)
-            if item_id is None:
-                missing.append(name)
-                continue
-            ids.add(item_id)
-        if missing:
-            raise SystemExit(
-                "combat-validation item names missing from items.bin: "
-                + ", ".join(sorted(set(missing)))
+
+    ids: set[int] = set()
+    for part in (part.strip() for part in raw.split(",")):
+        if not part:
+            continue
+        selector = part.lower()
+        if selector == "default":
+            ids.update(DEFAULT_ITEM_IDS)
+            continue
+        if selector == "all-equippable":
+            ids.update(
+                item.item_id
+                for item in items.values()
+                if item.flags & IDEF_HAS_EQUIPMENT
+                and not (item.flags & (IDEF_NOTED | IDEF_PLACEHOLDER))
             )
-        return sorted(ids)
-    return [int(part.strip()) for part in raw.split(",") if part.strip()]
+            continue
+        if selector == "combat-validation":
+            ids.update(DEFAULT_ITEM_IDS)
+            missing: list[str] = []
+            for name in parse_dev_validation_item_names(dev_validation_source):
+                item_id = resolve_unnoted_item_id(items, name)
+                if item_id is None:
+                    missing.append(name)
+                    continue
+                ids.add(item_id)
+            if missing:
+                raise SystemExit(
+                    "combat-validation item names missing from items.bin: "
+                    + ", ".join(sorted(set(missing)))
+                )
+            continue
+        if selector == "static-ground-items":
+            ids.update(parse_static_ground_item_ids(static_ground_items_source))
+            continue
+        ids.add(int(part, 0))
+
+    return sorted(ids)
 
 
 def main() -> None:
@@ -822,23 +852,31 @@ def main() -> None:
                         help="output viewer item render mapping file")
     parser.add_argument("--item-ids", type=str, default="default",
                         help="comma-separated item IDs, 'default', "
-                             "'combat-validation', or 'all-equippable'")
+                             "'combat-validation', 'static-ground-items', "
+                             "or 'all-equippable'")
     parser.add_argument("--dev-validation-source", type=Path,
                         default=Path("rc-viewer/dev_validation.c"),
                         help="source file containing combat-validation bank names")
+    parser.add_argument("--static-ground-items-source", type=Path,
+                        default=Path("content/world/static_ground_items.tsv"),
+                        help="TSV of static world ground item spawns")
     parser.add_argument("--dump", type=Path,
                         help="optional explicit dump root with symbols/obj.sym")
     parser.add_argument("--rsmod-root", type=Path,
                         help="optional off-repo RSMod checkout for research-only BAS data")
     parser.add_argument("--model-lighting", choices=("client", "unlit"),
-                        default="unlit",
+                        default="client",
                         help=("vertex color lighting mode for exported item "
-                              "models; default stays unlit until client-lit "
-                              "broad exports are visually approved"))
+                              "models; default uses client-style lighting"))
     args = parser.parse_args()
 
     items = parse_items_bin(args.items)
-    item_ids = parse_item_ids(args.item_ids, items, args.dev_validation_source)
+    item_ids = parse_item_ids(
+        args.item_ids,
+        items,
+        args.dev_validation_source,
+        args.static_ground_items_source,
+    )
     bas_anims = load_rsmod_bas(args.rsmod_root, args.dump)
     store = RcCacheStore(args.cache)
 
@@ -884,6 +922,7 @@ def main() -> None:
             kit.retexture_dst,
         )
         merged.model_id = BODY_MODEL_BASE + body_part_id
+        merged._export_model_lighting = "unlit"
         body_model_ids[body_part_id] = merged.model_id
         exported_models.append(merged)
         print(
@@ -910,6 +949,7 @@ def main() -> None:
             if ground:
                 apply_appearance_overrides(ground, recolor_src, recolor_dst, retexture_src, retexture_dst)
                 ground.model_id = synth_ground_model_id(item_id)
+                ground._export_model_lighting = args.model_lighting
                 ground_synth = ground.model_id
                 exported_models.append(ground)
 
@@ -921,6 +961,7 @@ def main() -> None:
             apply_appearance_overrides(male_model, recolor_src, recolor_dst, retexture_src, retexture_dst)
             translate_model_y(male_model, appearance.male_offset)
             male_model.model_id = synth_equip_model_id(item_id)
+            male_model._export_model_lighting = "unlit"
             male_synth = male_model.model_id
             exported_models.append(male_model)
 
@@ -932,6 +973,7 @@ def main() -> None:
             apply_appearance_overrides(female_model, recolor_src, recolor_dst, retexture_src, retexture_dst)
             translate_model_y(female_model, appearance.female_offset)
             female_model.model_id = synth_equip_model_id(item_id) + 0x800000
+            female_model._export_model_lighting = "unlit"
             female_synth = female_model.model_id
             exported_models.append(female_model)
 

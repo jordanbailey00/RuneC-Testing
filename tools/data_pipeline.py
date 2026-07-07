@@ -63,6 +63,7 @@ CONTENT_EXPORT_COMMANDS = (
     ("dialogue", "tools/export_dialogue.py"),
     ("combat-visuals", "tools/export_combat_visuals.py"),
     ("item-effects", "tools/export_item_effects.py"),
+    ("static-ground-items", "tools/export_static_ground_items.py"),
 )
 
 CONTENT_EXPORT_OUTPUTS = (
@@ -73,6 +74,7 @@ CONTENT_EXPORT_OUTPUTS = (
     "data/defs/activity_schemas.bin",
     "data/defs/dialogue.bin",
     "data/defs/combat_visuals.tsv",
+    "data/spawns/world.ground-items.bin",
     "tools/reports/encounters.txt",
     "tools/reports/activity_spawns.txt",
     "tools/reports/activity_states.txt",
@@ -80,6 +82,7 @@ CONTENT_EXPORT_OUTPUTS = (
     "tools/reports/activity_schemas.txt",
     "tools/reports/combat_visuals.txt",
     "tools/reports/item_effects.txt",
+    "tools/reports/static_ground_items.txt",
 )
 
 DEFERRED_CONTENT_EXPORTS = (
@@ -202,10 +205,12 @@ POST_DEF_RENDER_REBUILD_SPECS = (
                 "--dump",
                 "{b237_dump}",
                 "--item-ids",
-                "combat-validation",
+                "combat-validation,static-ground-items",
+                "--model-lighting",
+                "client",
             ),
         ),
-        authority="b237 cache plus rebuilt items.bin for first-release validation equipment visuals",
+        authority="b237 cache plus rebuilt items.bin for first-release validation equipment and static ground-item visuals",
     ),
     RuntimeOutputSpec(
         dataset="validation_item_icons",

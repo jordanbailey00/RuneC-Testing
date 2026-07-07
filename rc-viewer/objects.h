@@ -67,6 +67,8 @@ typedef struct {
     int loaded;
 } ObjectMesh;
 
+static void objects_free(ObjectMesh *om);
+
 static int objects_vertex_limit(void) {
     const char *value = getenv("RUNEC_OBJECT_VERTEX_LIMIT");
     if (!value || !value[0])
@@ -210,6 +212,18 @@ static void objects_load_object_anims(ObjectMesh *om, const char *objects_path) 
     if (!objects_companion_path(path, sizeof(path), objects_path, ".oanim"))
         return;
     objects_load_object_anims_path(om, path);
+}
+
+static ObjectMesh *objects_load_anim_sidecar(const char *objects_path) {
+    if (!objects_path) return NULL;
+    ObjectMesh *om = calloc(1, sizeof(*om));
+    if (!om) return NULL;
+    objects_load_object_anims(om, objects_path);
+    if (om->object_anim_count <= 0) {
+        objects_free(om);
+        return NULL;
+    }
+    return om;
 }
 
 static Texture2D objects_load_atlas(ObjectMesh *om, const char *atlas_path) {

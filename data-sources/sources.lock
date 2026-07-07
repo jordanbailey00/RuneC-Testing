@@ -7,8 +7,8 @@ id = "content_tree"
 status = "required"
 kind = "tracked_tree"
 path = "content"
-sha256 = "2247cc6d68e10086fc5f1d3b309cec2f375e478222b50072b3f3d7499d6a81cf"
-file_count = 878
+sha256 = "5312cb4181ea45b6b93964274b77a0c5744677f2b1e28cfe9854c729fa4a728b"
+file_count = 881
 description = "RuneC-owned authored content tables, migrated curated data, and reviewed runtime snapshots."
 
 [[source]]

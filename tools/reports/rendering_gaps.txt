@@ -1,0 +1,75 @@
+Rendering gap audit
+===================
+
+Terrain scope: all-cache
+Terrain cache regions scanned: 2870
+Terrain region files missing: 0
+Terrain tiles scanned: 11755520
+Generated scene prefixes scanned: 14
+NPC rows inside generated scene prefixes: 2386
+NPC rows on planes missing generated scene assets: 0
+Ankou rows inside generated scene prefixes: 32
+Static ground-item spawn export files present: 1
+Static ground-item spawn rows exported: 0
+
+Important interpretation:
+- Terrain buckets are visual-risk buckets, not all gameplay blockers.
+- `empty_terrain_no_floor_context` and `void_overlay_no_floor_context` are cache spaces with no nearby floor fallback; these are tracked so intentional empty/void space is separated from exporter holes.
+- `static_world_spawn_source_empty` means the binary/export/load path exists, but loose static item rows such as coins/bars are still source-blocked.
+
+terrain.empty_terrain_no_floor_context: 2007645
+  top regions:
+    19,147: 4096  empty terrain tile#0@1216,9408,p0 (source_plane=0); empty terrain tile#0@1216,9409,p0 (source_plane=0); empty terrain tile#0@1216,9410,p0 (source_plane=0)
+    19,149: 4096  empty terrain tile#0@1216,9536,p0 (source_plane=0); empty terrain tile#0@1216,9537,p0 (source_plane=0); empty terrain tile#0@1216,9538,p0 (source_plane=0)
+    19,153: 4096  empty terrain tile#0@1216,9792,p0 (source_plane=0); empty terrain tile#0@1216,9793,p0 (source_plane=0); empty terrain tile#0@1216,9794,p0 (source_plane=0)
+    20,145: 4096  empty terrain tile#0@1280,9280,p0 (source_plane=0); empty terrain tile#0@1280,9281,p0 (source_plane=0); empty terrain tile#0@1280,9282,p0 (source_plane=0)
+    20,150: 4096  empty terrain tile#0@1280,9600,p0 (source_plane=0); empty terrain tile#0@1280,9601,p0 (source_plane=0); empty terrain tile#0@1280,9602,p0 (source_plane=0)
+    20,158: 4096  empty terrain tile#0@1280,10112,p0 (source_plane=0); empty terrain tile#0@1280,10113,p0 (source_plane=0); empty terrain tile#0@1280,10114,p0 (source_plane=0)
+    21,157: 4096  empty terrain tile#0@1344,10048,p0 (source_plane=0); empty terrain tile#0@1344,10049,p0 (source_plane=0); empty terrain tile#0@1344,10050,p0 (source_plane=0)
+    21,158: 4096  empty terrain tile#0@1344,10112,p0 (source_plane=0); empty terrain tile#0@1344,10113,p0 (source_plane=0); empty terrain tile#0@1344,10114,p0 (source_plane=0)
+    22,146: 4096  empty terrain tile#0@1408,9344,p0 (source_plane=0); empty terrain tile#0@1408,9345,p0 (source_plane=0); empty terrain tile#0@1408,9346,p0 (source_plane=0)
+    22,152: 4096  empty terrain tile#0@1408,9728,p0 (source_plane=0); empty terrain tile#0@1408,9729,p0 (source_plane=0); empty terrain tile#0@1408,9730,p0 (source_plane=0)
+    23,145: 4096  empty terrain tile#0@1472,9280,p0 (source_plane=0); empty terrain tile#0@1472,9281,p0 (source_plane=0); empty terrain tile#0@1472,9282,p0 (source_plane=0)
+    23,146: 4096  empty terrain tile#0@1472,9344,p0 (source_plane=0); empty terrain tile#0@1472,9345,p0 (source_plane=0); empty terrain tile#0@1472,9346,p0 (source_plane=0)
+  top ids:
+    0	empty terrain tile	2007645
+
+terrain.void_overlay_no_floor_context: 336834
+  top regions:
+    27,79: 4096  void overlay#41@1728,5056,p0 (source_plane=0 shape=0 rot=0); void overlay#41@1728,5057,p0 (source_plane=0 shape=0 rot=0); void overlay#41@1728,5058,p0 (source_plane=0 shape=0 rot=0)
+    28,79: 4096  void overlay#41@1792,5056,p0 (source_plane=0 shape=0 rot=0); void overlay#41@1792,5057,p0 (source_plane=0 shape=0 rot=0); void overlay#41@1792,5058,p0 (source_plane=0 shape=0 rot=0)
+    28,81: 4096  void overlay#41@1792,5184,p0 (source_plane=0 shape=0 rot=0); void overlay#41@1792,5185,p0 (source_plane=0 shape=0 rot=0); void overlay#41@1792,5186,p0 (source_plane=0 shape=0 rot=0)
+    28,82: 4096  void overlay#41@1792,5248,p0 (source_plane=0 shape=0 rot=0); void overlay#41@1792,5249,p0 (source_plane=0 shape=0 rot=0); void overlay#41@1792,5250,p0 (source_plane=0 shape=0 rot=0)
+    37,89: 4096  void overlay#41@2368,5696,p0 (source_plane=0 shape=0 rot=0); void overlay#41@2368,5697,p0 (source_plane=0 shape=0 rot=0); void overlay#41@2368,5698,p0 (source_plane=0 shape=0 rot=0)
+    37,91: 4096  void overlay#41@2368,5824,p0 (source_plane=0 shape=0 rot=0); void overlay#41@2368,5825,p0 (source_plane=0 shape=0 rot=0); void overlay#41@2368,5826,p0 (source_plane=0 shape=0 rot=0)
+    49,100: 4096  void overlay#41@3136,6400,p0 (source_plane=0 shape=0 rot=0); void overlay#41@3136,6401,p0 (source_plane=0 shape=0 rot=0); void overlay#41@3136,6402,p0 (source_plane=0 shape=0 rot=0)
+    50,144: 4096  void overlay#41@3200,9216,p0 (source_plane=0 shape=0 rot=0); void overlay#41@3200,9217,p0 (source_plane=0 shape=0 rot=0); void overlay#41@3200,9218,p0 (source_plane=0 shape=0 rot=0)
+    51,90: 4096  void overlay#91@3264,5760,p0 (source_plane=0 shape=0 rot=0); void overlay#91@3264,5761,p0 (source_plane=0 shape=0 rot=0); void overlay#91@3264,5762,p0 (source_plane=0 shape=0 rot=0)
+    51,91: 4096  void overlay#91@3264,5824,p0 (source_plane=0 shape=0 rot=0); void overlay#91@3264,5825,p0 (source_plane=0 shape=0 rot=0); void overlay#91@3264,5826,p0 (source_plane=0 shape=0 rot=0)
+    51,144: 4096  void overlay#41@3264,9216,p0 (source_plane=0 shape=0 rot=0); void overlay#41@3264,9217,p0 (source_plane=0 shape=0 rot=0); void overlay#41@3264,9218,p0 (source_plane=0 shape=0 rot=0)
+    52,90: 4096  void overlay#91@3328,5760,p0 (source_plane=0 shape=0 rot=0); void overlay#91@3328,5761,p0 (source_plane=0 shape=0 rot=0); void overlay#91@3328,5762,p0 (source_plane=0 shape=0 rot=0)
+  top ids:
+    41	void overlay	239134
+    52	void overlay	29515
+    91	void overlay	22499
+    56	void overlay	7096
+    66	void overlay	4150
+    211	void overlay	3699
+    60	void overlay	3333
+    160	void overlay	2676
+    54	void overlay	2392
+    436	void overlay	2249
+    134	void overlay	2041
+    70	void overlay	1917
+
+ground_item.static_world_spawn_source_empty: 1
+  top regions:
+    0,0: 1  all static ground item spawns#0@0,0,p0 (export/load path exists, but approved source has zero rows)
+  top ids:
+    0	all static ground item spawns	1
+
+terrain.underlay_definition_missing: 1
+  top regions:
+    98,199: 1  underlay#25405@6272,12736,p0 (source_plane=0)
+  top ids:
+    25405	underlay	1

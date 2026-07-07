@@ -35,6 +35,8 @@ docs/
 !/data_cleanup_history.md
 !/data_pipeline.md
 !/git_setup.md
+!/missing_content.md
+!/rendering_gaps.md
 !/content/README.md
 !/content/**/*.md
 !/data/README.md

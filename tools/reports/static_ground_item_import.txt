@@ -1,0 +1,103 @@
+Static ground item dump import
+
+source_json: content/world/sources/osrs_item_spawn_dump.tyluur.2023-02-26.json
+source_json_sha256: 925981e16b61c10a2277bbf89a3c6d8e78cda09da9ed1cef94afe11f9ed3ee32
+cache: /home/joe/projects/RuneC_v4/data/source/b237-openrs2-2528/cache
+items_bin_validation: data/defs/items.bin
+output_tsv: content/world/static_ground_items.tsv
+item_names: 303
+spawn_rows: 1829
+exact_name_resolutions: 221
+source_alias_resolutions: 4
+scored_ambiguity_resolutions: 78
+
+resolution_policy:
+  - source aliases are used only for raw wiki-title keys whose cache display name is generic
+  - noted/template/placeholder item forms are excluded
+  - ambiguous names prefer takeable/drop inventory forms, tradeable common forms, non-member forms, noteable base forms, then lowest b237 id
+
+source aliases:
+  Burnt_Fish_(herring) -> 357 (Burnt fish)
+  Diary_(Witch's_House) -> 2408 (Diary)
+  Letter_(The_Golem) -> 4615 (Letter)
+  Poison_(item) -> 273 (Poison)
+
+scored ambiguity sample:
+  Air_rune -> 556 (Air rune); candidates=556, 6422, 7558, 11688, 9693
+  Asgarnian_ale -> 1905 (Asgarnian ale); candidates=1905, 8520, 8241, 7744
+  Barrel -> 3216 (Barrel); candidates=3216, 1841
+  Beer -> 1917 (Beer); candidates=1917, 7740
+  Beer_glass -> 1919 (Beer glass); candidates=1919, 7742, 6123
+  Blood_rune -> 565 (Blood rune); candidates=565, 11697
+  Blue_hat -> 660 (Blue hat); candidates=660, 740
+  Body_rune -> 559 (Body rune); candidates=559, 6438, 11691
+  Bones -> 526 (Bones); candidates=526, 2530, 24655, 3187, 25199
+  Boots_of_lightness -> 88 (Boots of lightness); candidates=88, 89
+  Brewin'_Guide -> 8989 (Brewin' guide); candidates=8989, 8990
+  Broken_glass -> 690 (Broken glass); candidates=690, 1469
+  Bronze_arrow -> 882 (Bronze arrow); candidates=882, 11700
+  Bucket -> 1925 (Bucket); candidates=1925, 8986, 9660
+  Bucket_of_water -> 1929 (Bucket of water); candidates=1929, 6712, 9659
+  Bullseye_lantern -> 4548 (Bullseye lantern); candidates=4548, 4550
+  Burnt_fish -> 323 (Burnt fish); candidates=323, 343, 357, 367, 369, 20854, 23873
+  Cabbage -> 1965 (Cabbage); candidates=1965, 1967, 22519, 22520, 24367, 24426, 24971, 24973
+  Chaos_rune -> 562 (Chaos rune); candidates=562, 6430, 7560, 11694
+  Chisel -> 1755 (Chisel); candidates=1755, 5601, 28414
+  Coins -> 995 (Coins); candidates=995, 6964, 8890, 617
+  Cooked_chicken -> 2140 (Cooked chicken); candidates=2140, 4291
+  Cooked_meat -> 2142 (Cooked meat); candidates=2142, 4293
+  Cosmic_Rune -> 564 (Cosmic rune); candidates=564, 11696
+  Criminal's_dagger -> 1813 (Criminal's dagger); candidates=1813, 1814
+  Cup_of_Tea -> 1978 (Cup of tea); candidates=1978, 712, 4242, 4243, 4245, 4246, 4838, 7730
+  Death_rune -> 560 (Death rune); candidates=560, 6432, 11692
+  Dragon_bitter -> 1911 (Dragon bitter); candidates=1911, 8524, 8243, 7748
+  Druid_pouch -> 2957 (Druid pouch); candidates=2957, 2958, 7547
+  Earth_rune -> 557 (Earth rune); candidates=557, 6426, 11689, 9695
+  Egg -> 1944 (Egg); candidates=1944, 30970
+  Empty_cup -> 1980 (Empty cup); candidates=1980, 7728
+  Feather -> 314 (Feather); candidates=314, 11525
+  Fire_rune -> 554 (Fire rune); candidates=554, 6428, 7554, 11686, 9699
+  Grain -> 1947 (Grain); candidates=1947, 5607, 27225
+  Hourglass -> 12841 (Hourglass); candidates=12841, 5610
+  Keg -> 32231 (Keg); candidates=32231, 10885, 10898
+  Keg_of_beer -> 3801 (Keg of beer); candidates=3801, 3711
+  Key -> 275 (Key); candidates=275, 1543, 1544, 1545, 1546, 1547, 1548, 293
+  Knife -> 946 (Knife); candidates=946, 5605, 28413
+  Lamp -> 6796 (Lamp); candidates=6796, 2528
+  Leather_boots -> 1061 (Leather boots); candidates=1061, 6893
+  Lever -> 83 (Lever); candidates=83, 10991, 10992
+  Lockpick -> 1523 (Lockpick); candidates=1523, 28415
+  Logs -> 1511 (Logs); candidates=1511, 2511, 24650
+  Metal_spade -> 5586 (Metal spade); candidates=5586, 5587
+  Mind_rune -> 558 (Mind rune); candidates=558, 6436, 11690, 9697
+  Mithril_arrow -> 888 (Mithril arrow); candidates=888, 7552, 11703
+  Nature_rune -> 561 (Nature rune); candidates=561, 11693
+  Oil_lamp -> 4522 (Oil lamp); candidates=4522, 4524
+  Old_note -> 24682 (Old note); candidates=24682, 25829
+  Orb_of_light -> 1481 (Orb of light); candidates=1481, 1482, 1483, 1484, 23812
+  Panning_tray -> 677 (Panning tray); candidates=677, 678, 679
+  Papyrus -> 970 (Papyrus); candidates=970, 972
+  Pestle_and_mortar -> 233 (Pestle and mortar); candidates=233, 23865
+  Phoenix_crossbow -> 767 (Phoenix crossbow); candidates=767, 11165, 11167
+  Pigeon_cage -> 424 (Pigeon cage); candidates=424, 425
+  Pole -> 4494 (Pole); candidates=4494, 4500
+  Raw_shrimps -> 317 (Raw shrimps); candidates=317, 2514, 24652
+  Rock -> 4043 (Rock); candidates=4043, 21250, 968, 1480, 1855, 7533, 9716
+  Rope -> 954 (Rope); candidates=954, 20587, 4498, 7155, 11046
+  Rotten_barrel -> 11044 (Rotten barrel); candidates=11044, 11045
+  Shears -> 1735 (Shears); candidates=1735, 5603
+  Skull -> 964 (Skull); candidates=964, 965
+  Sled -> 4083 (Sled); candidates=4083, 4084, 25282
+  Small_fishing_net -> 303 (Small fishing net); candidates=303, 6209
+  Stick -> 25285 (Stick); candidates=25285, 4179, 9702
+  Stone_ball -> 3109 (Stone ball); candidates=3109, 3110, 3111, 3112, 3113
+  Tankard -> 3805 (Tankard); candidates=3805, 31254
+  Tile -> 966 (Tile); candidates=966, 5568
+  Tiles -> 5569 (Tiles); candidates=5569, 5570, 5571
+  Tinderbox -> 590 (Tinderbox); candidates=590, 7156
+  Toad_batta -> 2255 (Toad batta); candidates=2255, 9529
+  Vial -> 229 (Vial); candidates=229, 23839, 23879, 2389, 2390
+  Water_rune -> 555 (Water rune); candidates=555, 6424, 7556, 11687, 9691
+  White_apron -> 1005 (White apron); candidates=1005, 7957
+  Wine_of_zamorak -> 245 (Wine of zamorak); candidates=245, 23489
+  Wooden_shield -> 1171 (Wooden shield); candidates=1171, 7676

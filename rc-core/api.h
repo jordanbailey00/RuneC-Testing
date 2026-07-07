@@ -5,6 +5,7 @@
 #include "config.h"
 #include "game_data.h"
 #include "interaction.h"
+#include "items.h"
 #include "npc.h"
 #include "skills.h"
 #include "traversal.h"
@@ -13,6 +14,9 @@ enum {
     RC_ACTIVE_AREA_LOAD_COLLISION = 1u << 0,
     RC_ACTIVE_AREA_LOAD_NPCS      = 1u << 1,
     RC_ACTIVE_AREA_CLEAR_NPCS     = 1u << 2,
+    RC_ACTIVE_AREA_INCLUDE_INSTANCE_NPCS = 1u << 3,
+    RC_ACTIVE_AREA_LOAD_STATIC_GROUND_ITEMS = 1u << 4,
+    RC_ACTIVE_AREA_CLEAR_STATIC_GROUND_ITEMS = 1u << 5,
 };
 
 typedef struct {
@@ -21,12 +25,15 @@ typedef struct {
     int min_plane, max_plane;
     uint32_t flags;
     const char *npc_spawns_path;
+    const char *ground_item_spawns_path;
 } RcActiveAreaRequest;
 
 typedef struct {
     int collision_regions;
     int spawned_npcs;
+    int spawned_ground_items;
     RcNpcSpawnLoadStats npc_stats;
+    RcGroundItemSpawnLoadStats ground_item_stats;
     RcActiveArea active_area;
 } RcActiveAreaStats;
 

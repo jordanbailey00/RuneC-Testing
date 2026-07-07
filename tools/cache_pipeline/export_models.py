@@ -2290,6 +2290,8 @@ def write_models_binary(
             model_ambient = getattr(model, "_export_ambient", ambient)
             model_contrast = getattr(model, "_export_contrast", contrast)
             model_light_vector = getattr(model, "_export_light_vector", light_vector)
+            model_lighting_mode = getattr(
+                model, "_export_model_lighting", model_lighting)
             verts, colors, uvs = expand_model(
                 model,
                 tex_colors=tex_colors,
@@ -2298,7 +2300,7 @@ def write_models_binary(
                 ambient=model_ambient,
                 contrast=model_contrast,
                 light_vector=model_light_vector,
-                model_lighting=model_lighting,
+                model_lighting=model_lighting_mode,
             )
             expanded_vert_count = model.face_count * 3
 

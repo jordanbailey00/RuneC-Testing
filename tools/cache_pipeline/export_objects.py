@@ -116,6 +116,8 @@ class LocDef:
     recolor_to: list[int] = field(default_factory=list)
     retexture_from: list[int] = field(default_factory=list)
     retexture_to: list[int] = field(default_factory=list)
+    transforms: list[int] = field(default_factory=list)
+    models_apply_to_all_types: bool = False
 
 
 def decode_loc_definitions(cache: CacheReader) -> dict[int, LocDef]:
@@ -278,7 +280,8 @@ def decode_loc_definitions(cache: CacheReader) -> dict[int, LocDef]:
                 buf.read(2)  # varp
                 count = buf.read(1)[0]
                 for _ in range(count + 1):
-                    buf.read(2)
+                    transform = struct.unpack(">H", buf.read(2))[0]
+                    d.transforms.append(-1 if transform == 0xFFFF else transform)
             elif opcode == 78:
                 buf.read(2)  # ambient sound
                 buf.read(1)
@@ -298,10 +301,14 @@ def decode_loc_definitions(cache: CacheReader) -> dict[int, LocDef]:
             elif opcode == 92:
                 buf.read(2)  # varbit
                 buf.read(2)  # varp
-                buf.read(2)  # default
+                default_transform = struct.unpack(">H", buf.read(2))[0]
                 count = buf.read(1)[0]
                 for _ in range(count + 1):
-                    buf.read(2)
+                    transform = struct.unpack(">H", buf.read(2))[0]
+                    d.transforms.append(-1 if transform == 0xFFFF else transform)
+                d.transforms.append(
+                    -1 if default_transform == 0xFFFF else default_transform
+                )
             elif opcode == 249:
                 count = buf.read(1)[0]
                 for _ in range(count):
@@ -514,11 +521,100 @@ def decode_loc_definitions_modern(reader: ModernCacheReader) -> dict[int, LocDef
                 # unknown opcode — stop parsing to avoid desync
                 break
 
-        if d.model_ids:
+        if d.model_ids or d.transforms:
             defs[obj_id] = d
 
-    print(f"  {len(defs)} definitions with models (from {len(files)} total)")
+    print(f"  {len(defs)} visual/transform definitions (from {len(files)} total)")
     return defs
+
+
+def load_runtime_object_visual_fallbacks(
+    path: Path | None = None,
+) -> dict[int, LocDef]:
+    """Load render fallbacks from RuneC object_defs.bin.
+
+    Some b237 loc ids used by map placements have no direct visual loc body in
+    the cache config decode, while the reviewed runtime object definition keeps
+    the cache model ids or transform targets. These rows are visual aliases only:
+    gameplay placement ids remain unchanged.
+    """
+    path = path or Path(__file__).resolve().parents[2] / "data/defs/object_defs.bin"
+    if not path.is_file():
+        return {}
+    data = path.read_bytes()
+    if len(data) < 12:
+        return {}
+    magic, version, count = struct.unpack_from("<III", data, 0)
+    if magic != 0x4645444F or version not in (1, 2):
+        return {}
+
+    pos = 12
+    row_fmt = "<IHHBBBBBiiiII"
+    row_size = struct.calcsize(row_fmt)
+    extra_fmt = "<BBHiHH"
+    extra_size = struct.calcsize(extra_fmt)
+    out: dict[int, LocDef] = {}
+    for _ in range(count):
+        row = struct.unpack_from(row_fmt, data, pos)
+        pos += row_size
+        obj_id = row[0]
+        width = row[1]
+        length = row[2]
+        model_count = row[5]
+        transform_count = row[6]
+        animation_id = row[10]
+        param_count = 0
+        if version >= 2:
+            _supports_items, _clip_flags, param_count, _ambient_sound_id, \
+                _ambient_sound_distance, _ambient_sound_retain = \
+                struct.unpack_from(extra_fmt, data, pos)
+            pos += extra_size
+
+        name_len = struct.unpack_from("<H", data, pos)[0]
+        pos += 2
+        name = data[pos:pos + name_len].decode("latin-1", errors="replace")
+        pos += name_len
+        for _slot in range(5):
+            action_len = struct.unpack_from("<H", data, pos)[0]
+            pos += 2 + action_len
+
+        models = list(struct.unpack_from("<" + "I" * model_count, data, pos)) \
+            if model_count else []
+        pos += model_count * 4
+        transforms = list(struct.unpack_from("<" + "i" * transform_count, data, pos)) \
+            if transform_count else []
+        pos += transform_count * 4
+        pos += param_count * 8
+
+        if not models and not transforms:
+            continue
+        out[int(obj_id)] = LocDef(
+            obj_id=int(obj_id),
+            name=name,
+            width=max(1, int(width)),
+            length=max(1, int(length)),
+            model_ids=[int(model_id) for model_id in models],
+            model_types=[10 for _ in models],
+            has_typed_models=False,
+            animation_id=int(animation_id),
+            transforms=[int(t) for t in transforms if int(t) >= 0],
+            models_apply_to_all_types=True,
+        )
+    return out
+
+
+def merge_runtime_object_visual_fallbacks(
+    loc_defs: dict[int, LocDef],
+    fallback_defs: dict[int, LocDef] | None = None,
+) -> int:
+    fallback_defs = fallback_defs if fallback_defs is not None \
+        else load_runtime_object_visual_fallbacks()
+    added = 0
+    for obj_id, fallback in fallback_defs.items():
+        if obj_id not in loc_defs:
+            loc_defs[obj_id] = fallback
+            added += 1
+    return added
 
 
 
@@ -803,6 +899,8 @@ def get_models_for_type(loc: LocDef, obj_type: int) -> list[int]:
     """
     if not loc.model_ids:
         return []
+    if loc.models_apply_to_all_types:
+        return list(loc.model_ids)
 
     model_type = placement_type_to_model_type(obj_type)
 
@@ -827,6 +925,32 @@ def get_model_for_type(loc: LocDef, obj_type: int) -> int | None:
 
 def model_key_for_type(loc: LocDef, obj_type: int) -> tuple[int, ...]:
     return tuple(get_models_for_type(loc, obj_type))
+
+
+def resolve_visual_loc(
+    loc: LocDef,
+    loc_defs: dict[int, LocDef],
+    obj_type: int,
+) -> LocDef | None:
+    if model_key_for_type(loc, obj_type):
+        return loc
+    seen = {loc.obj_id}
+    stack = [tid for tid in loc.transforms if tid >= 0]
+    while stack:
+        transform_id = stack.pop(0)
+        if transform_id in seen:
+            continue
+        seen.add(transform_id)
+        transformed = loc_defs.get(transform_id)
+        if transformed is None:
+            continue
+        if model_key_for_type(transformed, obj_type):
+            return transformed
+        if transformed.model_ids and not transformed.has_typed_models:
+            transformed.models_apply_to_all_types = True
+            return transformed
+        stack.extend(tid for tid in transformed.transforms if tid >= 0)
+    return None
 
 
 # --- binary output format ---
@@ -1266,7 +1390,12 @@ def process_placements(
         return 1
 
     for po in placements:
-        loc = loc_defs.get(po.obj_id)
+        source_loc = loc_defs.get(po.obj_id)
+        if source_loc is None:
+            skipped += 1
+            continue
+
+        loc = resolve_visual_loc(source_loc, loc_defs, po.obj_type)
         if loc is None:
             skipped += 1
             continue
@@ -1652,6 +1781,9 @@ def export_modern_objects(
 
     print("loading object definitions from modern cache...")
     loc_defs = decode_loc_definitions_modern(reader)
+    fallback_count = merge_runtime_object_visual_fallbacks(loc_defs)
+    if fallback_count:
+        print(f"  added {fallback_count} runtime visual fallback definitions")
 
     # determine target regions
     target_coords = set(regions)

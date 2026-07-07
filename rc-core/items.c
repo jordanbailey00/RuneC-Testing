@@ -37,6 +37,11 @@ enum {
     IDEF_EQUIP_WEAPON    = 1u << 10,
 };
 
+enum {
+    GSPN_MAGIC = 0x4E505347,
+    GSPN_VERSION = 1,
+};
+
 static int read_u8(const unsigned char **p, const unsigned char *end,
                    uint8_t *out) {
     if (*p + 1 > end) return 0;
@@ -636,7 +641,7 @@ static int spawn_ground_item_one(RcWorld *world, int item_id, int quantity,
                                  int x, int y, int plane, int owner_uid,
                                  int original_owner_uid, int visibility,
                                  int reveal_timer, int despawn_timer,
-                                 int stackable) {
+                                 int stackable, int static_spawn) {
     if (!world || item_id < 0 || quantity <= 0) return -1;
     if (stackable) {
         for (int i = 0; i < world->ground_item_count; i++) {
@@ -644,7 +649,8 @@ static int spawn_ground_item_one(RcWorld *world, int item_id, int quantity,
             if (!g->active || g->item_id != item_id || g->x != x
                     || g->y != y || g->plane != plane
                     || g->visibility != visibility
-                    || g->owner_uid != owner_uid) {
+                    || g->owner_uid != owner_uid
+                    || g->static_spawn != (static_spawn ? true : false)) {
                 continue;
             }
             if (g->quantity > INT_MAX - quantity) return -1;
@@ -675,6 +681,7 @@ static int spawn_ground_item_one(RcWorld *world, int item_id, int quantity,
         .reveal_timer = reveal_timer,
         .despawn_timer = despawn_timer,
         .visibility = (uint8_t)visibility,
+        .static_spawn = static_spawn ? true : false,
         .active = true,
     };
     return idx;
@@ -684,13 +691,14 @@ static int spawn_ground_item_quantity(RcWorld *world, int item_id,
                                       int quantity, int x, int y, int plane,
                                       int owner_uid, int original_owner_uid,
                                       int visibility, int reveal_timer,
-                                      int despawn_timer) {
+                                      int despawn_timer, int static_spawn) {
     if (!world || item_id < 0 || quantity <= 0) return 0;
     int stackable = ground_item_is_stackable(item_id, quantity);
     if (stackable) {
         return spawn_ground_item_one(world, item_id, quantity, x, y, plane,
                                      owner_uid, original_owner_uid, visibility,
-                                     reveal_timer, despawn_timer, 1) >= 0;
+                                     reveal_timer, despawn_timer, 1,
+                                     static_spawn) >= 0;
     }
     if (quantity > ground_item_free_slots(world)) return 0;
     if (ground_item_count_at(world, x, y, plane) + quantity
@@ -700,7 +708,8 @@ static int spawn_ground_item_quantity(RcWorld *world, int item_id,
     for (int i = 0; i < quantity; i++) {
         if (spawn_ground_item_one(world, item_id, 1, x, y, plane, owner_uid,
                                   original_owner_uid, visibility,
-                                  reveal_timer, despawn_timer, 0) < 0) {
+                                  reveal_timer, despawn_timer, 0,
+                                  static_spawn) < 0) {
             return 0;
         }
     }
@@ -721,7 +730,84 @@ int rc_ground_item_spawn(RcWorld *world, int item_id, int quantity,
     return spawn_ground_item_quantity(world, item_id, quantity, x, y, plane,
                                       owner_uid, owner_uid, visibility,
                                       reveal_timer,
-                                      RC_GROUND_ITEM_DESPAWN_TICKS);
+                                      RC_GROUND_ITEM_DESPAWN_TICKS, 0);
+}
+
+void rc_clear_static_ground_items(RcWorld *world) {
+    if (!world) return;
+    for (int i = 0; i < world->ground_item_count; i++) {
+        if (world->ground_items[i].active
+                && world->ground_items[i].static_spawn) {
+            world->ground_items[i].active = false;
+            world->ground_items[i].quantity = 0;
+            world->ground_items[i].version++;
+            world->ground_items[i].static_spawn = false;
+        }
+    }
+}
+
+int rc_load_ground_item_spawns_rect_stats(RcWorld *world, const char *path,
+                                          int min_x, int min_y,
+                                          int max_x, int max_y,
+                                          int min_plane, int max_plane,
+                                          RcGroundItemSpawnLoadStats *stats) {
+    if (stats) memset(stats, 0, sizeof(*stats));
+    if (!world || !path || !path[0]) return -1;
+
+    FILE *f = rc_asset_fopen(path, "rb");
+    if (!f) return -1;
+
+    uint32_t magic = 0, version = 0, count = 0;
+    if (fread(&magic, sizeof(magic), 1, f) != 1
+            || fread(&version, sizeof(version), 1, f) != 1
+            || fread(&count, sizeof(count), 1, f) != 1
+            || magic != GSPN_MAGIC || version != GSPN_VERSION) {
+        rc_asset_close(f);
+        return -1;
+    }
+
+    int spawned = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t item_id_u = 0, quantity_u = 0;
+        int32_t x = 0, y = 0;
+        uint8_t plane = 0, flags = 0;
+        if (fread(&item_id_u, sizeof(item_id_u), 1, f) != 1
+                || fread(&quantity_u, sizeof(quantity_u), 1, f) != 1
+                || fread(&x, sizeof(x), 1, f) != 1
+                || fread(&y, sizeof(y), 1, f) != 1
+                || fread(&plane, sizeof(plane), 1, f) != 1
+                || fread(&flags, sizeof(flags), 1, f) != 1) {
+            rc_asset_close(f);
+            return -1;
+        }
+        (void)flags;
+        if (stats) stats->total_rows++;
+        if ((int)plane < min_plane || (int)plane > max_plane) {
+            if (stats) stats->skipped_plane++;
+            continue;
+        }
+        if (x < min_x || x > max_x || y < min_y || y > max_y) {
+            if (stats) stats->skipped_filtered++;
+            continue;
+        }
+        if (stats) stats->matched_filter++;
+        if (item_id_u > INT_MAX || quantity_u == 0 || quantity_u > INT_MAX) {
+            if (stats) stats->skipped_invalid++;
+            continue;
+        }
+        int ok = spawn_ground_item_quantity(
+            world, (int)item_id_u, (int)quantity_u, x, y, (int)plane,
+            RC_GROUND_OWNER_NONE, RC_GROUND_OWNER_NONE,
+            RC_GROUND_VIS_PUBLIC, 0, 0, 1);
+        if (ok) {
+            spawned++;
+            if (stats) stats->spawned++;
+        } else if (stats) {
+            stats->skipped_capacity++;
+        }
+    }
+    rc_asset_close(f);
+    return spawned;
 }
 
 void rc_player_drop_item(RcWorld *world, int inv_slot) {
@@ -743,7 +829,7 @@ void rc_player_drop_item(RcWorld *world, int inv_slot) {
                                     RC_GROUND_ITEM_LOCAL_OWNER,
                                     RC_GROUND_ITEM_LOCAL_OWNER,
                                     visibility, reveal_timer,
-                                    RC_GROUND_ITEM_DESPAWN_TICKS)) {
+                                    RC_GROUND_ITEM_DESPAWN_TICKS, 0)) {
         return;
     }
     rc_inv_remove(player->inventory, inv_slot);

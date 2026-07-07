@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <stdint.h>
 #include <stdio.h>
 
 #include "api.h"
@@ -10,13 +11,65 @@
 #define NPC_PATH RC_TEST_SOURCE_DIR "/data/defs/npc_defs.bin"
 #define SPAWN_PATH RC_TEST_SOURCE_DIR "/data/spawns/world.npc-spawns.bin"
 #define CTIL_PATH RC_TEST_SOURCE_DIR "/data/defs/collision_tiles.bin"
+#define STATIC_GROUND_ITEM_TEST_PATH "/tmp/runec_static_ground_items_test.bin"
+
+enum {
+    GSPN_TEST_MAGIC = 0x4E505347,
+    GSPN_TEST_VERSION = 1,
+};
+
+static void write_u32(FILE *f, uint32_t v) {
+    assert(fwrite(&v, sizeof(v), 1, f) == 1);
+}
+
+static void write_i32(FILE *f, int32_t v) {
+    assert(fwrite(&v, sizeof(v), 1, f) == 1);
+}
+
+static void write_u8(FILE *f, uint8_t v) {
+    assert(fwrite(&v, sizeof(v), 1, f) == 1);
+}
+
+static void write_ground_item_row(FILE *f, uint32_t item_id,
+                                  uint32_t quantity, int32_t x, int32_t y,
+                                  uint8_t plane) {
+    write_u32(f, item_id);
+    write_u32(f, quantity);
+    write_i32(f, x);
+    write_i32(f, y);
+    write_u8(f, plane);
+    write_u8(f, 0);
+}
+
+static void write_static_ground_item_fixture(void) {
+    FILE *f = fopen(STATIC_GROUND_ITEM_TEST_PATH, "wb");
+    assert(f != NULL);
+    write_u32(f, GSPN_TEST_MAGIC);
+    write_u32(f, GSPN_TEST_VERSION);
+    write_u32(f, 4);
+    write_ground_item_row(f, 995, 100, 3213, 3428, 0);
+    write_ground_item_row(f, 995, 50, 3213, 3428, 0);
+    write_ground_item_row(f, 995, 25, 3214, 3428, 1);
+    write_ground_item_row(f, 995, 10, 4000, 4000, 0);
+    assert(fclose(f) == 0);
+}
+
+static int active_ground_items(const RcWorld *world, int static_only) {
+    int count = 0;
+    for (int i = 0; i < world->ground_item_count; i++) {
+        const RcGroundItem *g = &world->ground_items[i];
+        if (g->active && (!static_only || g->static_spawn))
+            count++;
+    }
+    return count;
+}
 
 int main(void) {
     g_npc_def_count = 0;
     g_rc_collision_region_count = 0;
 
     RcWorldConfig cfg = rc_preset_base_only();
-    cfg.subsystems = RC_SUB_COMBAT | RC_SUB_REGIONS;
+    cfg.subsystems = RC_SUB_COMBAT | RC_SUB_REGIONS | RC_SUB_LOOT;
     cfg.npc_defs_path = NPC_PATH;
     cfg.spawns_path = SPAWN_PATH;
     cfg.collision_tiles_path = CTIL_PATH;
@@ -106,6 +159,51 @@ int main(void) {
     default_flags.npc_spawns_path = NULL;
     assert(rc_world_activate_area(world, &default_flags, &stats) == 1);
     assert(stats.spawned_npcs == 837);
+
+    write_static_ground_item_fixture();
+    RcActiveAreaRequest ground_items = req;
+    ground_items.max_plane = 0;
+    ground_items.flags = RC_ACTIVE_AREA_CLEAR_STATIC_GROUND_ITEMS
+                       | RC_ACTIVE_AREA_LOAD_STATIC_GROUND_ITEMS;
+    ground_items.ground_item_spawns_path = STATIC_GROUND_ITEM_TEST_PATH;
+    assert(rc_world_activate_area(world, &ground_items, &stats) == 1);
+    assert(stats.ground_item_stats.total_rows == 4);
+    assert(stats.ground_item_stats.matched_filter == 2);
+    assert(stats.ground_item_stats.skipped_plane == 1);
+    assert(stats.ground_item_stats.skipped_filtered == 1);
+    assert(stats.ground_item_stats.spawned == 2);
+    assert(stats.spawned_ground_items == 2);
+    assert(active_ground_items(world, 1) == 1);
+    assert(world->ground_items[0].active);
+    assert(world->ground_items[0].static_spawn);
+    assert(world->ground_items[0].item_id == 995);
+    assert(world->ground_items[0].quantity == 150);
+
+    assert(rc_ground_item_spawn(world, 995, 1, 3213, 3428, 0,
+                                RC_GROUND_OWNER_NONE));
+    assert(active_ground_items(world, 0) == 2);
+    ground_items.flags = RC_ACTIVE_AREA_CLEAR_STATIC_GROUND_ITEMS;
+    assert(rc_world_activate_area(world, &ground_items, &stats) == 1);
+    assert(active_ground_items(world, 1) == 0);
+    assert(active_ground_items(world, 0) == 1);
+    assert(!world->ground_items[1].static_spawn);
+    remove(STATIC_GROUND_ITEM_TEST_PATH);
+
+    RcActiveAreaRequest stronghold = req;
+    stronghold.origin_x = 1792;
+    stronghold.origin_y = 5120;
+    stronghold.width = 192;
+    stronghold.height = 192;
+    assert(rc_world_activate_area(world, &stronghold, &stats) == 1);
+    assert(stats.npc_stats.matched_filter == 150);
+    assert(stats.npc_stats.skipped_instance == 40);
+    assert(stats.spawned_npcs == 110);
+
+    stronghold.flags |= RC_ACTIVE_AREA_INCLUDE_INSTANCE_NPCS;
+    assert(rc_world_activate_area(world, &stronghold, &stats) == 1);
+    assert(stats.npc_stats.matched_filter == 150);
+    assert(stats.npc_stats.skipped_instance == 0);
+    assert(stats.spawned_npcs == 150);
 
     rc_world_destroy(world);
     printf("test_active_area_runtime: core-owned active area loaded.\n");

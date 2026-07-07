@@ -637,6 +637,7 @@ typedef struct {
     int reveal_timer;
     int despawn_timer;
     uint8_t visibility;
+    bool static_spawn;
     bool active;
 } RcGroundItem;
 

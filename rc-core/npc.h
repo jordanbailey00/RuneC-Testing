@@ -45,6 +45,10 @@ typedef struct {
     int spawned_plane_counts[RC_MAX_PLANES];
 } RcNpcSpawnLoadStats;
 
+enum {
+    RC_NPC_SPAWN_LOAD_INCLUDE_INSTANCE = 1u << 0,
+};
+
 // Global NPC definitions table — loaded once at startup
 extern RcNpcDef g_npc_defs[RC_MAX_NPC_DEFS];
 extern int g_npc_def_count;
@@ -77,6 +81,12 @@ int rc_load_npc_spawns_rect_stats(RcWorld *world, const char *path,
                                   int max_x, int max_y,
                                   int min_plane, int max_plane,
                                   RcNpcSpawnLoadStats *stats);
+int rc_load_npc_spawns_rect_stats_flags(RcWorld *world, const char *path,
+                                        int min_x, int min_y,
+                                        int max_x, int max_y,
+                                        int min_plane, int max_plane,
+                                        uint32_t load_flags,
+                                        RcNpcSpawnLoadStats *stats);
 int rc_load_npc_spawns_near(RcWorld *world, const char *path,
                             int center_x, int center_y, int radius,
                             int plane);

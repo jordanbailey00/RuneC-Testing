@@ -1,0 +1,30 @@
+source_name = "osrs_item_spawn_dump"
+source_type = "third_party_dump_pending_review"
+gist_id = "4cb93ba0ea96f36640f8bfb5ec49f7c3"
+gist_file_name = "osrs_item_spawn_dump.json"
+gist_created_on = "2023-02-26"
+embed_script_url = "https://gist.github.com/Tyluur/4cb93ba0ea96f36640f8bfb5ec49f7c3.js"
+raw_url = "https://gist.github.com/Tyluur/4cb93ba0ea96f36640f8bfb5ec49f7c3/raw/2f232f492f35089bd84ba4b1018e14ba59bf321d/osrs_item_spawn_dump.json"
+raw_revision = "2f232f492f35089bd84ba4b1018e14ba59bf321d"
+downloaded_at = "2026-07-03T20:17:44-04:00"
+stored_path = "content/world/sources/osrs_item_spawn_dump.tyluur.2023-02-26.json"
+sha256 = "925981e16b61c10a2277bbf89a3c6d8e78cda09da9ed1cef94afe11f9ed3ee32"
+bytes = 155102
+json_item_name_keys = 303
+json_spawn_rows = 1829
+json_schema = "object keyed by item display name; each value is an array of rows with x, y, z, quantity"
+import_status = "imported"
+import_tool = "tools/import_static_ground_item_dump.py"
+import_output = "content/world/static_ground_items.tsv"
+import_report = "tools/reports/static_ground_item_import.txt"
+import_spawn_rows = 1829
+import_exact_name_resolutions = 221
+import_source_alias_resolutions = 4
+import_scored_ambiguity_resolutions = 78
+import_blocker = ""
+validation_notes = [
+  "Raw JSON was stored unchanged from the pinned GitHub raw URL.",
+  "Ingest validation parsed the file as UTF-8 JSON and found no malformed rows.",
+  "Ingest validation found no bidi control characters, other control characters, or non-ASCII bytes.",
+  "Import resolved every source item name to a b237 item id and validated resolved ids against data/defs/items.bin.",
+]

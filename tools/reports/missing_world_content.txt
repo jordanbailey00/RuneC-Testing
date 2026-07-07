@@ -1,0 +1,9 @@
+Missing world content audit
+===========================
+
+NPC spawn rows scanned: 24110
+NPC rows blocked/missing: 0
+Object placement rows scanned: 4768076
+Object rows with no current visual path: 0
+Object visual classification: b237 cache typed model rules plus runtime object_defs visual fallbacks
+Fixed Varrock animated object sidecar rows: 1354
