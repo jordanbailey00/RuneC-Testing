@@ -13,8 +13,9 @@ Use this file for:
 - tick-path and determinism rules
 - the `rc-core` / `rc-content` split
 
-Planning lives in `docs/work.md`. This file is a technical overview of
-the component boundary, architecture rules, and runtime invariants.
+Planning and task tracking are kept in local Markdown files. This README is
+the tracked technical overview of the component boundary, architecture rules,
+and runtime invariants.
 
 This document is **normative**. Every design and refactor decision
 must honor it. If a change requires relaxing a rule, update this

@@ -15,8 +15,9 @@ Use this file for:
 - what code lives in this directory
 - what the viewer is and is not responsible for
 
-Planning lives in `docs/work.md`. This file is a technical overview of
-the viewer boundary, runtime assets, and presentation responsibilities.
+Planning and task tracking are kept in local Markdown files. This README is
+the tracked technical overview of the viewer boundary, runtime assets, and
+presentation responsibilities.
 
 ## Role
 

@@ -25,34 +25,11 @@ data/regions/test_varrock.terrain
 collision_log.txt
 # Local raw source corpora used by exporters; keep these out of git.
 data/source/
-# Local docs and arbitrary scratch Markdown stay out of git unless explicitly
-# unignored below.
+# Local documentation trees and Markdown are ignored; tracked README files are
+# the sole Markdown exception.
 docs/
 *.md
-!/AGENT.md
-!/README.md
-!/data_cleanup.md
-!/data_cleanup_history.md
-!/data_pipeline.md
-!/git_setup.md
-!/missing_content.md
-!/rendering_gaps.md
-!/content/README.md
-!/content/**/*.md
-!/data/README.md
-!/data-sources/README.md
-!/docs/
-!/docs/changelog.md
-!/schema/
-!/schema/README.md
-!/schema/packs/
-!/schema/packs/*.md
-!/rc-core/AGENT.md
-!/rc-core/README.md
-!/rc-viewer/README.md
-!/rc-content/README.md
-!/rc-content/encounters/README.md
-!/rc-content/quests/README.md
-!/rc-content/regions/README.md
+!README.md
+!**/README.md
 # Local claude-code settings
 .claude/
