@@ -27,6 +27,7 @@
 #include "spotanims.h"
 #include "combat_visuals.h"
 #include "dev_validation.h"
+#include "streaming.h"
 #include <math.h>
 #include <errno.h>
 #include <stddef.h>
@@ -41,8 +42,9 @@
 #define DEFAULT_WORLD_ORIGIN_Y 3264
 #define DEFAULT_PLAYER_START_X RUNEC_DEV_VARROCK_BANK_X
 #define DEFAULT_PLAYER_START_Y RUNEC_DEV_VARROCK_BANK_Y
-#define DEFAULT_WORLD_W 320
-#define DEFAULT_WORLD_H 320
+#define DEFAULT_WORLD_W \
+    ((RC_WORLD_STREAMING_DEFAULT_ACTIVE_RADIUS * 2 + 1) * RC_REGION_SIZE)
+#define DEFAULT_WORLD_H DEFAULT_WORLD_W
 #define WINDOW_W 1280
 #define WINDOW_H 720
 #define TPS 1.667f
@@ -68,7 +70,6 @@
 #define RUNEC_ITEM_STACK_VARIANT_MAX 4096
 #define MODEL_ID_SPOTANIM_BASE 0xA2000000u
 #define OBJECT_PICK_TILE_RADIUS 1
-#define VIEWER_MAX_OBJECT_CHUNKS 128
 #define DEFAULT_B237_CACHE_ROOT "data"
 #define DEFAULT_B237_CACHE_PATH DEFAULT_B237_CACHE_ROOT "/source/b237-openrs2-2528/cache"
 
@@ -301,14 +302,18 @@ typedef struct {
     int world_map_min_x;
     int world_map_max_y;
     int use_world_map_minimap;
+    ViewerStreamingConfig streaming;
+    ViewerStreamingTelemetry telemetry;
+    double pending_cpu_decode_ms;
+    double pending_gpu_upload_ms;
+    int telemetry_overlay;
     int scene_plane_override;
     int scene_auto_export;
-    int scene_radius_regions;
-    int startup_scene_radius_regions;
     int preload_scene_planes;
     int object_chunk_size;
     float object_chunk_draw_radius;
-    ViewerObjectChunk object_chunks[RC_MAX_PLANES][VIEWER_MAX_OBJECT_CHUNKS];
+    ViewerObjectChunk
+        object_chunks[RC_MAX_PLANES][VIEWER_STREAMING_CHUNK_CAPACITY];
     int object_chunk_count[RC_MAX_PLANES];
     Texture2D object_chunk_atlas[RC_MAX_PLANES];
     int object_chunk_atlas_loaded[RC_MAX_PLANES];
@@ -447,6 +452,17 @@ static int runtime_data_available(void) {
 static int env_int(const char *key, int fallback) {
     const char *value = getenv(key);
     return value && value[0] ? atoi(value) : fallback;
+}
+
+static int env_int_compat(const char *key, const char *legacy_key,
+                          const char *older_key, int fallback) {
+    if (env_has_value(key))
+        return env_int(key, fallback);
+    if (legacy_key && env_has_value(legacy_key))
+        return env_int(legacy_key, fallback);
+    if (older_key && env_has_value(older_key))
+        return env_int(older_key, fallback);
+    return fallback;
 }
 
 static int env_bool(const char *key, int fallback) {
@@ -793,7 +809,7 @@ static int load_object_chunk_index_plane(ViewerState *v,
             ox += chunk_size) {
         for (int oy = g_world_origin_y; oy < g_world_origin_y + g_world_h;
                 oy += chunk_size) {
-            if (count >= VIEWER_MAX_OBJECT_CHUNKS)
+            if (count >= v->streaming.max_cpu_chunks)
                 break;
             char path[1024];
             if (!object_chunk_path(path, sizeof(path), dir, prefix, ox, oy,
@@ -842,18 +858,228 @@ static int object_chunk_should_draw(const ViewerState *v,
     return dx * dx + dz * dz <= r * r;
 }
 
+typedef struct {
+    unsigned int ids[32];
+    int count;
+    uint64_t bytes;
+} ViewerTextureResidency;
+
+static void add_texture_residency(ViewerTextureResidency *residency,
+                                  Texture2D texture) {
+    if (!residency || texture.id == 0 || texture.width <= 0
+            || texture.height <= 0)
+        return;
+    for (int i = 0; i < residency->count; i++)
+        if (residency->ids[i] == texture.id)
+            return;
+    if (residency->count < (int)(sizeof(residency->ids)
+            / sizeof(residency->ids[0]))) {
+        residency->ids[residency->count++] = texture.id;
+    }
+    residency->bytes += (uint64_t)texture.width
+                      * (uint64_t)texture.height * 4u;
+}
+
+static uint64_t model_entry_resident_bytes(const ModelEntry *entry) {
+    if (!entry || !entry->loaded)
+        return 0;
+    uint64_t bytes = 0;
+    for (int i = 0; i < entry->model.meshCount; i++) {
+        const Mesh *mesh = &entry->model.meshes[i];
+        bytes += (uint64_t)mesh->vertexCount
+               * (3u * sizeof(float) + 3u * sizeof(float)
+                  + 2u * sizeof(float) + 4u);
+        bytes += (uint64_t)mesh->triangleCount * 3u * sizeof(uint16_t);
+    }
+    bytes += (uint64_t)entry->base_vert_count
+           * (3u * sizeof(int16_t) + sizeof(uint8_t));
+    bytes += (uint64_t)entry->face_count
+           * (3u * sizeof(uint16_t) + 3u * sizeof(uint8_t));
+    return bytes;
+}
+
+static uint64_t model_set_resident_bytes(const ModelSet *set) {
+    uint64_t bytes = 0;
+    for (int i = 0; set && i < set->count; i++)
+        bytes += model_entry_resident_bytes(&set->entries[i]);
+    return bytes;
+}
+
+static int loaded_object_chunk_count(const ViewerState *v, int plane) {
+    int count = 0;
+    if (!v || plane < 0 || plane >= RC_MAX_PLANES)
+        return 0;
+    for (int i = 0; i < v->object_chunk_count[plane]; i++)
+        if (v->object_chunks[plane][i].mesh)
+            count++;
+    return count;
+}
+
+static void viewer_refresh_streaming_telemetry(ViewerState *v,
+                                               int refresh_model_cache) {
+    if (!v) return;
+    ViewerStreamingTelemetry *telemetry = &v->telemetry;
+    telemetry->terrain_chunks_cpu = 0;
+    telemetry->terrain_chunks_gpu = 0;
+    telemetry->object_chunks_cpu = 0;
+    telemetry->object_chunks_gpu = 0;
+    telemetry->terrain_vertices_resident = 0;
+    telemetry->object_vertices_resident = 0;
+
+    ViewerTextureResidency textures = {0};
+    for (int plane = 0; plane < RC_MAX_PLANES; plane++) {
+        TerrainMesh *terrain = v->terrain_planes[plane];
+        if (terrain && terrain->loaded) {
+            telemetry->terrain_chunks_cpu++;
+            telemetry->terrain_chunks_gpu++;
+            telemetry->terrain_vertices_resident +=
+                (uint64_t)terrain->vertex_count;
+        }
+        ObjectMesh *objects = v->object_planes[plane];
+        if (objects && objects->loaded) {
+            telemetry->object_chunks_cpu++;
+            telemetry->object_chunks_gpu++;
+            telemetry->object_vertices_resident +=
+                (uint64_t)objects->total_vertex_count;
+            add_texture_residency(&textures, objects->atlas_texture);
+        }
+        add_texture_residency(&textures, v->object_chunk_atlas[plane]);
+        for (int i = 0; i < v->object_chunk_count[plane]; i++) {
+            ObjectMesh *chunk = v->object_chunks[plane][i].mesh;
+            if (!chunk || !chunk->loaded)
+                continue;
+            telemetry->object_chunks_cpu++;
+            telemetry->object_chunks_gpu++;
+            telemetry->object_vertices_resident +=
+                (uint64_t)chunk->total_vertex_count;
+            add_texture_residency(&textures, chunk->atlas_texture);
+        }
+    }
+
+    ModelSet *sets[] = {
+        v->player_model, v->npc_models, v->item_models,
+        v->projectile_models,
+    };
+    uint64_t model_bytes = 0;
+    for (size_t i = 0; i < sizeof(sets) / sizeof(sets[0]); i++) {
+        add_texture_residency(&textures,
+                              sets[i] ? sets[i]->atlas_texture
+                                      : (Texture2D){0});
+        if (refresh_model_cache)
+            model_bytes += model_set_resident_bytes(sets[i]);
+    }
+    for (int plane = 0; plane < RC_MAX_PLANES; plane++) {
+        ModelSet *set = v->object_anim_model_planes[plane];
+        add_texture_residency(&textures,
+                              set ? set->atlas_texture : (Texture2D){0});
+        if (refresh_model_cache)
+            model_bytes += model_set_resident_bytes(set);
+    }
+    if (refresh_model_cache && v->composed_player_loaded)
+        model_bytes += model_entry_resident_bytes(&v->composed_player_model);
+    if (refresh_model_cache)
+        telemetry->model_cache_mb = (double)model_bytes / (1024.0 * 1024.0);
+    telemetry->texture_cache_mb =
+        (double)textures.bytes / (1024.0 * 1024.0);
+
+    RcWorldStreamingTelemetry backend = {0};
+    if (rc_world_get_streaming_telemetry(v->world, &backend) > 0) {
+        telemetry->active_npcs = backend.active_npcs;
+        telemetry->active_ground_items = backend.active_ground_items;
+        telemetry->backend_pages_loaded = backend.backend_pages_loaded;
+        telemetry->backend_page_load_ms = backend.backend_page_load_ms;
+        telemetry->backend_active_area_load_ms = backend.active_area_load_ms;
+    }
+
+    int draw_calls = 0;
+    int scene_plane = viewer_scene_plane(v);
+    if (viewer_terrain_for_plane(v, scene_plane)) draw_calls++;
+    ObjectMesh *scene_objects = viewer_objects_for_plane(v, scene_plane);
+    if (scene_objects && scene_objects->loaded) {
+        draw_calls++;
+        draw_calls += scene_objects->object_anim_count;
+    }
+    for (int i = 0; i < v->object_chunk_count[scene_plane]; i++) {
+        ViewerObjectChunk *chunk = &v->object_chunks[scene_plane][i];
+        if (chunk->mesh && object_chunk_should_draw(v, chunk))
+            draw_calls++;
+    }
+    if (v->world) {
+        if (v->world->player.plane == scene_plane)
+            draw_calls++;
+        for (int i = 0; i < v->world->npc_count; i++)
+            if (v->world->npcs[i].active && !v->world->npcs[i].is_dead
+                    && v->world->npcs[i].plane == scene_plane)
+                draw_calls++;
+        for (int i = 0; i < v->world->ground_item_count; i++)
+            if (v->world->ground_items[i].active
+                    && v->world->ground_items[i].plane == scene_plane)
+                draw_calls++;
+    }
+    draw_calls += v->combat_projectile_count;
+    telemetry->draw_calls_estimate = draw_calls;
+}
+
+static void viewer_log_streaming_telemetry(ViewerState *v,
+                                           const char *reason) {
+    if (!v) return;
+    viewer_refresh_streaming_telemetry(v, 1);
+    const ViewerStreamingTelemetry *t = &v->telemetry;
+    fprintf(stderr,
+            "streaming telemetry [%s]: startup_ms=%.2f load_ms=%.2f "
+            "cpu_decode_ms=%.2f gpu_upload_ms=%.2f terrain_chunks=%d/%d "
+            "object_chunks=%d/%d vertices=%llu/%llu texture_mb=%.2f "
+            "model_mb=%.2f active_npcs=%d active_ground_items=%d "
+            "backend_pages=%d backend_page_ms=%.2f "
+            "backend_area_ms=%.2f draw_calls_est=%d\n",
+            reason ? reason : "snapshot", t->startup_ms,
+            t->scene_or_chunk_load_ms, t->cpu_decode_ms, t->gpu_upload_ms,
+            t->terrain_chunks_cpu, t->terrain_chunks_gpu,
+            t->object_chunks_cpu, t->object_chunks_gpu,
+            (unsigned long long)t->terrain_vertices_resident,
+            (unsigned long long)t->object_vertices_resident,
+            t->texture_cache_mb, t->model_cache_mb, t->active_npcs,
+            t->active_ground_items, t->backend_pages_loaded,
+            t->backend_page_load_ms, t->backend_active_area_load_ms,
+            t->draw_calls_estimate);
+}
+
+static double viewer_begin_streaming_load(ViewerState *v) {
+    if (v) {
+        v->pending_cpu_decode_ms = 0.0;
+        v->pending_gpu_upload_ms = 0.0;
+    }
+    return viewer_streaming_now_ms();
+}
+
+static void viewer_finish_streaming_load(ViewerState *v, double started_ms,
+                                         const char *reason, int log_snapshot) {
+    if (!v) return;
+    viewer_streaming_telemetry_record_load(
+        &v->telemetry, viewer_streaming_now_ms() - started_ms,
+        v->pending_cpu_decode_ms, v->pending_gpu_upload_ms);
+    if (log_snapshot)
+        viewer_log_streaming_telemetry(v, reason);
+}
+
 static void load_object_chunk_mesh(ViewerState *v, int plane,
                                    ViewerObjectChunk *chunk) {
     if (!v || !chunk || chunk->mesh)
         return;
+    if (loaded_object_chunk_count(v, plane) >= v->streaming.max_gpu_chunks)
+        return;
+    double load_started_ms = viewer_begin_streaming_load(v);
     Texture2D atlas = v->object_chunk_atlas_loaded[plane]
                     ? v->object_chunk_atlas[plane] : (Texture2D){0};
     chunk->mesh = objects_load_with_shared_atlas(chunk->path, atlas);
     if (!chunk->mesh)
         return;
+    v->pending_cpu_decode_ms += chunk->mesh->cpu_decode_ms;
+    v->pending_gpu_upload_ms += chunk->mesh->gpu_upload_ms;
     objects_offset(chunk->mesh, g_world_origin_x, g_world_origin_y);
     if (v->alpha_cutout_shader_static_loaded)
         objects_set_shader(chunk->mesh, v->alpha_cutout_shader_static);
+    viewer_finish_streaming_load(v, load_started_ms, "object-chunk", 0);
 }
 
 static void draw_object_chunks(ViewerState *v, int plane) {
@@ -898,6 +1124,8 @@ static int load_terrain_plane_asset(ViewerState *v, const char *path,
     plane = clamp_plane(plane);
     TerrainMesh *tm = terrain_load(path);
     if (!tm) return 0;
+    v->pending_cpu_decode_ms += tm->cpu_decode_ms;
+    v->pending_gpu_upload_ms += tm->gpu_upload_ms;
     terrain_offset(tm, g_world_origin_x, g_world_origin_y);
     terrain_free(v->terrain_planes[plane]);
     v->terrain_planes[plane] = tm;
@@ -917,6 +1145,8 @@ static int load_object_plane_asset(ViewerState *v, const char *path,
     if (plane == 0)
         v->objects = NULL;
     if (!om) return 0;
+    v->pending_cpu_decode_ms += om->cpu_decode_ms;
+    v->pending_gpu_upload_ms += om->gpu_upload_ms;
 
     objects_offset(om, g_world_origin_x, g_world_origin_y);
     if (v->alpha_cutout_shader_static_loaded)
@@ -1699,7 +1929,8 @@ static int ensure_scene_slice_plane_assets(ViewerState *v, int center_x,
         "timeout %d python3 tools/cache_pipeline/export_scene_slice.py "
         "--center-x %d --center-y %d --radius-regions %d "
         "--cache %s --output-prefix %s --planes %d",
-        timeout_seconds, center_x, center_y, v->scene_radius_regions,
+        timeout_seconds, center_x, center_y,
+        v->streaming.scene_radius_regions,
         cache_arg, prefix_arg, plane);
     if (n <= 0 || (size_t)n >= sizeof(cmd))
         return 0;
@@ -1737,12 +1968,16 @@ static int load_generated_scene_plane_assets(ViewerState *v,
 
     TerrainMesh *tm = terrain_load(terrain_path);
     if (tm) {
+        v->pending_cpu_decode_ms += tm->cpu_decode_ms;
+        v->pending_gpu_upload_ms += tm->gpu_upload_ms;
         terrain_offset(tm, g_world_origin_x, g_world_origin_y);
         v->terrain_planes[plane] = tm;
     }
 
     ObjectMesh *om = objects_load(objects_path);
     if (om) {
+        v->pending_cpu_decode_ms += om->cpu_decode_ms;
+        v->pending_gpu_upload_ms += om->gpu_upload_ms;
         objects_offset(om, g_world_origin_x, g_world_origin_y);
         if (v->alpha_cutout_shader_static_loaded)
             objects_set_shader(om, v->alpha_cutout_shader_static);
@@ -1804,7 +2039,8 @@ static int activate_core_area_for_scene_bounds(ViewerState *v) {
         fprintf(stderr,
                 "core active area: origin=%d,%d size=%dx%d collision=%d"
                 " npc_rows=%d matched=%d spawned=%d planes=[%d,%d,%d,%d]"
-                " ground_item_rows=%d matched=%d spawned=%d\n",
+                " ground_item_rows=%d matched=%d spawned=%d"
+                " backend_pages=%d page_load_ms=%.2f area_load_ms=%.2f\n",
                 stats.active_area.origin_x, stats.active_area.origin_y,
                 stats.active_area.width, stats.active_area.height,
                 stats.collision_regions, stats.npc_stats.total_rows,
@@ -1815,7 +2051,10 @@ static int activate_core_area_for_scene_bounds(ViewerState *v) {
                 stats.npc_stats.spawned_plane_counts[3],
                 stats.ground_item_stats.total_rows,
                 stats.ground_item_stats.matched_filter,
-                stats.ground_item_stats.spawned);
+                stats.ground_item_stats.spawned,
+                stats.streaming.backend_pages_loaded,
+                stats.streaming.backend_page_load_ms,
+                stats.streaming.active_area_load_ms);
         if (v->npc_models || v->npc_anims || v->npc_fallback_anims)
             reload_npc_models_for_scene(v);
         return 1;
@@ -1867,18 +2106,26 @@ static int reload_scene_around_player(ViewerState *v, int center_x,
                                       int center_y) {
     if (!v || !v->world)
         return 0;
-    if (scene_tile_in_initial_scene(v, center_x, center_y))
-        return reload_initial_scene(v);
+    double load_started_ms = viewer_begin_streaming_load(v);
+    if (scene_tile_in_initial_scene(v, center_x, center_y)) {
+        int loaded = reload_initial_scene(v);
+        if (loaded)
+            viewer_finish_streaming_load(v, load_started_ms,
+                                         "scene-reload", 1);
+        return loaded;
+    }
 
     int origin_x, origin_y, world_w, world_h;
-    scene_bounds_for_tile(center_x, center_y, v->scene_radius_regions,
+    scene_bounds_for_tile(center_x, center_y,
+                          v->streaming.scene_radius_regions,
                           &origin_x, &origin_y, &world_w, &world_h);
 
     const char *dir = env_path("RUNEC_SCENE_CACHE_DIR",
                                "data/regions/scene_cache");
     char prefix[1024];
     int n = snprintf(prefix, sizeof(prefix), "%s/scene_%d_%d_r%d",
-                     dir, origin_x, origin_y, v->scene_radius_regions);
+                     dir, origin_x, origin_y,
+                     v->streaming.scene_radius_regions);
     if (n <= 0 || (size_t)n >= sizeof(prefix))
         return 0;
     int required_plane = clamp_plane(v->world->player.plane);
@@ -1914,6 +2161,7 @@ static int reload_scene_around_player(ViewerState *v, int center_x,
                 "collision and NPC slice are active\n",
                 g_world_origin_x, g_world_origin_y, g_world_w, g_world_h);
     }
+    viewer_finish_streaming_load(v, load_started_ms, "scene-reload", 1);
     return 1;
 }
 
@@ -1966,12 +2214,12 @@ static int generated_scene_prefix_for_start(ViewerState *v, char *out,
         return 0;
     int ox = 0, oy = 0, ww = 0, wh = 0;
     scene_bounds_for_tile(g_player_start_x, g_player_start_y,
-                          v->startup_scene_radius_regions, &ox, &oy, &ww,
+                          v->streaming.preload_radius_regions, &ox, &oy, &ww,
                           &wh);
     const char *dir = env_path("RUNEC_SCENE_CACHE_DIR",
                                "data/regions/scene_cache");
     int n = snprintf(out, cap, "%s/scene_%d_%d_r%d", dir, ox, oy,
-                     v->startup_scene_radius_regions);
+                     v->streaming.preload_radius_regions);
     if (n <= 0 || (size_t)n >= cap)
         return 0;
     if (origin_x) *origin_x = ox;
@@ -1995,7 +2243,7 @@ static void print_generated_scene_hint(ViewerState *v, const char *prefix,
             "--center-y %d --radius-regions %d --output-prefix %s "
             "--planes 0,1,2,3\n",
             g_player_start_x, g_player_start_y,
-            v->startup_scene_radius_regions,
+            v->streaming.preload_radius_regions,
             prefix);
 }
 
@@ -2065,12 +2313,19 @@ static int load_startup_scene(ViewerState *v, ViewerSceneMode mode,
                               const char *fixed_objects) {
     if (!v)
         return 0;
-    if (mode == VIEWER_SCENE_MODE_GENERATED)
-        return load_generated_startup_scene(v, 1);
-    if (mode == VIEWER_SCENE_MODE_AUTO
-            && load_generated_startup_scene(v, 0))
-        return 1;
-    return load_fixed_startup_scene(v, fixed_terrain, fixed_objects);
+    double load_started_ms = viewer_begin_streaming_load(v);
+    int loaded = 0;
+    if (mode == VIEWER_SCENE_MODE_GENERATED) {
+        loaded = load_generated_startup_scene(v, 1);
+    } else if (mode == VIEWER_SCENE_MODE_AUTO
+            && load_generated_startup_scene(v, 0)) {
+        loaded = 1;
+    } else {
+        loaded = load_fixed_startup_scene(v, fixed_terrain, fixed_objects);
+    }
+    if (loaded)
+        viewer_finish_streaming_load(v, load_started_ms, "startup-scene", 1);
+    return loaded;
 }
 
 static const char *startup_npc_models_path(ViewerState *v) {
@@ -2100,7 +2355,7 @@ static const char *startup_npc_models_path(ViewerState *v) {
 
     const char *candidate = "data/models/npcs_varrock_bank.models";
     if (v && v->active_scene_prefix[0]
-            && v->startup_scene_radius_regions == 0
+            && v->streaming.preload_radius_regions == 0
             && g_player_start_x == DEFAULT_PLAYER_START_X
             && g_player_start_y == DEFAULT_PLAYER_START_Y
             && rc_asset_exists(candidate)) {
@@ -2115,6 +2370,7 @@ static void ensure_active_scene_plane(ViewerState *v, int plane) {
     plane = clamp_plane(plane);
     if (v->terrain_planes[plane] || v->object_planes[plane])
         return;
+    double load_started_ms = viewer_begin_streaming_load(v);
 
     if (!v->active_scene_prefix[0] && v->initial_scene_ready) {
         char terrain_path[1024];
@@ -2135,8 +2391,11 @@ static void ensure_active_scene_plane(ViewerState *v, int plane) {
             else
                 loaded |= load_object_plane_asset(v, objects_path, plane);
         }
-        if (loaded)
+        if (loaded) {
             build_minimap_tiles(v);
+            viewer_finish_streaming_load(v, load_started_ms,
+                                         "scene-plane", 1);
+        }
         return;
     }
 
@@ -2148,8 +2407,10 @@ static void ensure_active_scene_plane(ViewerState *v, int plane) {
                                          v->active_scene_prefix, plane)) {
         return;
     }
-    if (load_generated_scene_plane_assets(v, v->active_scene_prefix, plane))
+    if (load_generated_scene_plane_assets(v, v->active_scene_prefix, plane)) {
         build_minimap_tiles(v);
+        viewer_finish_streaming_load(v, load_started_ms, "scene-plane", 1);
+    }
 }
 
 static void viewer_sync_dev_transport_labels(RuneCUiState *ui) {
@@ -6664,31 +6925,102 @@ static void draw_scene(ViewerState *v) {
     }
 }
 
+static void draw_streaming_telemetry_overlay(ViewerState *v) {
+    if (!v || !v->telemetry_overlay)
+        return;
+    viewer_refresh_streaming_telemetry(v, 0);
+    const ViewerStreamingTelemetry *t = &v->telemetry;
+    char lines[7][160];
+    snprintf(lines[0], sizeof(lines[0]),
+             "Streaming  startup %.1f ms  last load %.1f ms",
+             t->startup_ms, t->scene_or_chunk_load_ms);
+    snprintf(lines[1], sizeof(lines[1]),
+             "Decode %.1f ms  upload %.1f ms  loads %llu",
+             t->cpu_decode_ms, t->gpu_upload_ms,
+             (unsigned long long)t->scene_load_count);
+    snprintf(lines[2], sizeof(lines[2]),
+             "Terrain %d/%d  vertices %llu",
+             t->terrain_chunks_cpu, t->terrain_chunks_gpu,
+             (unsigned long long)t->terrain_vertices_resident);
+    snprintf(lines[3], sizeof(lines[3]),
+             "Objects %d/%d  vertices %llu",
+             t->object_chunks_cpu, t->object_chunks_gpu,
+             (unsigned long long)t->object_vertices_resident);
+    snprintf(lines[4], sizeof(lines[4]),
+             "Texture %.1f MB  model %.1f MB",
+             t->texture_cache_mb, t->model_cache_mb);
+    snprintf(lines[5], sizeof(lines[5]),
+             "NPCs %d  ground items %d  draws ~%d",
+             t->active_npcs, t->active_ground_items,
+             t->draw_calls_estimate);
+    snprintf(lines[6], sizeof(lines[6]),
+             "Backend pages %d  page %.1f ms  area %.1f ms",
+             t->backend_pages_loaded, t->backend_page_load_ms,
+             t->backend_active_area_load_ms);
+
+    const int x = 8;
+    const int y = 8;
+    const int width = 390;
+    const int line_height = 15;
+    const int height = 8 + 7 * line_height;
+    DrawRectangle(x, y, width, height, (Color){18, 20, 24, 220});
+    DrawRectangleLines(x, y, width, height, (Color){120, 126, 136, 230});
+    for (int i = 0; i < 7; i++)
+        DrawText(lines[i], x + 7, y + 5 + i * line_height, 12, RAYWHITE);
+}
+
 int main(int argc, char **argv) {
     (void)argc;
+    double startup_started_ms = viewer_streaming_now_ms();
     ViewerState v = {0};
     int exit_status = 0;
+    v.streaming = viewer_streaming_config_default();
+    v.streaming.scene_radius_regions = env_int_compat(
+        "RUNEC_VIEWER_SCENE_RADIUS_REGIONS", "RUNEC_VIEWER_DRAW_RADIUS",
+        "RUNEC_SCENE_RADIUS_REGIONS", v.streaming.scene_radius_regions);
+    v.streaming.preload_radius_regions = env_int_compat(
+        "RUNEC_VIEWER_PRELOAD_RADIUS", "RUNEC_VIEWER_PRELOAD_RADIUS_REGIONS",
+        "RUNEC_STARTUP_SCENE_RADIUS_REGIONS",
+        v.streaming.preload_radius_regions);
+    v.streaming.max_gpu_chunks = env_int(
+        "RUNEC_VIEWER_MAX_GPU_CHUNKS", v.streaming.max_gpu_chunks);
+    v.streaming.max_cpu_chunks = env_int(
+        "RUNEC_VIEWER_MAX_CPU_CHUNKS", v.streaming.max_cpu_chunks);
+    v.streaming.upload_budget_mb_per_frame = env_int(
+        "RUNEC_VIEWER_UPLOAD_BUDGET_MB_PER_FRAME",
+        v.streaming.upload_budget_mb_per_frame);
+    viewer_streaming_config_sanitize(&v.streaming);
+    v.telemetry_overlay = env_bool("RUNEC_VIEWER_TELEMETRY_OVERLAY", 0);
+
+    RcWorldStreamingConfig backend_streaming =
+        rc_world_streaming_config_default();
+    backend_streaming.active_radius_regions = env_int(
+        "RUNEC_WORLD_ACTIVE_RADIUS_REGIONS",
+        backend_streaming.active_radius_regions);
+    backend_streaming.preload_radius_regions = env_int(
+        "RUNEC_WORLD_PRELOAD_RADIUS_REGIONS",
+        backend_streaming.preload_radius_regions);
+    backend_streaming.max_cached_regions = env_int(
+        "RUNEC_WORLD_MAX_CACHED_REGIONS",
+        backend_streaming.max_cached_regions);
+    rc_world_streaming_config_sanitize(&backend_streaming);
+
     v.scene_plane_override = env_int("RUNEC_SCENE_PLANE", -1);
     v.minimap_tiles_plane = -1;
     g_world_origin_x = env_int("RUNEC_WORLD_ORIGIN_X", DEFAULT_WORLD_ORIGIN_X);
     g_world_origin_y = env_int("RUNEC_WORLD_ORIGIN_Y", DEFAULT_WORLD_ORIGIN_Y);
     g_player_start_x = env_int("RUNEC_PLAYER_START_X", DEFAULT_PLAYER_START_X);
     g_player_start_y = env_int("RUNEC_PLAYER_START_Y", DEFAULT_PLAYER_START_Y);
-    g_world_w = env_int("RUNEC_WORLD_W", DEFAULT_WORLD_W);
-    g_world_h = env_int("RUNEC_WORLD_H", DEFAULT_WORLD_H);
+    int default_world_side =
+        (backend_streaming.active_radius_regions * 2 + 1) * RC_REGION_SIZE;
+    g_world_w = env_int("RUNEC_WORLD_W", default_world_side);
+    g_world_h = env_int("RUNEC_WORLD_H", default_world_side);
     v.scene_auto_export = env_bool("RUNEC_SCENE_AUTO_EXPORT",
                                    viewer_default_scene_auto_export());
-    v.scene_radius_regions = env_int("RUNEC_SCENE_RADIUS_REGIONS", 1);
-    v.startup_scene_radius_regions =
-        env_int("RUNEC_STARTUP_SCENE_RADIUS_REGIONS", 0);
     v.preload_scene_planes = env_bool("RUNEC_PRELOAD_SCENE_PLANES", 0);
     v.object_chunk_size = env_int("RUNEC_OBJECT_CHUNK_SIZE", 64);
     v.object_chunk_draw_radius =
         env_float("RUNEC_OBJECT_CHUNK_DRAW_RADIUS", 180.0f);
-    if (v.scene_radius_regions < 0)
-        v.scene_radius_regions = 0;
-    if (v.startup_scene_radius_regions < 0)
-        v.startup_scene_radius_regions = 0;
     if (v.object_chunk_size <= 0)
         v.object_chunk_size = 64;
     if (!runtime_data_available())
@@ -6711,6 +7043,7 @@ int main(int argc, char **argv) {
         "data/defs/combat_visuals.tsv");
 
     RcWorldConfig cfg = rc_preset_base_only();
+    cfg.streaming = backend_streaming;
     cfg.subsystems = RC_SUB_INVENTORY | RC_SUB_EQUIPMENT | RC_SUB_LOOT |
                      RC_SUB_COMBAT | RC_SUB_PRAYER | RC_SUB_OBJECTS |
                      RC_SUB_REGIONS | RC_SUB_TRAVERSAL | RC_SUB_STORAGE |
@@ -6752,6 +7085,19 @@ int main(int argc, char **argv) {
     cfg.traversal_edges_path = env_path("RUNEC_TRAVERSAL_EDGES",
         "data/defs/traversal_edges.bin");
     cfg.seed = 12345;
+    fprintf(stderr,
+            "backend streaming config: active_radius=%d preload_radius=%d "
+            "max_cached_regions=%d\n",
+            cfg.streaming.active_radius_regions,
+            cfg.streaming.preload_radius_regions,
+            cfg.streaming.max_cached_regions);
+    fprintf(stderr,
+            "viewer streaming config: scene_radius=%d preload_radius=%d "
+            "max_cpu_chunks=%d max_gpu_chunks=%d upload_budget_mb=%d\n",
+            v.streaming.scene_radius_regions,
+            v.streaming.preload_radius_regions,
+            v.streaming.max_cpu_chunks, v.streaming.max_gpu_chunks,
+            v.streaming.upload_budget_mb_per_frame);
     v.world = rc_world_create_config(&cfg);
     if (!v.world) { fprintf(stderr, "Failed to create world\n"); return 1; }
     runec_npc_render_defs_load(&v.npc_render_defs, cfg.npc_defs_path);
@@ -6786,6 +7132,8 @@ int main(int argc, char **argv) {
             rc_world_destroy(v.world);
             return 1;
         }
+        v.telemetry.startup_ms = viewer_streaming_now_ms() - startup_started_ms;
+        viewer_log_streaming_telemetry(&v, "startup-smoke");
         fprintf(stderr,
                 "viewer smoke: PASS backend=%s combat_visuals=%d npcs=%d\n",
                 env_path("RUNEC_ASSET_BACKEND", "auto"),
@@ -6861,8 +7209,8 @@ int main(int argc, char **argv) {
             "stream_radius=%d object_chunk_radius=%.1f\n",
             viewer_scene_mode_name(scene_mode),
             v.scene_auto_export ? "on" : "off",
-            v.startup_scene_radius_regions,
-            v.scene_radius_regions,
+            v.streaming.preload_radius_regions,
+            v.streaming.scene_radius_regions,
             v.object_chunk_draw_radius);
     if (!load_startup_scene(&v, scene_mode, initial_terrain,
                             initial_objects)) {
@@ -6980,6 +7328,8 @@ int main(int argc, char **argv) {
     fprintf(stderr, "Viewer ready. Player at world (%d, %d), local (%d, %d)\n",
             v.world->player.x, v.world->player.y,
             LOCAL_X(v.world->player.x), LOCAL_Y(v.world->player.y));
+    v.telemetry.startup_ms = viewer_streaming_now_ms() - startup_started_ms;
+    viewer_log_streaming_telemetry(&v, "startup-ready");
 
     const char *dev_transport_dest = getenv("RUNEC_DEV_TRANSPORT_DEST");
     const RuneCDevTransport *dev_transport =
@@ -7210,6 +7560,7 @@ int main(int argc, char **argv) {
         sync_ui_minimap(&v);
         runec_ui_draw(&v.ui, GetScreenWidth(), GetScreenHeight());
         draw_hover_action_label(&v, ui_capture);
+        draw_streaming_telemetry_overlay(&v);
         EndDrawing();
         if (screenshot_path && screenshot_path[0] && !screenshot_taken) {
             Image screenshot = LoadImageFromScreen();

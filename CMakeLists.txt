@@ -129,3 +129,12 @@ if(TARGET test_objects_runtime)
         rc-viewer/object_action_visuals.c
     )
 endif()
+
+if(TARGET test_streaming_config)
+    target_sources(test_streaming_config PRIVATE
+        rc-viewer/streaming.c
+    )
+    target_include_directories(test_streaming_config PRIVATE
+        rc-viewer
+    )
+endif()

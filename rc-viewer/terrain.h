@@ -6,6 +6,7 @@
 #define RC_TERRAIN_H
 
 #include "../rc-core/io.h"
+#include "streaming.h"
 #include "raylib.h"
 #include <math.h>
 #include <stdio.h>
@@ -16,6 +17,8 @@
 typedef struct {
     Model model;
     int vertex_count;
+    double cpu_decode_ms;
+    double gpu_upload_ms;
     int min_world_x, min_world_y;
     int loaded;
     float *heightmap;
@@ -25,6 +28,7 @@ typedef struct {
 static void terrain_free(TerrainMesh *tm);
 
 static TerrainMesh *terrain_load(const char *path) {
+    double load_started_ms = viewer_streaming_now_ms();
     FILE *f = rc_asset_fopen(path, "rb");
     if (!f) { fprintf(stderr, "terrain_load: can't open %s\n", path); return NULL; }
 
@@ -81,11 +85,16 @@ static TerrainMesh *terrain_load(const char *path) {
             mesh.normals[i*9+v*3] = nx; mesh.normals[i*9+v*3+1] = ny; mesh.normals[i*9+v*3+2] = nz;
         }
     }
+    double gpu_upload_started_ms = viewer_streaming_now_ms();
     UploadMesh(&mesh, false);
+    Model model = LoadModelFromMesh(mesh);
+    double gpu_upload_finished_ms = viewer_streaming_now_ms();
 
     TerrainMesh *tm = calloc(1, sizeof(TerrainMesh));
-    tm->model = LoadModelFromMesh(mesh);
+    tm->model = model;
     tm->vertex_count = (int)vert_count;
+    tm->cpu_decode_ms = gpu_upload_started_ms - load_started_ms;
+    tm->gpu_upload_ms = gpu_upload_finished_ms - gpu_upload_started_ms;
     tm->min_world_x = min_wx;
     tm->min_world_y = min_wy;
     tm->loaded = 1;

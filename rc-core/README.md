@@ -105,6 +105,7 @@ equipment + inventory + consumables + encounter**. Nothing else.
 ```c
 typedef struct {
     uint32_t subsystems;     // bitmask: RC_SUB_COMBAT | RC_SUB_PRAYER | ...
+    RcWorldStreamingConfig streaming;
     const char *npc_defs_path;
     const char *items_path;
     // ...asset paths loaded only by enabled owning subsystems
@@ -132,12 +133,22 @@ RcActiveAreaRequest req = {
 rc_world_activate_area(world, &req, NULL);
 ```
 
+Every preset carries the same initial streaming policy: an active radius of
+two regions, a preload radius of three regions, and a 64-region cache limit.
+PR 1 records this policy without changing the request-driven activation path;
+later paging work will consume the preload and cache limits.
+
 `rc_world_activate_area` populates `RcWorld.map` from `collision_tiles.bin`,
 clears/reloads the active NPC spawn slice from `world.npc-spawns.bin`, and
 records the active area generation on `RcWorld`. The viewer and headless agents
 use the same API before issuing gameplay actions. Scenario/dev validation code
 that needs a guaranteed target uses `rc_world_ensure_npc_near`; presentation
 frontends should not resolve NPC definitions or mutate `world->npcs` directly.
+
+`rc_world_get_streaming_telemetry` returns the latest collision-page and full
+active-area timings, loaded page count, active NPC count, and active ground-item
+count. Measurement is confined to area activation and does not add work to the
+tick path.
 
 Object interactions that originate from placed scene data should pass the
 placement key into core. Placement-key APIs make dynamic loc state local to one

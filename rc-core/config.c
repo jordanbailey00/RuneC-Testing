@@ -41,6 +41,27 @@
 #define DEFAULT_ENCOUNTERS  "content/encounters"
 #define DEFAULT_ENCOUNT_BIN "data/defs/encounters.bin"
 
+RcWorldStreamingConfig rc_world_streaming_config_default(void) {
+    return (RcWorldStreamingConfig){
+        .active_radius_regions = RC_WORLD_STREAMING_DEFAULT_ACTIVE_RADIUS,
+        .preload_radius_regions = RC_WORLD_STREAMING_DEFAULT_PRELOAD_RADIUS,
+        .max_cached_regions = RC_WORLD_STREAMING_DEFAULT_MAX_CACHED_REGIONS,
+    };
+}
+
+void rc_world_streaming_config_sanitize(RcWorldStreamingConfig *config) {
+    if (!config) return;
+    RcWorldStreamingConfig defaults = rc_world_streaming_config_default();
+    if (config->active_radius_regions < 0)
+        config->active_radius_regions = defaults.active_radius_regions;
+    if (config->preload_radius_regions < 0)
+        config->preload_radius_regions = defaults.preload_radius_regions;
+    if (config->preload_radius_regions < config->active_radius_regions)
+        config->preload_radius_regions = config->active_radius_regions;
+    if (config->max_cached_regions <= 0)
+        config->max_cached_regions = defaults.max_cached_regions;
+}
+
 RcWorldConfig rc_preset_full_game(void) {
     return (RcWorldConfig){
         .subsystems = RC_SUB_COMBAT | RC_SUB_PRAYER | RC_SUB_EQUIPMENT
@@ -50,6 +71,7 @@ RcWorldConfig rc_preset_full_game(void) {
                     | RC_SUB_OBJECTS | RC_SUB_REGIONS | RC_SUB_STORAGE
                     | RC_SUB_TRAVERSAL,
         .seed            = 0,
+        .streaming       = rc_world_streaming_config_default(),
         .regions_dir     = DEFAULT_REGIONS,
         .npc_defs_path   = DEFAULT_NPC_DEFS,
         .spawns_path     = DEFAULT_SPAWNS,
@@ -95,6 +117,7 @@ RcWorldConfig rc_preset_combat_only(void) {
                     | RC_SUB_INVENTORY | RC_SUB_CONSUMABLES
                     | RC_SUB_ENCOUNTER,
         .seed            = 0,
+        .streaming       = rc_world_streaming_config_default(),
         .regions_dir     = DEFAULT_REGIONS,
         .npc_defs_path   = DEFAULT_NPC_DEFS,
         .spawns_path     = DEFAULT_SPAWNS,
@@ -119,6 +142,7 @@ RcWorldConfig rc_preset_skilling_only(void) {
         .subsystems = RC_SUB_SKILLS | RC_SUB_INVENTORY | RC_SUB_EQUIPMENT
                     | RC_SUB_OBJECTS | RC_SUB_REGIONS | RC_SUB_TRAVERSAL,
         .seed            = 0,
+        .streaming       = rc_world_streaming_config_default(),
         .regions_dir     = DEFAULT_REGIONS,
         .npc_defs_path   = DEFAULT_NPC_DEFS,
         .spawns_path     = DEFAULT_SPAWNS,
@@ -144,6 +168,7 @@ RcWorldConfig rc_preset_base_only(void) {
     return (RcWorldConfig){
         .subsystems      = 0,
         .seed            = 0,
+        .streaming       = rc_world_streaming_config_default(),
         .regions_dir     = DEFAULT_REGIONS,
         .npc_defs_path   = DEFAULT_NPC_DEFS,
         .spawns_path     = DEFAULT_SPAWNS,

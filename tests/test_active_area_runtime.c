@@ -77,6 +77,19 @@ int main(void) {
     assert(world != NULL);
     assert(g_npc_def_count > 10000);
     assert(rc_collision_is_loaded());
+    assert(rc_world_get_streaming_config(NULL) == NULL);
+
+    const RcWorldStreamingConfig *streaming =
+        rc_world_get_streaming_config(world);
+    assert(streaming != NULL);
+    assert(streaming->active_radius_regions == 2);
+    assert(streaming->preload_radius_regions == 3);
+    assert(streaming->max_cached_regions == 64);
+    RcWorldStreamingTelemetry telemetry;
+    assert(rc_world_get_streaming_telemetry(NULL, &telemetry) == -1);
+    assert(rc_world_get_streaming_telemetry(world, NULL) == -1);
+    assert(rc_world_get_streaming_telemetry(world, &telemetry) == 1);
+    assert(telemetry.active_area_load_count == 0);
 
     RcActiveAreaRequest bad = {0};
     assert(rc_world_activate_area(world, &bad, NULL) == -1);
@@ -100,6 +113,12 @@ int main(void) {
     assert(stats.npc_stats.total_rows == 24110);
     assert(stats.npc_stats.matched_filter == 840);
     assert(stats.spawned_npcs == 837);
+    assert(stats.streaming.active_area_load_count == 1);
+    assert(stats.streaming.active_area_load_ms >= 0.0);
+    assert(stats.streaming.backend_page_load_ms >= 0.0);
+    assert(stats.streaming.backend_pages_loaded == stats.collision_regions);
+    assert(stats.streaming.active_npcs == 837);
+    assert(stats.streaming.active_ground_items == 0);
     assert(world->npc_count == 837);
     assert(world->active_area.active);
     const RcActiveArea *active = rc_world_get_active_area(world);
@@ -141,6 +160,9 @@ int main(void) {
     assert(rc_world_activate_area(world, &req, &stats) == 1);
     assert(world->active_area.generation == first_gen + 1);
     assert(world->npc_count == 837);
+    assert(stats.streaming.active_area_load_count == 2);
+    assert(stats.streaming.active_area_load_total_ms
+           >= stats.streaming.active_area_load_ms);
 
     RcActiveAreaRequest collision_only = req;
     collision_only.origin_x = 3200;
@@ -173,6 +195,7 @@ int main(void) {
     assert(stats.ground_item_stats.skipped_filtered == 1);
     assert(stats.ground_item_stats.spawned == 2);
     assert(stats.spawned_ground_items == 2);
+    assert(stats.streaming.active_ground_items == 1);
     assert(active_ground_items(world, 1) == 1);
     assert(world->ground_items[0].active);
     assert(world->ground_items[0].static_spawn);
@@ -187,6 +210,8 @@ int main(void) {
     assert(active_ground_items(world, 1) == 0);
     assert(active_ground_items(world, 0) == 1);
     assert(!world->ground_items[1].static_spawn);
+    assert(rc_world_get_streaming_telemetry(world, &telemetry) == 1);
+    assert(telemetry.active_ground_items == 1);
     remove(STATIC_GROUND_ITEM_TEST_PATH);
 
     RcActiveAreaRequest stronghold = req;

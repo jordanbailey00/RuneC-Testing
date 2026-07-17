@@ -6,6 +6,7 @@
 #define RC_VIEWER_OBJECTS_H
 
 #include "../rc-core/io.h"
+#include "streaming.h"
 #include "raylib.h"
 #include "rlgl.h"
 #include <math.h>
@@ -61,6 +62,8 @@ typedef struct {
     ObjectAnimRow *object_anims;
     int object_anim_count;
     int total_vertex_count;
+    double cpu_decode_ms;
+    double gpu_upload_ms;
     int min_world_x, min_world_y;
     int has_textures;
     int owns_atlas_texture;
@@ -334,6 +337,7 @@ static void objects_update_texture_anims(ObjectMesh *om, float dt) {
 static ObjectMesh *objects_load_with_resources(const char *path,
                                                const char *atlas_override,
                                                Texture2D shared_atlas) {
+    double load_started_ms = viewer_streaming_now_ms();
     int vertex_limit = objects_vertex_limit();
     if (objects_skip_oversized_asset(path, vertex_limit))
         return NULL;
@@ -420,11 +424,16 @@ static ObjectMesh *objects_load_with_resources(const char *path,
             mesh.normals[i*9+v*3] = nx; mesh.normals[i*9+v*3+1] = ny; mesh.normals[i*9+v*3+2] = nz;
         }
     }
+    double gpu_upload_started_ms = viewer_streaming_now_ms();
     UploadMesh(&mesh, false);
+    Model model = LoadModelFromMesh(mesh);
+    double gpu_upload_finished_ms = viewer_streaming_now_ms();
 
     ObjectMesh *om = calloc(1, sizeof(ObjectMesh));
-    om->model = LoadModelFromMesh(mesh);
+    om->model = model;
     om->total_vertex_count = (int)total_verts;
+    om->cpu_decode_ms = gpu_upload_started_ms - load_started_ms;
+    om->gpu_upload_ms = gpu_upload_finished_ms - gpu_upload_started_ms;
     om->min_world_x = min_wx;
     om->min_world_y = min_wy;
     om->has_textures = has_tex;

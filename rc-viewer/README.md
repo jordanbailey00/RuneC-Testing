@@ -43,6 +43,9 @@ presentation responsibilities.
   - visual scene selection/generation followed by backend active-area
     activation through `rc_world_activate_area`
   - world ticking for the current viewer path
+- `streaming.c` / `streaming.h`
+  - viewer streaming defaults and load telemetry counters
+  - monotonic scene/chunk timing independent of the render implementation
 - `ui.c` / `ui.h`
   - cache-sprite-backed OSRS viewer UI shell
   - clickable chatbox, minimap/orbs, tabs, inventory/equipment panels,
@@ -114,6 +117,13 @@ presentation responsibilities.
   - `RUNEC_WORLD_ORIGIN_X`, `RUNEC_WORLD_ORIGIN_Y`,
     `RUNEC_WORLD_W`, `RUNEC_WORLD_H`
   - `RUNEC_PLAYER_START_X`, `RUNEC_PLAYER_START_Y`
+  - `RUNEC_WORLD_ACTIVE_RADIUS_REGIONS`,
+    `RUNEC_WORLD_PRELOAD_RADIUS_REGIONS`,
+    `RUNEC_WORLD_MAX_CACHED_REGIONS`
+  - `RUNEC_VIEWER_SCENE_RADIUS_REGIONS`, `RUNEC_VIEWER_PRELOAD_RADIUS`,
+    `RUNEC_VIEWER_MAX_CPU_CHUNKS`, `RUNEC_VIEWER_MAX_GPU_CHUNKS`,
+    `RUNEC_VIEWER_UPLOAD_BUDGET_MB_PER_FRAME`
+  - `RUNEC_VIEWER_TELEMETRY_OVERLAY=1` for the opt-in streaming overlay
   - `RUNEC_DEV_VALIDATION`, `RUNEC_DEV_BANK_DUMMY`,
     `RUNEC_DEV_TRANSPORT_DEST`, `RUNEC_DEV_BOSS_ATTACKS`
 - Those runtime assets are expected to be local in the RuneC working tree
@@ -125,6 +135,19 @@ presentation responsibilities.
   the local `data/` tree.
 - It links both `rc-core` and `rc-content`, but it should still behave
   as a presentation shell rather than a second gameplay engine.
+
+The PR 1 viewer defaults preserve current behavior: scene radius 1, startup
+preload radius 0, CPU/GPU chunk caps 128, and a declared 16 MB upload budget.
+The upload budget is telemetry/configuration only until the asynchronous upload
+path is implemented. Existing `RUNEC_SCENE_RADIUS_REGIONS` and
+`RUNEC_STARTUP_SCENE_RADIUS_REGIONS` overrides remain accepted.
+
+Streaming telemetry logs startup and scene/active-area changes. It reports
+decode/upload time, resident scene chunks and vertices, deduplicated texture
+memory, estimated model memory and draw calls, active actors/items, and backend
+page timings. CPU and GPU chunk counts are currently equal because current
+loaders decode and upload synchronously; later chunk-cache work will separate
+them.
 
 ## Why it exists
 

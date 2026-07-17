@@ -30,12 +30,25 @@ enum {
     RC_SUB_TRAVERSAL    = 1u << 15,   // traversal edges/teleports
 };
 
+enum {
+    RC_WORLD_STREAMING_DEFAULT_ACTIVE_RADIUS = 2,
+    RC_WORLD_STREAMING_DEFAULT_PRELOAD_RADIUS = 3,
+    RC_WORLD_STREAMING_DEFAULT_MAX_CACHED_REGIONS = 64,
+};
+
+typedef struct {
+    int active_radius_regions;
+    int preload_radius_regions;
+    int max_cached_regions;
+} RcWorldStreamingConfig;
+
 // World configuration — consumed exactly once at rc_world_create().
 // After that, no config-driven branching on the tick path; only the
 // base tick dispatcher does a cache-resident bitmask-AND.
 typedef struct {
     uint32_t subsystems;             // bitmask of RC_SUB_*
     uint32_t seed;                   // deterministic RNG seed
+    RcWorldStreamingConfig streaming;
 
     // Asset paths. rc_world_create_config() loads each path only when
     // its owning subsystem/shared user group is enabled. Disabled
@@ -78,6 +91,9 @@ typedef struct {
     const char *encounters_dir;      // RC_SUB_ENCOUNTER: TOML dir (pass 2)
     const char *encounters_path;     // RC_SUB_ENCOUNTER: encounters.bin
 } RcWorldConfig;
+
+RcWorldStreamingConfig rc_world_streaming_config_default(void);
+void rc_world_streaming_config_sanitize(RcWorldStreamingConfig *config);
 
 // Config presets. Use these instead of zero-initialising; the
 // presets set sane defaults for the asset paths you typically want.

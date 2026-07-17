@@ -32,6 +32,14 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
+
+static double monotonic_ms(void) {
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+        return 0.0;
+    return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1000000.0;
+}
 
 static void copy_world_path(char *dst, size_t cap, const char *src) {
     if (!dst || cap == 0) return;
@@ -149,6 +157,8 @@ RcWorld *rc_world_create_with_data(RcGameData *data,
     world->rng_state = cfg->seed;
     world->tick = 0;
     world->enabled = cfg->subsystems;
+    world->streaming = cfg->streaming;
+    rc_world_streaming_config_sanitize(&world->streaming);
     copy_world_path(world->npc_spawns_path, sizeof(world->npc_spawns_path),
                     cfg->spawns_path);
 
@@ -229,11 +239,29 @@ static void clear_active_npcs(RcWorld *world) {
     world->npc_count = 0;
 }
 
+static int active_npc_count(const RcWorld *world) {
+    int count = 0;
+    for (int i = 0; world && i < world->npc_count; i++)
+        if (world->npcs[i].active)
+            count++;
+    return count;
+}
+
+static int active_ground_item_count(const RcWorld *world) {
+    int count = 0;
+    for (int i = 0; world && i < world->ground_item_count; i++)
+        if (world->ground_items[i].active)
+            count++;
+    return count;
+}
+
 int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
                            RcActiveAreaStats *stats) {
     if (stats) memset(stats, 0, sizeof(*stats));
     if (!world || !valid_active_area_request(request))
         return -1;
+
+    double area_load_started_ms = monotonic_ms();
 
     uint32_t flags = request->flags;
     if (flags == 0) {
@@ -248,10 +276,13 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
     int max_y = request->origin_y + request->height - 1;
 
     int collision_regions = world->map.region_count;
+    double page_load_ms = 0.0;
     if (flags & RC_ACTIVE_AREA_LOAD_COLLISION) {
+        double page_load_started_ms = monotonic_ms();
         collision_regions = rc_collision_populate_map_rect(&world->map,
                                                            min_x, min_y,
                                                            max_x, max_y);
+        page_load_ms = monotonic_ms() - page_load_started_ms;
         if (collision_regions < 0)
             return -1;
     }
@@ -306,6 +337,17 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
         .generation = generation ? generation : 1,
     };
 
+    double area_load_ms = monotonic_ms() - area_load_started_ms;
+    RcWorldStreamingTelemetry *telemetry = &world->streaming_telemetry;
+    telemetry->active_area_load_count++;
+    telemetry->active_area_load_ms = area_load_ms;
+    telemetry->active_area_load_total_ms += area_load_ms;
+    telemetry->backend_page_load_ms = page_load_ms;
+    telemetry->backend_page_load_total_ms += page_load_ms;
+    telemetry->backend_pages_loaded = collision_regions;
+    telemetry->active_npcs = active_npc_count(world);
+    telemetry->active_ground_items = active_ground_item_count(world);
+
     if (stats) {
         stats->collision_regions = collision_regions;
         stats->spawned_npcs = spawned;
@@ -313,12 +355,28 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
         stats->npc_stats = npc_stats;
         stats->ground_item_stats = ground_item_stats;
         stats->active_area = world->active_area;
+        stats->streaming = *telemetry;
     }
     return 1;
 }
 
 const RcActiveArea *rc_world_get_active_area(const RcWorld *world) {
     return world ? &world->active_area : NULL;
+}
+
+const RcWorldStreamingConfig *rc_world_get_streaming_config(
+    const RcWorld *world) {
+    return world ? &world->streaming : NULL;
+}
+
+int rc_world_get_streaming_telemetry(const RcWorld *world,
+                                     RcWorldStreamingTelemetry *out) {
+    if (!world || !out)
+        return -1;
+    *out = world->streaming_telemetry;
+    out->active_npcs = active_npc_count(world);
+    out->active_ground_items = active_ground_item_count(world);
+    return 1;
 }
 
 int rc_world_find_npc_near(const RcWorld *world, int npc_id, int x, int y,

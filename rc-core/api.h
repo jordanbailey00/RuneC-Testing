@@ -35,6 +35,7 @@ typedef struct {
     RcNpcSpawnLoadStats npc_stats;
     RcGroundItemSpawnLoadStats ground_item_stats;
     RcActiveArea active_area;
+    RcWorldStreamingTelemetry streaming;
 } RcActiveAreaStats;
 
 typedef struct {
@@ -59,6 +60,10 @@ const RcGameData *rc_world_get_game_data(const RcWorld *world);
 int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
                            RcActiveAreaStats *stats);
 const RcActiveArea *rc_world_get_active_area(const RcWorld *world);
+const RcWorldStreamingConfig *rc_world_get_streaming_config(
+    const RcWorld *world);
+int rc_world_get_streaming_telemetry(const RcWorld *world,
+                                     RcWorldStreamingTelemetry *out);
 int rc_world_find_npc_near(const RcWorld *world, int npc_id, int x, int y,
                            int plane, int radius);
 int rc_world_ensure_npc_near(RcWorld *world, int npc_id, int x, int y,

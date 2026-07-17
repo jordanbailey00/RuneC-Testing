@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "config.h"
 #include "handles.h"
 #include "events.h"
 #include "encounter.h"
@@ -668,6 +669,17 @@ typedef struct {
     uint32_t generation;
 } RcActiveArea;
 
+typedef struct {
+    uint64_t active_area_load_count;
+    double active_area_load_ms;
+    double active_area_load_total_ms;
+    double backend_page_load_ms;
+    double backend_page_load_total_ms;
+    int backend_pages_loaded;
+    int active_npcs;
+    int active_ground_items;
+} RcWorldStreamingTelemetry;
+
 struct RcWorld;
 struct RcGameData;
 struct RcSpellDef;
@@ -726,6 +738,8 @@ typedef struct RcWorld {
     int32_t varps[RC_MAX_VARPS];
     RcWorldMap map;
     RcActiveArea active_area;
+    RcWorldStreamingConfig streaming;
+    RcWorldStreamingTelemetry streaming_telemetry;
     int tick;
     uint32_t rng_state;
     bool multi_combat;
