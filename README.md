@@ -181,6 +181,22 @@ backend is `auto`: loose `data/...` files are used when present, otherwise
 before creating a world and reports missing required data paths as startup
 errors.
 
+Data maintainers can export cache-backed terrain, objects, and collision for a
+named or radius-based mapsquare set:
+
+```bash
+export RUNEC_B237_CACHE=/path/to/b237/cache
+python3 tools/data_pipeline.py export-regions --region-set varrock
+python3 tools/data_pipeline.py export-regions --region-set edgeville
+python3 tools/data_pipeline.py export-regions --center-x 3213 --center-y 3428 --radius-regions 2
+python3 tools/data_pipeline.py export-regions --full
+```
+
+`RUNEC_REGION_SET` accepts `varrock`, `edgeville`,
+`around:<x>,<y>,r=<radius>`, or `full` when running
+`export-cache-derived-assets`. `full` is a maintainer build selection; local
+development should use a named or radius-based set.
+
 Headless environments can verify viewer startup without opening a window:
 
 ```bash

@@ -23,6 +23,14 @@ add_test(
 set_tests_properties(validate_direct_global_access PROPERTIES
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 )
+add_test(
+    NAME test_region_sets
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/test_region_sets.py
+)
+set_tests_properties(test_region_sets PROPERTIES
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+)
 
 file(GLOB RC_CORE_SOURCES rc-core/*.c)
 add_library(rc-core STATIC ${RC_CORE_SOURCES})

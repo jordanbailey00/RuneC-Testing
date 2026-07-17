@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+import region_sets
+
 ROOT = Path(__file__).resolve().parents[1]
 
 STAGE_ORDER = [
@@ -179,16 +181,13 @@ CACHE_DERIVED_REBUILD_SPECS = (
         authority="b237 cache plus decoded interface symbols",
     ),
     RuntimeOutputSpec(
-        dataset="regions",
-        logical_paths=("regions/",),
+        dataset="validation_scenes",
+        logical_paths=("regions/scene_cache/",),
         rebuild_inputs=B237_CACHE_INPUT,
         commands=(
-            py_cmd("tools/cache_pipeline/export_terrain.py", "--modern-cache", "{b237_cache}", "--regions", "48,51 49,51 50,51 51,51 52,51 48,52 49,52 50,52 51,52 52,52 48,53 49,53 50,53 51,53 52,53 48,54 49,54 50,54 51,54 52,54 48,55 49,55 50,55 51,55 52,55", "--output", "data/regions/varrock.terrain"),
-            py_cmd("tools/cache_pipeline/export_objects.py", "--modern-cache", "{b237_cache}", "--regions", "48,51 49,51 50,51 51,51 52,51 48,52 49,52 50,52 51,52 52,52 48,53 49,53 50,53 51,53 52,53 48,54 49,54 50,54 51,54 52,54 48,55 49,55 50,55 51,55 52,55", "--output", "data/regions/varrock.objects"),
-            py_cmd("tools/cache_pipeline/export_collision_map_modern.py", "--cache", "{b237_cache}", "--regions", "48,51", "49,51", "50,51", "51,51", "52,51", "48,52", "49,52", "50,52", "51,52", "52,52", "48,53", "49,53", "50,53", "51,53", "52,53", "48,54", "49,54", "50,54", "51,54", "52,54", "48,55", "49,55", "50,55", "51,55", "52,55", "--output", "data/regions/varrock.cmap"),
             py_cmd("tools/cache_pipeline/export_validation_scenes.py", "--cache", "{b237_cache}", "--clean"),
         ),
-        authority="b237 cache; full Varrock baseline plus first-release viewer validation scene slices",
+        authority="b237 cache first-release viewer validation scene slices",
     ),
 )
 
@@ -454,6 +453,7 @@ class PipelineContext:
     version: str
     check: bool
     force: bool
+    region_set: str
 
     @property
     def pipeline_root(self) -> Path:
@@ -470,6 +470,105 @@ def b237() -> str:
 
 def b237_dump() -> str:
     return os.environ.get("RUNEC_B237_DUMP", "")
+
+
+def selected_region_set(ctx: PipelineContext) -> region_sets.RegionSet:
+    cache = b237()
+    cache_root = Path(cache) if cache else None
+    try:
+        selection = region_sets.resolve(ctx.region_set, cache_root)
+    except (OSError, ValueError) as exc:
+        raise PipelineError(f"cannot resolve region set {ctx.region_set!r}: {exc}") from exc
+    if not selection.regions:
+        raise PipelineError(f"region set {ctx.region_set!r} resolved to no mapsquares")
+    return selection
+
+
+def region_export_spec(
+    ctx: PipelineContext,
+    selection: region_sets.RegionSet,
+) -> RuntimeOutputSpec:
+    region_args = region_sets.format_regions(selection.regions)
+    output_stem = ctx.data_root / "regions" / selection.name
+    output_suffixes = (
+        ".terrain",
+        ".objects",
+        ".atlas",
+        ".tanim",
+        ".oanim",
+        ".object_anim.models",
+        ".object_anim.atlas",
+        ".cmap",
+    )
+    output_paths = {
+        suffix: rel(output_stem.with_suffix(suffix))
+        for suffix in (".terrain", ".objects", ".cmap")
+    }
+    return RuntimeOutputSpec(
+        dataset="regions",
+        logical_paths=tuple(
+            f"regions/{selection.name}{suffix}"
+            for suffix in output_suffixes
+        ),
+        rebuild_inputs=B237_CACHE_INPUT,
+        commands=(
+            py_cmd(
+                "tools/cache_pipeline/export_terrain.py",
+                "--modern-cache",
+                "{b237_cache}",
+                "--regions",
+                " ".join(region_args),
+                "--output",
+                output_paths[".terrain"],
+            ),
+            py_cmd(
+                "tools/cache_pipeline/export_objects.py",
+                "--modern-cache",
+                "{b237_cache}",
+                "--regions",
+                " ".join(region_args),
+                "--output",
+                output_paths[".objects"],
+            ),
+            py_cmd(
+                "tools/cache_pipeline/export_collision_map_modern.py",
+                "--cache",
+                "{b237_cache}",
+                "--regions",
+                *region_args,
+                "--output",
+                output_paths[".cmap"],
+            ),
+        ),
+        authority="b237 cache mapsquares selected by tools/region_sets.py",
+    )
+
+
+def cache_derived_rebuild_specs(
+    ctx: PipelineContext,
+) -> tuple[tuple[RuntimeOutputSpec, ...], region_sets.RegionSet]:
+    selection = selected_region_set(ctx)
+    return (*CACHE_DERIVED_REBUILD_SPECS, region_export_spec(ctx, selection)), selection
+
+
+def record_region_selection(
+    record: dict[str, Any],
+    selection: region_sets.RegionSet,
+    requested: str,
+) -> None:
+    xs = [region[0] for region in selection.regions]
+    ys = [region[1] for region in selection.regions]
+    record["region_selection"] = {
+        "requested": requested,
+        "name": selection.name,
+        "mapsquares": len(selection.regions),
+        "bounds": {
+            "min_region_x": min(xs),
+            "max_region_x": max(xs),
+            "min_region_y": min(ys),
+            "max_region_y": max(ys),
+        },
+    }
 
 
 def command_args(command: tuple[str, ...]) -> list[str]:
@@ -648,6 +747,12 @@ STAGE_SPECS: dict[str, StageSpec] = {
             "generated/pipeline/stages/export-cache-derived-assets.json",
         ),
         description="Rebuild cache-derived runtime assets from explicit maintainer inputs or record required rebuild gaps.",
+    ),
+    "export-regions": StageSpec(
+        name="export-regions",
+        inputs=("data-sources/sources.lock", "RUNEC_B237_CACHE", "tools/region_sets.py"),
+        outputs=("data/regions/", "generated/pipeline/stages/export-regions.json"),
+        description="Export aggregate terrain, objects, and collision for one reusable region set.",
     ),
     "export-defs": StageSpec(
         name="export-defs",
@@ -952,13 +1057,29 @@ def stage_export_content(ctx: PipelineContext, record: dict[str, Any]) -> None:
     )
 
 
+def stage_export_regions(ctx: PipelineContext, record: dict[str, Any]) -> None:
+    selection = selected_region_set(ctx)
+    spec = region_export_spec(ctx, selection)
+    record["mode"] = "export_selected_cache_regions"
+    record_region_selection(record, selection, ctx.region_set)
+    emit_rebuild_plan(ctx, record, (spec,))
+    missing = missing_required_inputs(spec.rebuild_inputs)
+    if missing:
+        raise PipelineError(
+            "region export requires maintainer input: " + ", ".join(missing)
+        )
+    run_rebuild_specs(ctx, record, (spec,))
+
+
 def stage_export_cache_derived_assets(ctx: PipelineContext, record: dict[str, Any]) -> None:
+    specs, selection = cache_derived_rebuild_specs(ctx)
     record["mode"] = "rebuild_from_explicit_maintainer_inputs"
     record["notes"] = [
         "Cache-derived release assets require explicit maintainer b237 inputs.",
         "If those inputs are absent, the stage records required rebuild gaps and the pack stage refuses to publish stale loose outputs.",
     ]
-    emit_rebuild_plan(ctx, record, CACHE_DERIVED_REBUILD_SPECS)
+    record_region_selection(record, selection, ctx.region_set)
+    emit_rebuild_plan(ctx, record, specs)
     if not missing_required_inputs(B237_CACHE_AND_DUMP_INPUTS):
         run_command(
             [
@@ -971,7 +1092,7 @@ def stage_export_cache_derived_assets(ctx: PipelineContext, record: dict[str, An
             ],
             record,
         )
-        run_rebuild_specs(ctx, record, CACHE_DERIVED_REBUILD_SPECS)
+        run_rebuild_specs(ctx, record, specs)
     record["inventory"] = {
         "cache_asset_dirs": tree_summary(ctx.data_root, ("models", "anims", "sprites", "ui", "fonts", "regions")),
         "sources_lock": file_ref(ROOT / "data-sources/sources.lock"),
@@ -1131,6 +1252,7 @@ STAGE_FUNCS: dict[str, Callable[[PipelineContext, dict[str, Any]], None]] = {
     "validate-content": stage_validate_content,
     "export-content": stage_export_content,
     "export-cache-derived-assets": stage_export_cache_derived_assets,
+    "export-regions": stage_export_regions,
     "export-defs": stage_export_defs,
     "export-render-assets": stage_export_render_assets,
     "pack-runtime-data": stage_pack_runtime_data,
@@ -1303,7 +1425,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "command",
         nargs="?",
         default="all",
-        choices=["all", "list-stages", *STAGE_ORDER],
+        choices=["all", "list-stages", "export-regions", *STAGE_ORDER],
         help="Pipeline command or individual stage to run.",
     )
     parser.add_argument("--data-root", type=Path, default=ROOT / "data", help="Runtime data root.")
@@ -1317,7 +1439,35 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Remove pipeline-generated manifests, packs, reports, and records before running the command.",
     )
     parser.add_argument("--force", action="store_true", help="Reserved for future stricter stage rebuild controls.")
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--region-set",
+        help="Region expression: varrock, edgeville, around:<x>,<y>,r=<radius>, or full.",
+    )
+    parser.add_argument("--center-x", type=int, help="Center world-tile X for a radius region set.")
+    parser.add_argument("--center-y", type=int, help="Center world-tile Y for a radius region set.")
+    parser.add_argument("--radius-regions", type=int, help="Mapsquare radius around --center-x/--center-y (default: 2).")
+    parser.add_argument("--full", action="store_true", help="Select every mapsquare present in the b237 cache.")
+    args = parser.parse_args(argv)
+
+    has_center = args.center_x is not None or args.center_y is not None
+    if has_center and (args.center_x is None or args.center_y is None):
+        parser.error("--center-x and --center-y must be provided together")
+    if args.radius_regions is not None and not has_center:
+        parser.error("--radius-regions requires --center-x and --center-y")
+    selected_modes = int(args.region_set is not None) + int(has_center) + int(args.full)
+    if selected_modes > 1:
+        parser.error("use only one of --region-set, --center-x/--center-y, or --full")
+
+    if args.full:
+        args.region_set_spec = "full"
+    elif has_center:
+        radius = args.radius_regions if args.radius_regions is not None else 2
+        args.region_set_spec = f"around:{args.center_x},{args.center_y},r={radius}"
+    elif args.region_set is not None:
+        args.region_set_spec = args.region_set
+    else:
+        args.region_set_spec = os.environ.get("RUNEC_REGION_SET", "").strip() or "varrock"
+    return args
 
 
 def main(argv: list[str]) -> int:
@@ -1329,12 +1479,15 @@ def main(argv: list[str]) -> int:
         version=args.version,
         check=args.check,
         force=args.force,
+        region_set=args.region_set_spec,
     )
 
     if args.command == "list-stages":
         for stage in STAGE_ORDER:
             spec = STAGE_SPECS[stage]
             print(f"{stage}: {spec.description}")
+        spec = STAGE_SPECS["export-regions"]
+        print(f"export-regions: {spec.description}")
         return 0
 
     try:
