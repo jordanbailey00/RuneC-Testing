@@ -133,16 +133,17 @@ static void terrain_offset(TerrainMesh *tm, int wx, int wy) {
     if (tm->heightmap) { tm->hm_min_x -= wx; tm->hm_min_y -= wy; }
 }
 
-static float terrain_height_at(TerrainMesh *tm, int x, int y) {
+static float terrain_height_avg(TerrainMesh *tm, int x, int y) {
     if (!tm || !tm->heightmap) return -2.0f;
     int lx = x - tm->hm_min_x, ly = y - tm->hm_min_y;
-    if (lx < 0 || lx >= tm->hm_width || ly < 0 || ly >= tm->hm_height) return -2.0f;
-    return tm->heightmap[lx + ly * tm->hm_width];
-}
-
-static float terrain_height_avg(TerrainMesh *tm, int x, int y) {
-    return (terrain_height_at(tm,x,y) + terrain_height_at(tm,x+1,y) +
-            terrain_height_at(tm,x,y+1) + terrain_height_at(tm,x+1,y+1)) * 0.25f;
+    if (lx < 0 || lx >= tm->hm_width || ly < 0 || ly >= tm->hm_height)
+        return -2.0f;
+    int lx1 = lx + 1 < tm->hm_width ? lx + 1 : lx;
+    int ly1 = ly + 1 < tm->hm_height ? ly + 1 : ly;
+    return (tm->heightmap[lx + ly * tm->hm_width]
+          + tm->heightmap[lx1 + ly * tm->hm_width]
+          + tm->heightmap[lx + ly1 * tm->hm_width]
+          + tm->heightmap[lx1 + ly1 * tm->hm_width]) * 0.25f;
 }
 
 static void terrain_free(TerrainMesh *tm) {

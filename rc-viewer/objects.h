@@ -282,6 +282,19 @@ static Texture2D objects_load_atlas(ObjectMesh *om, const char *atlas_path) {
     return tex;
 }
 
+static ObjectMesh *objects_load_material_page(const char *atlas_path) {
+    if (!atlas_path) return NULL;
+    ObjectMesh *materials = calloc(1, sizeof(*materials));
+    if (!materials) return NULL;
+    materials->atlas_texture = objects_load_atlas(materials, atlas_path);
+    materials->owns_atlas_texture = materials->atlas_texture.id > 0;
+    if (!materials->owns_atlas_texture) {
+        objects_free(materials);
+        return NULL;
+    }
+    return materials;
+}
+
 static void objects_update_texture_anims(ObjectMesh *om, float dt) {
     if (!om || !om->atlas_pixels || !om->atlas_base_pixels
             || om->atlas_texture.id <= 0 || om->texture_anim_count <= 0)
@@ -483,9 +496,38 @@ static void objects_offset(ObjectMesh *om, int wx, int wy) {
     if (!om || !om->loaded) return;
     float dx = (float)wx, dz = (float)wy;
     float *v = om->model.meshes[0].vertices;
-    for (int i = 0; i < om->total_vertex_count; i++) { v[i*3] -= dx; v[i*3+2] += dz; }
-    UpdateMeshBuffer(om->model.meshes[0], 0, v, om->total_vertex_count * 3 * sizeof(float), 0);
+    if (v) {
+        for (int i = 0; i < om->total_vertex_count; i++) {
+            v[i*3] -= dx;
+            v[i*3+2] += dz;
+        }
+        UpdateMeshBuffer(om->model.meshes[0], 0, v,
+                         om->total_vertex_count * 3 * sizeof(float), 0);
+    } else {
+        om->model.transform.m12 -= dx;
+        om->model.transform.m14 += dz;
+    }
     om->min_world_x -= wx; om->min_world_y -= wy;
+}
+
+static void objects_release_cpu_geometry(ObjectMesh *om) {
+    if (!om || !om->loaded || om->model.meshCount <= 0)
+        return;
+    Mesh *mesh = &om->model.meshes[0];
+    free(mesh->vertices);
+    free(mesh->texcoords);
+    free(mesh->texcoords2);
+    free(mesh->normals);
+    free(mesh->tangents);
+    free(mesh->colors);
+    free(mesh->indices);
+    mesh->vertices = NULL;
+    mesh->texcoords = NULL;
+    mesh->texcoords2 = NULL;
+    mesh->normals = NULL;
+    mesh->tangents = NULL;
+    mesh->colors = NULL;
+    mesh->indices = NULL;
 }
 
 static void objects_set_shader(ObjectMesh *om, Shader shader) {
@@ -496,11 +538,10 @@ static void objects_set_shader(ObjectMesh *om, Shader shader) {
 
 static void objects_free(ObjectMesh *om) {
     if (!om) return;
-    if (om->loaded) {
-        if (om->owns_atlas_texture && om->atlas_texture.id > 0)
-            UnloadTexture(om->atlas_texture);
+    if (om->owns_atlas_texture && om->atlas_texture.id > 0)
+        UnloadTexture(om->atlas_texture);
+    if (om->loaded)
         UnloadModel(om->model);
-    }
     free(om->atlas_base_pixels);
     free(om->atlas_pixels);
     free(om->texture_anims);

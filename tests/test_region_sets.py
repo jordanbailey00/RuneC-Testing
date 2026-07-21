@@ -133,32 +133,21 @@ class RegionPipelineTests(unittest.TestCase):
         selection = region_sets.resolve(ctx.region_set)
         spec = data_pipeline.region_export_spec(ctx, selection)
 
-        self.assertEqual(spec.dataset, "regions")
-        self.assertEqual(
-            spec.logical_paths,
-            (
-                "regions/around_3213_3428_r0.terrain",
-                "regions/around_3213_3428_r0.objects",
-                "regions/around_3213_3428_r0.atlas",
-                "regions/around_3213_3428_r0.tanim",
-                "regions/around_3213_3428_r0.oanim",
-                "regions/around_3213_3428_r0.object_anim.models",
-                "regions/around_3213_3428_r0.object_anim.atlas",
-                "regions/around_3213_3428_r0.cmap",
-            ),
-        )
+        self.assertEqual(spec.dataset, "mapsquare_visuals")
+        self.assertEqual(spec.logical_paths, ("regions/",))
         self.assertEqual(spec.commands[0][5], "50,53")
         self.assertEqual(
             spec.commands[0][-1],
-            "/tmp/runec-region-test/regions/around_3213_3428_r0.terrain",
+            "/tmp/runec-region-test/regions",
         )
-        self.assertEqual(spec.commands[2][5], "50,53")
+        self.assertIn("--split-by-mapsquare", spec.commands[0])
 
     def test_pipeline_selection_records_bounds_and_builds_dynamic_spec(self) -> None:
         ctx = self.context("edgeville")
         specs, selection = data_pipeline.cache_derived_rebuild_specs(ctx)
         self.assertEqual(selection.name, "edgeville")
-        self.assertEqual(specs[-1].dataset, "regions")
+        self.assertEqual(specs[-2].dataset, "mapsquare_visuals")
+        self.assertEqual(specs[-1].dataset, "varrock_aggregate_compatibility")
 
         record: dict[str, object] = {}
         data_pipeline.record_region_selection(record, selection, ctx.region_set)
@@ -173,6 +162,16 @@ class RegionPipelineTests(unittest.TestCase):
                 "max_region_y": 56,
             },
         })
+
+    def test_aggregate_compatibility_spec_stays_varrock_scoped(self) -> None:
+        spec = data_pipeline.aggregate_varrock_compatibility_spec(self.context("full"))
+        self.assertEqual(spec.dataset, "varrock_aggregate_compatibility")
+        self.assertEqual(
+            spec.commands[0][5].split(),
+            region_sets.format_regions(region_sets.varrock()),
+        )
+        self.assertEqual(spec.commands[0][-1], "/tmp/runec-region-test/regions/varrock.terrain")
+        self.assertEqual(spec.commands[2][-1], "/tmp/runec-region-test/regions/varrock.cmap")
 
     def test_pipeline_selection_reports_invalid_and_empty_sets(self) -> None:
         with self.assertRaisesRegex(data_pipeline.PipelineError, "cannot resolve region set"):
@@ -190,7 +189,7 @@ class RegionPipelineTests(unittest.TestCase):
             with self.assertRaisesRegex(data_pipeline.PipelineError, "RUNEC_B237_CACHE"):
                 data_pipeline.stage_export_regions(self.context(), record)
         self.assertEqual(record["region_selection"]["name"], "varrock")
-        self.assertEqual(record["required_rebuild_gaps"][0]["dataset"], "regions")
+        self.assertEqual(record["required_rebuild_gaps"][0]["dataset"], "mapsquare_visuals")
 
     def test_export_regions_stage_runs_existing_rebuild_path(self) -> None:
         record: dict[str, object] = {}

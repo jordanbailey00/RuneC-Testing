@@ -25,6 +25,7 @@ import struct
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -38,7 +39,13 @@ from export_collision_map import (
     load_map_index,
     read_smart,
 )
-from export_terrain import RegionTerrain, build_heightmap, parse_terrain_full
+from export_terrain import (
+    RegionTerrain,
+    build_heightmap,
+    load_modern_region_terrain,
+    parse_terrain_full,
+    stitch_region_edges,
+)
 from export_models import (
     MODEL_INDEX,
     expand_model,
@@ -52,12 +59,12 @@ from export_textures import (
     write_atlas_binary,
     write_texture_anim_binary,
 )
-from export_terrain import stitch_region_edges
 from modern_cache_reader import ModernCacheReader
 from rc_cache import (
     ModelData,
     RcCacheStore,
     decode_model,
+    find_all_map_region_files,
     find_map_region_files,
     hsl15_to_rgb,
     iter_location_placements,
@@ -1235,6 +1242,7 @@ def process_placements(
     tex_colors: dict[int, int] | None = None,
     atlas: TextureAtlas | None = None,
     dynamic_behaviors: dict[int, DynamicObjectBehavior] | None = None,
+    report_gaps: bool = True,
 ) -> tuple[list[ExpandedPlacement], list[AnimatedObjectPlacement], list[ModelData]]:
     """Process raw placements into expanded vertex data ready for rendering.
 
@@ -1563,9 +1571,9 @@ def process_placements(
             )
         )
 
-    if skipped:
+    if report_gaps and skipped:
         print(f"  skipped {skipped} placements (no definition/model)", file=sys.stderr)
-    if model_miss:
+    if report_gaps and model_miss:
         print(f"  {model_miss} model decode failures", file=sys.stderr)
 
     return results, animated_rows, animated_models
@@ -1579,47 +1587,62 @@ def _build_and_write(
     terrain_parsed: dict[tuple[int, int], RegionTerrain],
     tex_colors: dict[int, int],
     atlas: TextureAtlas | None = None,
+    model_geom_cache: dict[int, ModelData] | None = None,
+    dynamic_behaviors: dict[int, DynamicObjectBehavior] | None = None,
+    prebuilt_heightmaps: dict[
+        int, tuple[int, int, int, int, list[float]]
+    ] | None = None,
+    write_anim_atlas: bool = True,
+    always_write_anim_sidecar: bool = False,
+    verbose: bool = True,
 ) -> None:
     """Build geometry and write .objects binary (shared by 317 and modern paths)."""
-    # stitch region edges for smooth heightmap
-    if terrain_parsed:
-        stitch_region_edges(terrain_parsed)
-
-    # build heightmaps per plane
-    heightmaps: dict[int, tuple[int, int, int, int, list[float]]] = {}
-    if terrain_parsed:
-        for plane in range(4):
-            hm = build_heightmap(terrain_parsed, target_plane=plane)
-            heightmaps[plane] = hm
+    heightmaps = prebuilt_heightmaps
+    if heightmaps is None:
+        heightmaps = {}
+        if terrain_parsed:
+            stitch_region_edges(terrain_parsed)
+            for plane in range(4):
+                hm = build_heightmap(terrain_parsed, target_plane=plane)
+                heightmaps[plane] = hm
+    if heightmaps:
         hm0 = heightmaps[0]
-        print(f"  heightmap: {hm0[2]}x{hm0[3]} tiles, origin ({hm0[0]}, {hm0[1]})")
+        if verbose:
+            print(f"  heightmap: {hm0[2]}x{hm0[3]} tiles, origin ({hm0[0]}, {hm0[1]})")
 
     # count by type
     type_counts: dict[int, int] = {}
     for po in all_placements:
         type_counts[po.obj_type] = type_counts.get(po.obj_type, 0) + 1
-    for t in sorted(type_counts):
-        print(f"    type {t:2d}: {type_counts[t]}")
+    if verbose:
+        for t in sorted(type_counts):
+            print(f"    type {t:2d}: {type_counts[t]}")
 
     # process placements into expanded vertex data
-    print("decoding models and building geometry...")
-    model_geom_cache: dict[int, ModelData] = {}
-    dynamic_behaviors = load_dynamic_behaviors()
-    if dynamic_behaviors:
+    if verbose:
+        print("decoding models and building geometry...")
+    if model_geom_cache is None:
+        model_geom_cache = {}
+    if dynamic_behaviors is None:
+        dynamic_behaviors = load_dynamic_behaviors()
+    if dynamic_behaviors and verbose:
         print(f"  dynamic loc pairs: {len(dynamic_behaviors)}")
     expanded, animated_rows, animated_models = process_placements(
         all_placements, loc_defs, model_loader, model_geom_cache,
         heightmaps=heightmaps or None, tex_colors=tex_colors, atlas=atlas,
         dynamic_behaviors=dynamic_behaviors,
+        report_gaps=verbose,
     )
-    print(f"  {len(expanded)} objects with geometry, {len(model_geom_cache)} unique models decoded")
-    if animated_rows:
+    if verbose:
+        print(f"  {len(expanded)} objects with geometry, {len(model_geom_cache)} unique models decoded")
+    if animated_rows and verbose:
         print(f"  {len(animated_rows)} animated object placements, "
               f"{len(animated_models)} animated model variants")
 
     total_verts = sum(p.vertex_count for p in expanded)
     total_tris = sum(p.face_count for p in expanded)
-    print(f"  {total_verts:,} vertices, {total_tris:,} triangles")
+    if verbose:
+        print(f"  {total_verts:,} vertices, {total_tris:,} triangles")
 
     # compute bounds
     min_wx = min((p.world_x for p in expanded), default=0)
@@ -1629,20 +1652,30 @@ def _build_and_write(
     has_textures = atlas is not None
     write_objects_binary(args.output, expanded, min_wx, min_wy, has_textures=has_textures)
     file_size = args.output.stat().st_size
-    print(f"\nwrote {file_size:,} bytes to {args.output}")
+    if verbose:
+        print(f"\nwrote {file_size:,} bytes to {args.output}")
 
     anim_path = args.output.with_suffix(".oanim")
     anim_models_path = args.output.with_suffix(".object_anim.models")
     if animated_rows and animated_models:
+        anim_atlas_path = anim_models_path.with_suffix(".atlas")
+        if not write_anim_atlas:
+            anim_atlas_path.unlink(missing_ok=True)
         write_object_anim_binary(anim_path, animated_rows)
         write_models_binary(anim_models_path, animated_models,
                             tex_colors=tex_colors, atlas=atlas,
-                            atlas_path=anim_models_path.with_suffix(".atlas"))
-        print(f"wrote {len(animated_rows)} animated object rows to {anim_path}")
-        print(f"wrote {len(animated_models)} animated object model variants to "
-              f"{anim_models_path}")
+                            atlas_path=anim_atlas_path,
+                            write_atlas_companion=write_anim_atlas)
+        if verbose:
+            print(f"wrote {len(animated_rows)} animated object rows to {anim_path}")
+            print(f"wrote {len(animated_models)} animated object model variants to "
+                  f"{anim_models_path}")
     else:
-        for stale in (anim_path, anim_models_path, anim_models_path.with_suffix(".atlas")):
+        if always_write_anim_sidecar:
+            write_object_anim_binary(anim_path, [])
+        else:
+            anim_path.unlink(missing_ok=True)
+        for stale in (anim_models_path, anim_models_path.with_suffix(".atlas")):
             if stale.exists():
                 stale.unlink()
 
@@ -1763,6 +1796,32 @@ def parse_region_specs(regions: str) -> list[tuple[int, int]]:
     return coords
 
 
+def load_modern_object_definitions(reader: RcCacheStore) -> dict[int, LocDef]:
+    """Load b237 location definitions and reviewed runtime visual fallbacks."""
+    print("loading object definitions from modern cache...")
+    loc_defs = decode_loc_definitions_modern(reader)
+    fallback_count = merge_runtime_object_visual_fallbacks(loc_defs)
+    if fallback_count:
+        print(f"  added {fallback_count} runtime visual fallback definitions")
+    return loc_defs
+
+
+def load_modern_object_materials(
+    reader: RcCacheStore,
+) -> tuple[dict[int, int], TextureAtlas | None, dict[int, object]]:
+    """Load the shared b237 object material atlas inputs once."""
+    print("loading modern texture definitions...")
+    tex_colors = load_modern_texture_average_colors(reader)
+    print(f"  loaded {len(tex_colors)} texture average colors")
+
+    print("loading modern texture sprites...")
+    sprites = load_modern_texture_sprites(reader)
+    print(f"  loaded {len(sprites)} texture sprites from cache")
+    atlas = build_atlas(sprites) if sprites else None
+    texture_defs = load_texture_definitions(reader) if atlas is not None else {}
+    return tex_colors, atlas, texture_defs
+
+
 def export_modern_objects(
     cache_dir: Path,
     regions: list[tuple[int, int]],
@@ -1771,19 +1830,14 @@ def export_modern_objects(
     rsmod_visual_levels: bool = True,
 ) -> None:
     """Export one b237 object plane through the repo-local rc_cache path."""
-    if not cache_dir.exists():
+    if not cache_dir.is_dir():
         sys.exit(f"modern cache directory not found: {cache_dir}")
     if not regions:
         sys.exit("at least one region is required")
 
     print(f"reading modern cache from {cache_dir}")
     reader = RcCacheStore(cache_dir)
-
-    print("loading object definitions from modern cache...")
-    loc_defs = decode_loc_definitions_modern(reader)
-    fallback_count = merge_runtime_object_visual_fallbacks(loc_defs)
-    if fallback_count:
-        print(f"  added {fallback_count} runtime visual fallback definitions")
+    loc_defs = load_modern_object_definitions(reader)
 
     # determine target regions
     target_coords = set(regions)
@@ -1833,22 +1887,14 @@ def export_modern_objects(
 
     print(f"  {len(all_placements)} placements parsed, {errors} region errors")
 
-    print("loading modern texture definitions...")
-    tex_colors = load_modern_texture_average_colors(reader)
-    print(f"  loaded {len(tex_colors)} texture average colors")
-
-    print("loading modern texture sprites...")
-    sprites = load_modern_texture_sprites(reader)
-    print(f"  loaded {len(sprites)} texture sprites from cache")
-
-    atlas = None
+    tex_colors, atlas, texture_defs = load_modern_object_materials(reader)
     atlas_path = output.with_suffix(".atlas")
-    if sprites:
-        atlas = build_atlas(sprites)
+    if atlas is not None:
         print(f"  atlas: {atlas.width}x{atlas.height}, {len(atlas.uv_map)} textures mapped")
         write_atlas_binary(atlas_path, atlas)
-        write_texture_anim_binary(atlas_path.with_suffix(".tanim"), atlas,
-                                  load_texture_definitions(reader))
+        write_texture_anim_binary(
+            atlas_path.with_suffix(".tanim"), atlas, texture_defs
+        )
         atlas_size = atlas_path.stat().st_size
         print(f"  wrote {atlas_size:,} bytes to {atlas_path}")
 
@@ -1856,6 +1902,135 @@ def export_modern_objects(
     write_args = argparse.Namespace(output=output)
     _build_and_write(write_args, all_placements, loc_defs, loader_modern,
                      terrain_parsed, tex_colors, atlas)
+
+
+def export_modern_objects_split(
+    cache_dir: Path,
+    regions: list[tuple[int, int]],
+    output_dir: Path,
+    planes: list[int] | tuple[int, ...] = (0, 1, 2, 3),
+    rsmod_visual_levels: bool = True,
+) -> list[Path]:
+    """Export per-mapsquare object geometry backed by one shared atlas."""
+    if not cache_dir.is_dir():
+        raise FileNotFoundError(f"modern cache directory not found: {cache_dir}")
+    if not regions:
+        raise ValueError("at least one region is required")
+    if not planes or any(plane < 0 or plane > 3 for plane in planes):
+        raise ValueError("planes must contain values in 0..3")
+
+    reader = RcCacheStore(cache_dir)
+    loc_defs = load_modern_object_definitions(reader)
+    map_regions = find_all_map_region_files(reader)
+    target_coords = sorted(set(regions), key=lambda region: (region[1], region[0]))
+    missing = [
+        (rx, ry)
+        for rx, ry in target_coords
+        if (entry := map_regions.get((rx << 8) | ry)) is None
+        or not entry.has_terrain
+        or not entry.has_locations
+    ]
+    if missing:
+        sample = ", ".join(f"{rx},{ry}" for rx, ry in missing[:8])
+        raise ValueError(
+            f"{len(missing)} selected mapsquares lack terrain or locations: {sample}"
+        )
+
+    tex_colors, atlas, texture_defs = load_modern_object_materials(reader)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    shared_atlas = output_dir / "mapsquare.materials.atlas"
+    shared_tanim = output_dir / "mapsquare.materials.tanim"
+    generated: list[Path] = []
+    if atlas is not None:
+        write_atlas_binary(shared_atlas, atlas)
+        write_texture_anim_binary(shared_tanim, atlas, texture_defs)
+        generated.extend((shared_atlas, shared_tanim))
+        print(
+            f"shared mapsquare materials: {shared_atlas} "
+            f"({atlas.width}x{atlas.height}, {len(atlas.uv_map)} textures)"
+        )
+    else:
+        shared_atlas.unlink(missing_ok=True)
+        shared_tanim.unlink(missing_ok=True)
+
+    # Keep full-cache builds bounded while retaining one mapsquare of contour
+    # context in every direction.
+    @lru_cache(maxsize=16)
+    def load_region(region_x: int, region_y: int) -> RegionTerrain | None:
+        entry = map_regions.get((region_x << 8) | region_y)
+        if entry is None or not entry.has_terrain:
+            return None
+        return load_modern_region_terrain(reader, region_x, region_y)
+
+    dynamic_behaviors = load_dynamic_behaviors()
+    model_loader = lambda model_id: load_model(reader, model_id)
+    for rx, ry in target_coords:
+        halo: dict[tuple[int, int], RegionTerrain] = {}
+        for dy in range(-1, 2):
+            for dx in range(-1, 2):
+                terrain = load_region(rx + dx, ry + dy)
+                if terrain is not None:
+                    halo[(rx + dx, ry + dy)] = terrain
+        if (rx, ry) not in halo:
+            raise ValueError(f"failed to decode terrain for mapsquare {rx},{ry}")
+
+        loc_data = read_map_region_file(reader, rx, ry, "locations")
+        if loc_data is None:
+            raise ValueError(f"failed to read locations for mapsquare {rx},{ry}")
+        raw_placements = list(iter_location_placements(loc_data, rx, ry))
+        model_geom_cache: dict[int, ModelData] = {}
+        plane_counts: list[str] = []
+        stitch_region_edges(halo)
+        heightmaps = {
+            plane: build_heightmap(halo, target_plane=plane)
+            for plane in range(4)
+        }
+
+        for plane in planes:
+            placements: list[PlacedObject] = []
+            for placement in raw_placements:
+                placed = _modern_placement_from_location(
+                    placement,
+                    halo,
+                    rsmod_visual_levels,
+                    plane,
+                )
+                if placed is not None:
+                    placements.append(placed)
+
+            output = output_dir / f"{rx}_{ry}.p{plane}.objects"
+            for stale in (
+                output.with_suffix(".atlas"),
+                output.with_suffix(".tanim"),
+                output.with_suffix(".object_anim.atlas"),
+                output.with_suffix(".object_anim.tanim"),
+            ):
+                stale.unlink(missing_ok=True)
+            _build_and_write(
+                argparse.Namespace(output=output),
+                placements,
+                loc_defs,
+                model_loader,
+                halo,
+                tex_colors,
+                atlas,
+                model_geom_cache=model_geom_cache,
+                dynamic_behaviors=dynamic_behaviors,
+                prebuilt_heightmaps=heightmaps,
+                write_anim_atlas=False,
+                always_write_anim_sidecar=True,
+                verbose=False,
+            )
+            anim_path = output.with_suffix(".oanim")
+            anim_models_path = output.with_suffix(".object_anim.models")
+            generated.extend((output, anim_path))
+            if anim_models_path.exists():
+                generated.append(anim_models_path)
+            plane_counts.append(f"p{plane}={len(placements)}")
+
+        print(f"object mapsquare {rx},{ry}: " + " ".join(plane_counts))
+
+    return generated
 
 
 def main() -> None:

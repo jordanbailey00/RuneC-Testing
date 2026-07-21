@@ -239,7 +239,8 @@ def is_region_runtime_file(path: Path) -> bool:
     if name.endswith(".npc-spawns.bin"):
         return False
     return (
-        name.endswith(".terrain")
+        name == "mapsquare.catalog"
+        or name.endswith(".terrain")
         or name.endswith(".objects")
         or name.endswith(".cmap")
         or name.endswith(".atlas")

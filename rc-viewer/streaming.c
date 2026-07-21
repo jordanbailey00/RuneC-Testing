@@ -1,5 +1,9 @@
 #include "streaming.h"
 
+#include "../rc-core/io.h"
+
+#include <stdio.h>
+#include <string.h>
 #include <time.h>
 
 ViewerStreamingConfig viewer_streaming_config_default(void) {
@@ -56,4 +60,164 @@ void viewer_streaming_telemetry_record_load(ViewerStreamingTelemetry *telemetry,
     telemetry->cpu_decode_total_ms += cpu_decode_ms;
     telemetry->gpu_upload_ms = gpu_upload_ms;
     telemetry->gpu_upload_total_ms += gpu_upload_ms;
+}
+
+static int max_int(int a, int b) {
+    return a > b ? a : b;
+}
+
+static int min_int(int a, int b) {
+    return a < b ? a : b;
+}
+
+int viewer_streaming_plan_mapsquares(
+    const ViewerStreamingConfig *config,
+    int tile_x,
+    int tile_y,
+    ViewerMapsquareCoord *out,
+    int capacity) {
+    if (!config || !out || capacity <= 0 || tile_x < 0 || tile_y < 0)
+        return -1;
+
+    int center_x = tile_x / VIEWER_STREAMING_MAPSQUARE_SIZE;
+    int center_y = tile_y / VIEWER_STREAMING_MAPSQUARE_SIZE;
+    if (center_x > VIEWER_STREAMING_MAX_MAPSQUARE_COORD
+            || center_y > VIEWER_STREAMING_MAX_MAPSQUARE_COORD)
+        return -1;
+
+    int radius = max_int(config->scene_radius_regions,
+                         config->preload_radius_regions);
+    int min_x = max_int(0, center_x - radius);
+    int min_y = max_int(0, center_y - radius);
+    int max_x = min_int(VIEWER_STREAMING_MAX_MAPSQUARE_COORD,
+                        center_x + radius);
+    int max_y = min_int(VIEWER_STREAMING_MAX_MAPSQUARE_COORD,
+                        center_y + radius);
+    int count = (max_x - min_x + 1) * (max_y - min_y + 1);
+    int limit = min_int(capacity, config->max_cpu_chunks);
+    limit = min_int(limit, config->max_gpu_chunks);
+    if (count > limit)
+        return -1;
+
+    int written = 0;
+    for (int distance = 0; distance <= radius; distance++) {
+        for (int region_y = min_y; region_y <= max_y; region_y++) {
+            for (int region_x = min_x; region_x <= max_x; region_x++) {
+                int dx = region_x - center_x;
+                int dy = region_y - center_y;
+                if (dx < 0) dx = -dx;
+                if (dy < 0) dy = -dy;
+                if (max_int(dx, dy) != distance)
+                    continue;
+                out[written++] = (ViewerMapsquareCoord){region_x, region_y};
+            }
+        }
+    }
+    return written == count ? written : -1;
+}
+
+int viewer_streaming_mapsquare_in_plan(const ViewerMapsquareCoord *plan,
+                                       int count, int region_x, int region_y) {
+    if (!plan || count <= 0)
+        return 0;
+    for (int i = 0; i < count; i++) {
+        if (plan[i].region_x == region_x && plan[i].region_y == region_y)
+            return 1;
+    }
+    return 0;
+}
+
+static int mapsquare_catalog_index(int region_x, int region_y) {
+    if (region_x < 0 || region_y < 0
+            || region_x > VIEWER_STREAMING_MAX_MAPSQUARE_COORD
+            || region_y > VIEWER_STREAMING_MAX_MAPSQUARE_COORD) {
+        return -1;
+    }
+    return region_y * (VIEWER_STREAMING_MAX_MAPSQUARE_COORD + 1) + region_x;
+}
+
+int viewer_streaming_catalog_load(ViewerMapsquareCatalog *catalog,
+                                  const char *path) {
+    if (!catalog || !path || !path[0])
+        return 0;
+    memset(catalog, 0, sizeof(*catalog));
+    FILE *file = rc_asset_fopen(path, "rb");
+    if (!file)
+        return 0;
+
+    uint32_t magic = 0;
+    uint32_t count = 0;
+    int valid = rc_read_exact(file, &magic, sizeof(magic), 1, path,
+                              "mapsquare catalog magic")
+        && rc_read_exact(file, &count, sizeof(count), 1, path,
+                         "mapsquare catalog count")
+        && magic == VIEWER_STREAMING_MAPSQUARE_CATALOG_MAGIC
+        && count <= 65536u;
+    uint32_t previous_key = 0;
+    for (uint32_t i = 0; valid && i < count; i++) {
+        uint8_t coordinate[2] = {0};
+        valid = rc_read_exact(file, coordinate, sizeof(coordinate), 1, path,
+                              "mapsquare catalog entry");
+        uint32_t key = ((uint32_t)coordinate[1] << 8) | coordinate[0];
+        if (valid && i > 0 && key <= previous_key)
+            valid = 0;
+        if (valid) {
+            int index = mapsquare_catalog_index(coordinate[0], coordinate[1]);
+            catalog->present[index >> 3] |= (uint8_t)(1u << (index & 7));
+            previous_key = key;
+        }
+    }
+    if (valid && fgetc(file) != EOF)
+        valid = 0;
+    rc_asset_close(file);
+    if (!valid) {
+        memset(catalog, 0, sizeof(*catalog));
+        fprintf(stderr, "viewer mapsquare: invalid catalog %s\n", path);
+        return 0;
+    }
+    catalog->count = count;
+    catalog->loaded = 1;
+    return 1;
+}
+
+int viewer_streaming_catalog_contains(const ViewerMapsquareCatalog *catalog,
+                                      int region_x, int region_y) {
+    if (!catalog || !catalog->loaded)
+        return 0;
+    int index = mapsquare_catalog_index(region_x, region_y);
+    return index >= 0
+        && (catalog->present[index >> 3] & (uint8_t)(1u << (index & 7))) != 0;
+}
+
+int viewer_streaming_filter_mapsquares(
+    const ViewerMapsquareCatalog *catalog,
+    ViewerMapsquareCoord *plan,
+    int count) {
+    if (!plan || count < 0)
+        return -1;
+    if (!catalog || !catalog->loaded)
+        return count;
+    int written = 0;
+    for (int i = 0; i < count; i++) {
+        if (viewer_streaming_catalog_contains(
+                catalog, plan[i].region_x, plan[i].region_y)) {
+            plan[written++] = plan[i];
+        }
+    }
+    return written;
+}
+
+int viewer_streaming_mapsquare_path(char *out, size_t capacity,
+                                    const char *directory, int region_x,
+                                    int region_y, int plane,
+                                    const char *suffix) {
+    if (!out || capacity == 0 || !directory || !directory[0] || !suffix
+            || !suffix[0] || region_x < 0 || region_y < 0
+            || region_x > VIEWER_STREAMING_MAX_MAPSQUARE_COORD
+            || region_y > VIEWER_STREAMING_MAX_MAPSQUARE_COORD
+            || plane < 0 || plane > 3)
+        return 0;
+    int n = snprintf(out, capacity, "%s/%d_%d.p%d%s", directory,
+                     region_x, region_y, plane, suffix);
+    return n > 0 && (size_t)n < capacity;
 }

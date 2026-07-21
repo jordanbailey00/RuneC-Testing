@@ -22,6 +22,7 @@ import math
 import struct
 import sys
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -613,6 +614,40 @@ def visual_source_plane(rt: RegionTerrain, tx: int, ty: int, target_plane: int) 
     return target_plane
 
 
+def _context_tile(
+    regions: dict[tuple[int, int], RegionTerrain],
+    region_x: int,
+    region_y: int,
+    tile_x: int,
+    tile_y: int,
+) -> tuple[RegionTerrain, int, int] | None:
+    offset_x, local_x = divmod(tile_x, 64)
+    offset_y, local_y = divmod(tile_y, 64)
+    terrain = regions.get((region_x + offset_x, region_y + offset_y))
+    if terrain is None:
+        return None
+    return terrain, local_x, local_y
+
+
+def _context_height(
+    regions: dict[tuple[int, int], RegionTerrain],
+    fallback: RegionTerrain,
+    region_x: int,
+    region_y: int,
+    plane: int,
+    corner_x: int,
+    corner_y: int,
+) -> int:
+    sample = _context_tile(
+        regions, region_x, region_y, corner_x, corner_y)
+    if sample is not None:
+        terrain, local_x, local_y = sample
+        return terrain.heights[plane][local_x][local_y]
+    local_x = max(0, min(64, corner_x))
+    local_y = max(0, min(64, corner_y))
+    return fallback.heights[plane][local_x][local_y]
+
+
 TILE_SHAPE_POINTS: tuple[tuple[int, ...], ...] = (
     (1, 3, 5, 7),
     (1, 3, 5, 7),
@@ -798,21 +833,31 @@ def _emit_shaped_terrain_tile(
 
 
 def _lit_underlay_rgb(
-    rt: RegionTerrain,
+    regions: dict[tuple[int, int], RegionTerrain],
+    region_x: int,
+    region_y: int,
     z: int,
     tx: int,
     ty: int,
     underlays: dict[int, FloorDef],
     avg_light: int,
 ) -> tuple[int, int, int] | None:
-    uid = rt.underlay_ids[z][tx][ty]
+    tile = _context_tile(regions, region_x, region_y, tx, ty)
+    if tile is None:
+        return None
+    terrain, local_x, local_y = tile
+    uid = terrain.underlay_ids[z][local_x][local_y]
     if uid <= 0:
         return None
 
     blend_h, blend_s, blend_l, blend_m, blend_c = 0, 0, 0, 0, 0
-    for bx in range(max(0, tx - 5), min(64, tx + 6)):
-        for by in range(max(0, ty - 5), min(64, ty + 6)):
-            uid2 = rt.underlay_ids[z][bx][by]
+    for bx in range(tx - 5, tx + 6):
+        for by in range(ty - 5, ty + 6):
+            sample = _context_tile(regions, region_x, region_y, bx, by)
+            if sample is None:
+                continue
+            sample_terrain, sample_x, sample_y = sample
+            uid2 = sample_terrain.underlay_ids[z][sample_x][sample_y]
             if uid2 > 0:
                 flo = underlays.get(uid2 - 1)
                 if flo:
@@ -853,6 +898,7 @@ def build_terrain_mesh(
     target_plane: int = 0,
     tex_colors: dict[int, int] | None = None,
     brightness: float = 1.0,
+    context_regions: dict[tuple[int, int], RegionTerrain] | None = None,
 ) -> tuple[list[float], list[int]]:
     """Build a vertex-colored terrain mesh from parsed regions.
 
@@ -861,6 +907,7 @@ def build_terrain_mesh(
     """
     verts: list[float] = []
     colors: list[int] = []
+    context = context_regions or regions
 
     # we work region by region. for each tile, emit 2 triangles.
     # world coords: base_x = region_x * 64, base_y = region_y * 64
@@ -883,8 +930,16 @@ def build_terrain_mesh(
             intensity = [[base_intensity] * 65 for _ in range(65)]
             for ty in range(65):
                 for tx in range(65):
-                    dx = rt.heights[z][min(tx + 1, 64)][ty] - rt.heights[z][max(tx - 1, 0)][ty]
-                    dy = rt.heights[z][tx][min(ty + 1, 64)] - rt.heights[z][tx][max(ty - 1, 0)]
+                    dx = _context_height(
+                        context, rt, rx, ry, z, tx + 1, ty
+                    ) - _context_height(
+                        context, rt, rx, ry, z, tx - 1, ty
+                    )
+                    dy = _context_height(
+                        context, rt, rx, ry, z, tx, ty + 1
+                    ) - _context_height(
+                        context, rt, rx, ry, z, tx, ty - 1
+                    )
                     length = int(math.sqrt(dx * dx + 256 * 256 + dy * dy))
                     if length == 0:
                         length = 1
@@ -904,10 +959,11 @@ def build_terrain_mesh(
                 rotation = rt.rotations[z][tx][ty]
 
                 # get 4 corner heights
-                h_sw = rt.heights[z][tx][ty]
-                h_se = rt.heights[z][min(tx + 1, 64)][ty]
-                h_ne = rt.heights[z][min(tx + 1, 64)][min(ty + 1, 64)]
-                h_nw = rt.heights[z][tx][min(ty + 1, 64)]
+                h_sw = _context_height(context, rt, rx, ry, z, tx, ty)
+                h_se = _context_height(context, rt, rx, ry, z, tx + 1, ty)
+                h_ne = _context_height(
+                    context, rt, rx, ry, z, tx + 1, ty + 1)
+                h_nw = _context_height(context, rt, rx, ry, z, tx, ty + 1)
                 heights = (h_sw, h_se, h_ne, h_nw)
 
                 # corner lighting
@@ -919,7 +975,7 @@ def build_terrain_mesh(
                 avg_light = (l_sw + l_se + l_ne + l_nw) // 4
 
                 underlay_rgb = _lit_underlay_rgb(
-                    rt, z, tx, ty, underlays, avg_light)
+                    context, rx, ry, z, tx, ty, underlays, avg_light)
                 oflo = overlays.get(oid - 1) if oid > 0 else None
                 overlay_rgb = _lit_overlay_rgb(oflo, tex_colors, avg_light)
 
@@ -985,8 +1041,9 @@ def build_heightmap(
     regions: dict[tuple[int, int], RegionTerrain],
     target_plane: int = 0,
     resolve_link_below: bool = False,
+    context_regions: dict[tuple[int, int], RegionTerrain] | None = None,
 ) -> tuple[int, int, int, int, list[float]]:
-    """Build a flat heightmap grid from parsed regions.
+    """Build a corner-height grid from parsed regions.
 
     Returns (min_x, min_y, width, height, heights[width*height]).
     Heights are in terrain units (OSRS height / 128.0).
@@ -998,34 +1055,61 @@ def build_heightmap(
 
     min_wx = min_rx * 64
     min_wy = min_ry * 64
-    width = (max_rx - min_rx + 1) * 64
-    height = (max_ry - min_ry + 1) * 64
+    width = (max_rx - min_rx + 1) * 64 + 1
+    height = (max_ry - min_ry + 1) * 64 + 1
+    context = context_regions or regions
 
-    # default to 0 (flat) for uncovered tiles
+    # Default to 0 (flat) for uncovered corners.
     hmap = [0.0] * (width * height)
     scale_h = -1.0 / 128.0
 
-    def linked_bridge_corner(rt: RegionTerrain, tx: int, ty: int) -> bool:
+    def setting_at(plane: int, world_x: int, world_y: int) -> int:
+        region_x, local_x = divmod(world_x, 64)
+        region_y, local_y = divmod(world_y, 64)
+        terrain = context.get((region_x, region_y))
+        if terrain is None:
+            return 0
+        return terrain.settings[plane][local_x][local_y]
+
+    def linked_bridge_corner(world_x: int, world_y: int) -> bool:
         link_plane = target_plane + 1
         if link_plane > 3:
             return False
         for ox, oy in ((0, 0), (-1, 0), (0, -1), (-1, -1)):
-            sx = tx + ox
-            sy = ty + oy
-            if 0 <= sx < 64 and 0 <= sy < 64 and rt.settings[link_plane][sx][sy] & 0x2:
+            if setting_at(link_plane, world_x + ox, world_y + oy) & 0x2:
                 return True
         return False
 
-    for (rx, ry), rt in regions.items():
-        base_x = rx * 64 - min_wx
-        base_y = ry * 64 - min_wy
-        for tx in range(64):
-            for ty in range(64):
-                idx = (base_x + tx) + (base_y + ty) * width
-                plane = target_plane
-                if resolve_link_below and linked_bridge_corner(rt, tx, ty):
-                    plane = target_plane + 1
-                hmap[idx] = float(rt.heights[plane][tx][ty]) * scale_h
+    def corner_height(plane: int, world_x: int, world_y: int) -> int | None:
+        region_x, local_x = divmod(world_x, 64)
+        region_y, local_y = divmod(world_y, 64)
+        terrain = context.get((region_x, region_y))
+        if terrain is not None:
+            return terrain.heights[plane][local_x][local_y]
+
+        candidates: list[tuple[int, int, int, int]] = []
+        if local_x == 0 and local_y == 0:
+            candidates.append((region_x - 1, region_y - 1, 64, 64))
+        if local_x == 0:
+            candidates.append((region_x - 1, region_y, 64, local_y))
+        if local_y == 0:
+            candidates.append((region_x, region_y - 1, local_x, 64))
+        for fallback_x, fallback_y, sample_x, sample_y in candidates:
+            fallback = context.get((fallback_x, fallback_y))
+            if fallback is not None:
+                return fallback.heights[plane][sample_x][sample_y]
+        return None
+
+    for local_y in range(height):
+        world_y = min_wy + local_y
+        for local_x in range(width):
+            world_x = min_wx + local_x
+            plane = target_plane
+            if resolve_link_below and linked_bridge_corner(world_x, world_y):
+                plane = target_plane + 1
+            raw_height = corner_height(plane, world_x, world_y)
+            if raw_height is not None:
+                hmap[local_x + local_y * width] = float(raw_height) * scale_h
 
     return min_wx, min_wy, width, height, hmap
 
@@ -1185,6 +1269,21 @@ def parse_region_specs(regions: str) -> list[tuple[int, int]]:
     return coords
 
 
+def load_modern_region_terrain(
+    reader: RcCacheStore,
+    region_x: int,
+    region_y: int,
+) -> RegionTerrain | None:
+    """Decode one mapsquare terrain payload from a modern cache."""
+    terrain_data = read_map_region_file(reader, region_x, region_y, "terrain")
+    if terrain_data is None:
+        return None
+    terrain = parse_terrain_full(terrain_data, region_x * 64, region_y * 64)
+    terrain.region_x = region_x
+    terrain.region_y = region_y
+    return terrain
+
+
 def export_modern_terrain(
     cache_dir: Path,
     regions: list[tuple[int, int]],
@@ -1193,7 +1292,7 @@ def export_modern_terrain(
     brightness: float = 1.0,
 ) -> None:
     """Export one b237 terrain plane through the repo-local rc_cache path."""
-    if not cache_dir.exists():
+    if not cache_dir.is_dir():
         sys.exit(f"modern cache directory not found: {cache_dir}")
     if not regions:
         sys.exit("at least one region is required")
@@ -1234,18 +1333,11 @@ def export_modern_terrain(
             errors += 1
             continue
 
-        terrain_data = read_map_region_file(reader, rx, ry, "terrain")
-        if terrain_data is None:
+        rt = load_modern_region_terrain(reader, rx, ry)
+        if rt is None:
             print(f"  region ({rx},{ry}): failed to read terrain")
             errors += 1
             continue
-
-        region_chunk_x = rx * 64
-        region_chunk_y = ry * 64
-
-        rt = parse_terrain_full(terrain_data, region_chunk_x, region_chunk_y)
-        rt.region_x = rx
-        rt.region_y = ry
         parsed[(rx, ry)] = rt
 
     print(f"  parsed {len(parsed)} regions, {errors} errors")
@@ -1255,6 +1347,85 @@ def export_modern_terrain(
         scene_plane=scene_plane,
     )
     _build_and_write(write_args, parsed, underlays, overlays_defs, tex_colors)
+
+
+def export_modern_terrain_split(
+    cache_dir: Path,
+    regions: list[tuple[int, int]],
+    output_dir: Path,
+    planes: list[int] | tuple[int, ...] = (0, 1, 2, 3),
+    brightness: float = 1.0,
+) -> list[Path]:
+    """Export bounded per-mapsquare terrain files with stitched cache edges."""
+    if not cache_dir.is_dir():
+        raise FileNotFoundError(f"modern cache directory not found: {cache_dir}")
+    if not regions:
+        raise ValueError("at least one region is required")
+    if not planes or any(plane < 0 or plane > 3 for plane in planes):
+        raise ValueError("planes must contain values in 0..3")
+
+    reader = RcCacheStore(cache_dir)
+    underlays, overlays_defs = decode_floor_definitions_modern(reader)
+    tex_colors = load_texture_average_colors_modern(reader)
+    map_regions = find_all_map_region_files(reader)
+    target_coords = sorted(set(regions), key=lambda region: (region[1], region[0]))
+    missing = [
+        (rx, ry)
+        for rx, ry in target_coords
+        if (entry := map_regions.get((rx << 8) | ry)) is None or not entry.has_terrain
+    ]
+    if missing:
+        sample = ", ".join(f"{rx},{ry}" for rx, ry in missing[:8])
+        raise ValueError(f"{len(missing)} selected mapsquares lack terrain: {sample}")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Keep full-cache builds bounded while retaining one mapsquare of context.
+    @lru_cache(maxsize=16)
+    def load_region(region_x: int, region_y: int) -> RegionTerrain | None:
+        entry = map_regions.get((region_x << 8) | region_y)
+        if entry is None or not entry.has_terrain:
+            return None
+        return load_modern_region_terrain(reader, region_x, region_y)
+
+    generated: list[Path] = []
+    for rx, ry in target_coords:
+        halo: dict[tuple[int, int], RegionTerrain] = {}
+        for dy in range(-1, 2):
+            for dx in range(-1, 2):
+                terrain = load_region(rx + dx, ry + dy)
+                if terrain is not None:
+                    halo[(rx + dx, ry + dy)] = terrain
+        local = halo.get((rx, ry))
+        if local is None:
+            raise ValueError(f"failed to decode terrain for mapsquare {rx},{ry}")
+        stitch_region_edges(halo)
+        local_region = {(rx, ry): local}
+
+        plane_vertices: list[str] = []
+        for plane in planes:
+            verts, colors = build_terrain_mesh(
+                local_region,
+                underlays,
+                overlays_defs,
+                target_plane=plane,
+                tex_colors=tex_colors,
+                brightness=brightness,
+                context_regions=halo,
+            )
+            heightmap = build_heightmap(
+                local_region,
+                target_plane=plane,
+                resolve_link_below=plane < 3,
+                context_regions=halo,
+            )
+            output = output_dir / f"{rx}_{ry}.p{plane}.terrain"
+            write_terrain_binary(output, verts, colors, local_region, heightmap)
+            generated.append(output)
+            plane_vertices.append(f"p{plane}={len(verts) // 3}")
+        print(f"terrain mapsquare {rx},{ry}: " + " ".join(plane_vertices))
+
+    return generated
 
 
 def _build_and_write(

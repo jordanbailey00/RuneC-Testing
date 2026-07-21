@@ -81,6 +81,17 @@ typedef struct {
     char path[1024];
 } ViewerObjectChunk;
 
+typedef struct {
+    int region_x;
+    int region_y;
+    int plane;
+    TerrainMesh *terrain;
+    ObjectMesh *objects;
+    ModelSet *object_anim_models;
+    AnimModelState **object_anim_states;
+    int object_anim_state_count;
+} ViewerMapsquareChunk;
+
 typedef enum {
     VIEWER_SCENE_MODE_AUTO = 0,
     VIEWER_SCENE_MODE_GENERATED,
@@ -312,11 +323,21 @@ typedef struct {
     int preload_scene_planes;
     int object_chunk_size;
     float object_chunk_draw_radius;
+    float actor_draw_radius;
     ViewerObjectChunk
         object_chunks[RC_MAX_PLANES][VIEWER_STREAMING_CHUNK_CAPACITY];
     int object_chunk_count[RC_MAX_PLANES];
     Texture2D object_chunk_atlas[RC_MAX_PLANES];
     int object_chunk_atlas_loaded[RC_MAX_PLANES];
+    ViewerMapsquareChunk
+        mapsquare_chunks[VIEWER_STREAMING_CHUNK_CAPACITY];
+    int mapsquare_chunk_count;
+    ViewerMapsquareCatalog mapsquare_catalog;
+    ObjectMesh *mapsquare_materials;
+    int mapsquare_streaming_active;
+    int mapsquare_center_region_x;
+    int mapsquare_center_region_y;
+    char mapsquare_directory[512];
     int initial_scene_origin_x;
     int initial_scene_origin_y;
     int initial_scene_w;
@@ -337,11 +358,44 @@ static void ensure_active_scene_plane(ViewerState *v, int plane);
 static void reset_viewer_context(ViewerState *v);
 static void handle_player_scene_transition(ViewerState *v, int old_x,
                                            int old_y, int old_plane);
+static int viewer_mapsquare_cache_allowed(void);
+static int viewer_load_mapsquare_catalog(ViewerState *v);
+static int viewer_mapsquare_center_available(const ViewerState *v, int x,
+                                             int y, int plane);
+static int viewer_mapsquare_chunk_available(const ViewerState *v,
+                                             int region_x, int region_y,
+                                             int plane);
+static int viewer_mapsquare_visible_plan(
+    const ViewerState *v, int center_x, int center_y,
+    ViewerMapsquareCoord *plan, int capacity);
+static int viewer_mapsquare_window_assets_available(const ViewerState *v,
+                                                     int center_x,
+                                                     int center_y, int plane);
+static int viewer_prepare_mapsquare_window(ViewerState *v, int center_x,
+                                           int center_y, int plane);
+static int viewer_mapsquare_asset_path(const ViewerState *v, char *out,
+                                       size_t capacity, int region_x,
+                                       int region_y, int plane,
+                                       const char *suffix);
+static int viewer_mapsquare_material_path(const ViewerState *v, char *out,
+                                          size_t capacity);
+static int viewer_activate_mapsquare_window(ViewerState *v, int center_x,
+                                            int center_y, int plane,
+                                            int activate_backend);
+static int viewer_mapsquare_plane_loaded(const ViewerState *v, int plane);
+static TerrainMesh *viewer_mapsquare_terrain_at(const ViewerState *v,
+                                                int plane, int world_x,
+                                                int world_y);
+static void free_mapsquare_cache(ViewerState *v);
+static void draw_mapsquare_chunks(ViewerState *v, int plane, float frame_dt);
+static int viewer_actor_in_draw_range(const ViewerState *v, float x, float y,
+                                      float padding);
 
 static int g_world_origin_x = DEFAULT_WORLD_ORIGIN_X;
 static int g_world_origin_y = DEFAULT_WORLD_ORIGIN_Y;
 static int g_player_start_x = DEFAULT_PLAYER_START_X;
 static int g_player_start_y = DEFAULT_PLAYER_START_Y;
+static int g_player_start_plane = 0;
 static int g_world_w = DEFAULT_WORLD_W;
 static int g_world_h = DEFAULT_WORLD_H;
 
@@ -408,7 +462,7 @@ static const char *viewer_scene_mode_name(ViewerSceneMode mode) {
     }
 }
 
-static int runtime_data_available(void) {
+static int runtime_data_available(const ViewerState *v) {
     const char *required[] = {
         "defs/items.bin",
         "defs/npc_defs.bin",
@@ -426,9 +480,13 @@ static int runtime_data_available(void) {
     }
 
     ViewerSceneMode scene_mode = viewer_scene_mode_from_env();
-    if (scene_mode == VIEWER_SCENE_MODE_FIXED
+    int mapsquare_available = viewer_mapsquare_cache_allowed()
+        && viewer_mapsquare_center_available(v, g_player_start_x,
+                                             g_player_start_y,
+                                             g_player_start_plane);
+    if (!mapsquare_available && (scene_mode == VIEWER_SCENE_MODE_FIXED
             || env_has_value("RUNEC_TERRAIN")
-            || env_has_value("RUNEC_OBJECTS")) {
+            || env_has_value("RUNEC_OBJECTS"))) {
         const char *fixed_required[] = {
             env_path("RUNEC_TERRAIN", "regions/varrock.terrain"),
             env_path("RUNEC_OBJECTS", "regions/varrock.objects"),
@@ -745,6 +803,40 @@ static ObjectMesh *viewer_objects_for_plane(ViewerState *v, int plane) {
     return v->object_planes[plane];
 }
 
+static TerrainMesh *viewer_mapsquare_terrain_at(const ViewerState *v,
+                                                int plane, int world_x,
+                                                int world_y) {
+    if (!v || !v->mapsquare_streaming_active)
+        return NULL;
+    int region_x = world_x / VIEWER_STREAMING_MAPSQUARE_SIZE;
+    int region_y = world_y / VIEWER_STREAMING_MAPSQUARE_SIZE;
+    plane = clamp_plane(plane);
+    for (int i = 0; i < v->mapsquare_chunk_count; i++) {
+        const ViewerMapsquareChunk *chunk = &v->mapsquare_chunks[i];
+        if (chunk->region_x == region_x && chunk->region_y == region_y
+                && chunk->plane == plane) {
+            return chunk->terrain;
+        }
+    }
+    return NULL;
+}
+
+static int viewer_mapsquare_plane_loaded(const ViewerState *v, int plane) {
+    if (!v || !v->mapsquare_streaming_active)
+        return 0;
+    plane = clamp_plane(plane);
+    for (int i = 0; i < v->mapsquare_chunk_count; i++) {
+        const ViewerMapsquareChunk *chunk = &v->mapsquare_chunks[i];
+        if (chunk->region_x == v->mapsquare_center_region_x
+                && chunk->region_y == v->mapsquare_center_region_y
+                && chunk->plane == plane && chunk->terrain
+                && chunk->objects) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int plane_path_variant(char *out, size_t cap, const char *base,
                               int plane, const char *ext) {
     if (!out || cap == 0 || !base || !ext) return 0;
@@ -955,6 +1047,25 @@ static void viewer_refresh_streaming_telemetry(ViewerState *v,
             add_texture_residency(&textures, chunk->atlas_texture);
         }
     }
+    add_texture_residency(
+        &textures,
+        v->mapsquare_materials
+            ? v->mapsquare_materials->atlas_texture : (Texture2D){0});
+    for (int i = 0; i < v->mapsquare_chunk_count; i++) {
+        ViewerMapsquareChunk *chunk = &v->mapsquare_chunks[i];
+        if (chunk->terrain && chunk->terrain->loaded) {
+            telemetry->terrain_chunks_cpu++;
+            telemetry->terrain_chunks_gpu++;
+            telemetry->terrain_vertices_resident +=
+                (uint64_t)chunk->terrain->vertex_count;
+        }
+        if (chunk->objects && chunk->objects->loaded) {
+            telemetry->object_chunks_cpu++;
+            telemetry->object_chunks_gpu++;
+            telemetry->object_vertices_resident +=
+                (uint64_t)chunk->objects->total_vertex_count;
+        }
+    }
 
     ModelSet *sets[] = {
         v->player_model, v->npc_models, v->item_models,
@@ -972,6 +1083,13 @@ static void viewer_refresh_streaming_telemetry(ViewerState *v,
         ModelSet *set = v->object_anim_model_planes[plane];
         add_texture_residency(&textures,
                               set ? set->atlas_texture : (Texture2D){0});
+        if (refresh_model_cache)
+            model_bytes += model_set_resident_bytes(set);
+    }
+    for (int i = 0; i < v->mapsquare_chunk_count; i++) {
+        ModelSet *set = v->mapsquare_chunks[i].object_anim_models;
+        add_texture_residency(
+            &textures, set ? set->atlas_texture : (Texture2D){0});
         if (refresh_model_cache)
             model_bytes += model_set_resident_bytes(set);
     }
@@ -1004,16 +1122,43 @@ static void viewer_refresh_streaming_telemetry(ViewerState *v,
         if (chunk->mesh && object_chunk_should_draw(v, chunk))
             draw_calls++;
     }
+    for (int i = 0; i < v->mapsquare_chunk_count; i++) {
+        ViewerMapsquareChunk *chunk = &v->mapsquare_chunks[i];
+        if (chunk->plane != scene_plane)
+            continue;
+        if (chunk->terrain && chunk->terrain->loaded)
+            draw_calls++;
+        if (chunk->objects && chunk->objects->loaded) {
+            draw_calls++;
+            draw_calls += chunk->objects->object_anim_count;
+        }
+    }
     if (v->world) {
         if (v->world->player.plane == scene_plane)
             draw_calls++;
         for (int i = 0; i < v->world->npc_count; i++)
             if (v->world->npcs[i].active && !v->world->npcs[i].is_dead
-                    && v->world->npcs[i].plane == scene_plane)
+                    && v->world->npcs[i].plane == scene_plane
+                    && v->world->npcs[i].x >= g_world_origin_x
+                    && v->world->npcs[i].x < g_world_origin_x + g_world_w
+                    && v->world->npcs[i].y >= g_world_origin_y
+                    && v->world->npcs[i].y < g_world_origin_y + g_world_h
+                    && viewer_actor_in_draw_range(
+                        v, (float)v->world->npcs[i].x,
+                        (float)v->world->npcs[i].y, 0.0f))
                 draw_calls++;
         for (int i = 0; i < v->world->ground_item_count; i++)
             if (v->world->ground_items[i].active
-                    && v->world->ground_items[i].plane == scene_plane)
+                    && v->world->ground_items[i].plane == scene_plane
+                    && v->world->ground_items[i].x >= g_world_origin_x
+                    && v->world->ground_items[i].x
+                        < g_world_origin_x + g_world_w
+                    && v->world->ground_items[i].y >= g_world_origin_y
+                    && v->world->ground_items[i].y
+                        < g_world_origin_y + g_world_h
+                    && viewer_actor_in_draw_range(
+                        v, (float)v->world->ground_items[i].x,
+                        (float)v->world->ground_items[i].y, 0.0f))
                 draw_calls++;
     }
     draw_calls += v->combat_projectile_count;
@@ -1368,7 +1513,10 @@ static Shader load_projectile_effect_shader(float brightness, float lift) {
 
 static float ground_y_plane(ViewerState *v, int plane, int world_x,
                             int world_y) {
-    TerrainMesh *terrain = viewer_terrain_for_plane(v, plane);
+    TerrainMesh *terrain = viewer_mapsquare_terrain_at(
+        v, plane, world_x, world_y);
+    if (!terrain)
+        terrain = viewer_terrain_for_plane(v, plane);
     if (terrain && terrain->loaded)
         return terrain_height_avg(terrain, LOCAL_X(world_x), LOCAL_Y(world_y)) + 0.05f;
     return 0.0f;
@@ -1380,7 +1528,10 @@ static float ground_y(ViewerState *v, int world_x, int world_y) {
 
 static float ground_yf_plane(ViewerState *v, int plane, float world_x,
                              float world_y) {
-    TerrainMesh *terrain = viewer_terrain_for_plane(v, plane);
+    TerrainMesh *terrain = viewer_mapsquare_terrain_at(
+        v, plane, (int)floorf(world_x), (int)floorf(world_y));
+    if (!terrain)
+        terrain = viewer_terrain_for_plane(v, plane);
     if (!terrain || !terrain->loaded || !terrain->heightmap)
         return 0.0f;
     float lx = world_x - (float)g_world_origin_x;
@@ -1409,14 +1560,31 @@ static int append_unique_model_id(uint32_t *ids, int count, uint32_t id) {
     return count;
 }
 
-static int collect_spawned_npc_model_ids(RcWorld *world, uint32_t *ids,
+static int viewer_actor_in_draw_range(const ViewerState *v, float x, float y,
+                                      float padding) {
+    if (!v || !v->world)
+        return 0;
+    float radius = v->actor_draw_radius + padding;
+    float dx = x - (float)v->world->player.x;
+    float dy = y - (float)v->world->player.y;
+    return radius <= 0.0f || dx * dx + dy * dy <= radius * radius;
+}
+
+static int collect_spawned_npc_model_ids(ViewerState *v, uint32_t *ids,
                                          int max_ids,
                                          int min_plane, int max_plane) {
+    RcWorld *world = v ? v->world : NULL;
+    if (!world)
+        return 0;
     int count = 0;
     for (int i = 0; i < world->npc_count && count < max_ids; i++) {
         const RcNpc *npc = &world->npcs[i];
         const RcNpcDef *def = rc_npc_def_for_npc(npc);
         if (!npc->active || npc->plane < min_plane || npc->plane > max_plane
+                || npc->x < g_world_origin_x - 8
+                || npc->x >= g_world_origin_x + g_world_w + 8
+                || npc->y < g_world_origin_y - 8
+                || npc->y >= g_world_origin_y + g_world_h + 8
                 || !def) continue;
         count = append_unique_model_id(ids, count, (uint32_t)def->id);
     }
@@ -1463,7 +1631,7 @@ static void reload_npc_models_for_scene(ViewerState *v) {
     int npc_model_id_count = 0;
     if (npc_model_ids) {
         npc_model_id_count = collect_spawned_npc_model_ids(
-            v->world, npc_model_ids, v->world->npc_count, 0,
+            v, npc_model_ids, v->world->npc_count, 0,
             RC_MAX_PLANES - 1);
     }
     uint32_t empty_model_ids[1] = {0};
@@ -1620,6 +1788,30 @@ static void minimap_draw_tile_features(ViewerState *v, Color *pixels,
         minimap_fill_rect(pixels, sx + 2, sy - 2, 1, 5, wall);
 }
 
+static void minimap_accumulate_terrain(const TerrainMesh *terrain, int w, int h,
+                                       unsigned int *sum_r,
+                                       unsigned int *sum_g,
+                                       unsigned int *sum_b,
+                                       unsigned int *count) {
+    if (!terrain || !terrain->loaded || terrain->model.meshCount <= 0
+            || !sum_r || !sum_g || !sum_b || !count)
+        return;
+    const Mesh *mesh = &terrain->model.meshes[0];
+    if (!mesh->vertices || !mesh->colors)
+        return;
+    for (int i = 0; i < mesh->vertexCount; i++) {
+        int lx = (int)floorf(mesh->vertices[i * 3]);
+        int ly = (int)floorf(-mesh->vertices[i * 3 + 2]);
+        if (lx < 0 || lx >= w || ly < 0 || ly >= h)
+            continue;
+        int idx = lx + ly * w;
+        sum_r[idx] += mesh->colors[i * 4 + 0];
+        sum_g[idx] += mesh->colors[i * 4 + 1];
+        sum_b[idx] += mesh->colors[i * 4 + 2];
+        count[idx]++;
+    }
+}
+
 static void build_minimap_tiles(ViewerState *v) {
     int w = g_world_w;
     int h = g_world_h;
@@ -1635,44 +1827,38 @@ static void build_minimap_tiles(ViewerState *v) {
     for (int i = 0; i < w * h; i++)
         v->minimap_tiles[i] = (Color){64, 96, 48, 255};
 
-    TerrainMesh *terrain = viewer_terrain_for_plane(v, scene_plane);
-    if (terrain && terrain->loaded && terrain->model.meshCount > 0) {
-        Mesh *mesh = &terrain->model.meshes[0];
-        if (mesh->vertices && mesh->colors) {
-            unsigned int *sum_r = calloc((size_t)w * (size_t)h, sizeof(unsigned int));
-            unsigned int *sum_g = calloc((size_t)w * (size_t)h, sizeof(unsigned int));
-            unsigned int *sum_b = calloc((size_t)w * (size_t)h, sizeof(unsigned int));
-            unsigned int *count = calloc((size_t)w * (size_t)h, sizeof(unsigned int));
-            if (sum_r && sum_g && sum_b && count) {
-                for (int i = 0; i < mesh->vertexCount; i++) {
-                    int lx = (int)floorf(mesh->vertices[i * 3]);
-                    int ly = (int)floorf(-mesh->vertices[i * 3 + 2]);
-                    if (lx < 0 || lx >= w || ly < 0 || ly >= h)
-                        continue;
-                    int idx = lx + ly * w;
-                    sum_r[idx] += mesh->colors[i * 4 + 0];
-                    sum_g[idx] += mesh->colors[i * 4 + 1];
-                    sum_b[idx] += mesh->colors[i * 4 + 2];
-                    count[idx]++;
-                }
-                for (int i = 0; i < w * h; i++) {
-                    if (count[i] == 0)
-                        continue;
-                    Color avg = (Color){
-                        (unsigned char)(sum_r[i] / count[i]),
-                        (unsigned char)(sum_g[i] / count[i]),
-                        (unsigned char)(sum_b[i] / count[i]),
-                        255
-                    };
-                    v->minimap_tiles[i] = minimap_quantize_color(avg);
-                }
+    size_t tile_count = (size_t)w * (size_t)h;
+    unsigned int *sum_r = calloc(tile_count, sizeof(unsigned int));
+    unsigned int *sum_g = calloc(tile_count, sizeof(unsigned int));
+    unsigned int *sum_b = calloc(tile_count, sizeof(unsigned int));
+    unsigned int *count = calloc(tile_count, sizeof(unsigned int));
+    if (sum_r && sum_g && sum_b && count) {
+        TerrainMesh *terrain = viewer_terrain_for_plane(v, scene_plane);
+        minimap_accumulate_terrain(terrain, w, h, sum_r, sum_g, sum_b,
+                                   count);
+        for (int i = 0; i < v->mapsquare_chunk_count; i++) {
+            ViewerMapsquareChunk *chunk = &v->mapsquare_chunks[i];
+            if (chunk->plane == scene_plane) {
+                minimap_accumulate_terrain(chunk->terrain, w, h, sum_r, sum_g,
+                                           sum_b, count);
             }
-            free(sum_r);
-            free(sum_g);
-            free(sum_b);
-            free(count);
+        }
+        for (int i = 0; i < w * h; i++) {
+            if (count[i] == 0)
+                continue;
+            Color avg = (Color){
+                (unsigned char)(sum_r[i] / count[i]),
+                (unsigned char)(sum_g[i] / count[i]),
+                (unsigned char)(sum_b[i] / count[i]),
+                255
+            };
+            v->minimap_tiles[i] = minimap_quantize_color(avg);
         }
     }
+    free(sum_r);
+    free(sum_g);
+    free(sum_b);
+    free(count);
 
     for (int lx = 0; lx < w; lx++) {
         for (int ly = 0; ly < h; ly++) {
@@ -1693,7 +1879,7 @@ static void build_minimap_tiles(ViewerState *v) {
     }
 }
 
-static void unload_scene_visual_assets(ViewerState *v) {
+static void clear_aggregate_visual_assets(ViewerState *v) {
     if (!v) return;
     for (int plane = 0; plane < RC_MAX_PLANES; plane++) {
         terrain_free(v->terrain_planes[plane]);
@@ -1705,6 +1891,12 @@ static void unload_scene_visual_assets(ViewerState *v) {
     }
     v->terrain = NULL;
     v->objects = NULL;
+}
+
+static void unload_scene_visual_assets(ViewerState *v) {
+    if (!v) return;
+    clear_aggregate_visual_assets(v);
+    free_mapsquare_cache(v);
     free(v->minimap_tiles);
     v->minimap_tiles = NULL;
     v->minimap_tiles_w = 0;
@@ -1785,6 +1977,37 @@ static int scene_objects_file_complete(const char *objects_path) {
                 (unsigned long long)expected);
         return 0;
     }
+    return 1;
+}
+
+static int scene_oanim_file_complete(const char *oanim_path,
+                                     int *has_placements) {
+    if (has_placements)
+        *has_placements = 0;
+    uint64_t asset_size = 0;
+    if (!oanim_path || !rc_asset_size(oanim_path, &asset_size))
+        return 0;
+
+    FILE *f = rc_asset_fopen(oanim_path, "rb");
+    if (!f)
+        return 0;
+    uint32_t magic = 0;
+    uint32_t version = 0;
+    uint32_t count = 0;
+    int ok = rc_read_exact(f, &magic, sizeof(magic), 1, oanim_path,
+                           "object anim magic")
+          && rc_read_exact(f, &version, sizeof(version), 1, oanim_path,
+                           "object anim version")
+          && rc_read_exact(f, &count, sizeof(count), 1, oanim_path,
+                           "object anim count");
+    rc_asset_close(f);
+    uint64_t expected = 12ull + (uint64_t)count * sizeof(ObjectAnimRow);
+    if (!ok || magic != OANM_MAGIC || version != OANM_VERSION
+            || asset_size < expected) {
+        return 0;
+    }
+    if (has_placements)
+        *has_placements = count > 0;
     return 1;
 }
 
@@ -1890,6 +2113,57 @@ static int validate_viewer_scene_assets(ViewerState *v) {
         return -1;
     fprintf(stderr, "viewer smoke scenes: PASS checked=%d\n", checked);
     return checked;
+}
+
+static int validate_mapsquare_window_assets(ViewerState *v, int center_x,
+                                             int center_y, int plane) {
+    if (!v)
+        return -1;
+    ViewerMapsquareCoord plan[VIEWER_STREAMING_CHUNK_CAPACITY];
+    int count = viewer_mapsquare_visible_plan(
+        v, center_x, center_y, plan, VIEWER_STREAMING_CHUNK_CAPACITY);
+    if (count <= 0) {
+        fprintf(stderr,
+                "viewer smoke mapsquares: invalid window for %d,%d plane "
+                "%d in %s\n",
+                center_x, center_y, plane, v->mapsquare_directory);
+        return -1;
+    }
+
+    char atlas_path[1024];
+    if (!viewer_mapsquare_material_path(v, atlas_path, sizeof(atlas_path)))
+        return -1;
+    char tanim_path[1024];
+    int n = snprintf(tanim_path, sizeof(tanim_path),
+                     "%s/mapsquare.materials.tanim",
+                     v->mapsquare_directory);
+    if (n <= 0 || (size_t)n >= sizeof(tanim_path)
+            || !rc_asset_exists(atlas_path) || !rc_asset_exists(tanim_path)) {
+        fprintf(stderr,
+                "viewer smoke mapsquares: shared material page is incomplete "
+                "in %s\n",
+                v->mapsquare_directory);
+        return -1;
+    }
+
+    if (!viewer_mapsquare_window_assets_available(
+            v, center_x, center_y, plane)) {
+        for (int i = 0; i < count; i++) {
+            if (!viewer_mapsquare_chunk_available(
+                    v, plan[i].region_x, plan[i].region_y, plane)) {
+                fprintf(stderr,
+                        "viewer smoke mapsquares: incomplete chunk %d,%d "
+                        "plane %d\n",
+                        plan[i].region_x, plan[i].region_y, plane);
+                break;
+            }
+        }
+        return -1;
+    }
+    fprintf(stderr,
+            "viewer smoke mapsquares: PASS available=%d planned=%d plane=%d\n",
+            count, count, plane);
+    return count;
 }
 
 static int ensure_scene_slice_plane_assets(ViewerState *v, int center_x,
@@ -2006,19 +2280,19 @@ static int load_generated_scene_plane_assets(ViewerState *v,
         if (!v->objects && v->object_planes[i])
             v->objects = v->object_planes[i];
     }
-    return v->terrain_planes[plane] || v->object_planes[plane];
+    return v->terrain_planes[plane] && v->object_planes[plane];
 }
 
-static int activate_core_area_for_scene_bounds(ViewerState *v) {
+static int activate_core_area_bounds(ViewerState *v, int origin_x,
+                                     int origin_y, int width, int height) {
     if (!v || !v->world)
         return 0;
-    memset(v->npc_render, 0, sizeof(v->npc_render));
 
     RcActiveAreaRequest request = {
-        .origin_x = g_world_origin_x,
-        .origin_y = g_world_origin_y,
-        .width = g_world_w,
-        .height = g_world_h,
+        .origin_x = origin_x,
+        .origin_y = origin_y,
+        .width = width,
+        .height = height,
         .min_plane = 0,
         .max_plane = RC_MAX_PLANES - 1,
         .flags = RC_ACTIVE_AREA_LOAD_COLLISION
@@ -2036,6 +2310,7 @@ static int activate_core_area_for_scene_bounds(ViewerState *v) {
     RcActiveAreaStats stats;
     int ok = rc_world_activate_area(v->world, &request, &stats);
     if (ok > 0) {
+        memset(v->npc_render, 0, sizeof(v->npc_render));
         fprintf(stderr,
                 "core active area: origin=%d,%d size=%dx%d collision=%d"
                 " npc_rows=%d matched=%d spawned=%d planes=[%d,%d,%d,%d]"
@@ -2055,13 +2330,36 @@ static int activate_core_area_for_scene_bounds(ViewerState *v) {
                 stats.streaming.backend_pages_loaded,
                 stats.streaming.backend_page_load_ms,
                 stats.streaming.active_area_load_ms);
-        if (v->npc_models || v->npc_anims || v->npc_fallback_anims)
-            reload_npc_models_for_scene(v);
         return 1;
     }
     fprintf(stderr, "core active area: activation failed for %d,%d %dx%d\n",
-            g_world_origin_x, g_world_origin_y, g_world_w, g_world_h);
+            origin_x, origin_y, width, height);
     return 0;
+}
+
+static int activate_core_area_for_scene_bounds(ViewerState *v) {
+    int activated = activate_core_area_bounds(
+        v, g_world_origin_x, g_world_origin_y, g_world_w, g_world_h);
+    if (activated
+            && (v->npc_models || v->npc_anims || v->npc_fallback_anims)) {
+        reload_npc_models_for_scene(v);
+    }
+    return activated;
+}
+
+static int activate_core_area_around_tile(ViewerState *v, int x, int y) {
+    if (!v || !v->world)
+        return 0;
+    const RcWorldStreamingConfig *config =
+        rc_world_get_streaming_config(v->world);
+    int radius = config ? config->active_radius_regions
+                        : RC_WORLD_STREAMING_DEFAULT_ACTIVE_RADIUS;
+    int origin_x = 0;
+    int origin_y = 0;
+    int width = 0;
+    int height = 0;
+    scene_bounds_for_tile(x, y, radius, &origin_x, &origin_y, &width, &height);
+    return activate_core_area_bounds(v, origin_x, origin_y, width, height);
 }
 
 static int scene_tile_in_initial_scene(const ViewerState *v, int x, int y) {
@@ -2107,6 +2405,24 @@ static int reload_scene_around_player(ViewerState *v, int center_x,
     if (!v || !v->world)
         return 0;
     double load_started_ms = viewer_begin_streaming_load(v);
+    int required_plane = clamp_plane(v->world->player.plane);
+    int mapsquare_ready = viewer_prepare_mapsquare_window(
+        v, center_x, center_y, required_plane);
+    if (mapsquare_ready > 0) {
+        if (viewer_activate_mapsquare_window(
+                v, center_x, center_y, required_plane, 1)) {
+            viewer_finish_streaming_load(v, load_started_ms,
+                                         "mapsquare-window", 1);
+            return 1;
+        }
+        fprintf(stderr,
+                "viewer mapsquare: complete destination %d,%d plane %d "
+                "failed to load; keeping the current scene\n",
+                center_x, center_y, required_plane);
+        return 0;
+    }
+    if (mapsquare_ready < 0)
+        return 0;
     if (scene_tile_in_initial_scene(v, center_x, center_y)) {
         int loaded = reload_initial_scene(v);
         if (loaded)
@@ -2128,9 +2444,10 @@ static int reload_scene_around_player(ViewerState *v, int center_x,
                      v->streaming.scene_radius_regions);
     if (n <= 0 || (size_t)n >= sizeof(prefix))
         return 0;
-    int required_plane = clamp_plane(v->world->player.plane);
     int scene_available = ensure_scene_slice_plane_assets(
         v, center_x, center_y, prefix, required_plane);
+    if (!scene_available)
+        return 0;
 
     unload_scene_visual_assets(v);
     g_world_origin_x = origin_x;
@@ -2138,29 +2455,20 @@ static int reload_scene_around_player(ViewerState *v, int center_x,
     g_world_w = world_w;
     g_world_h = world_h;
     int visual_loaded = 0;
-    if (scene_available) {
-        visual_loaded = load_generated_scene_plane_assets(v, prefix,
-                                                          required_plane);
-        if (required_plane != 0 && scene_plane_files_exist(prefix, 0))
-            load_generated_scene_plane_assets(v, prefix, 0);
-    }
+    visual_loaded = load_generated_scene_plane_assets(v, prefix,
+                                                      required_plane);
+    if (!visual_loaded)
+        return 0;
+    if (required_plane != 0 && scene_plane_files_exist(prefix, 0))
+        load_generated_scene_plane_assets(v, prefix, 0);
     if (!activate_core_area_for_scene_bounds(v))
         return 0;
     build_minimap_tiles(v);
     strncpy(v->active_scene_prefix, prefix, sizeof(v->active_scene_prefix) - 1);
     v->active_scene_prefix[sizeof(v->active_scene_prefix) - 1] = '\0';
-    if (visual_loaded) {
-        fprintf(stderr,
-                "viewer scene: loaded generated slice origin %d,%d "
-                "size %dx%d\n",
-                g_world_origin_x, g_world_origin_y, g_world_w, g_world_h);
-    } else {
-        fprintf(stderr,
-                "viewer scene: destination window origin %d,%d size %dx%d "
-                "activated without visual terrain/object assets; backend "
-                "collision and NPC slice are active\n",
-                g_world_origin_x, g_world_origin_y, g_world_w, g_world_h);
-    }
+    fprintf(stderr,
+            "viewer scene: loaded generated slice origin %d,%d size %dx%d\n",
+            g_world_origin_x, g_world_origin_y, g_world_w, g_world_h);
     viewer_finish_streaming_load(v, load_started_ms, "scene-reload", 1);
     return 1;
 }
@@ -2315,12 +2623,26 @@ static int load_startup_scene(ViewerState *v, ViewerSceneMode mode,
         return 0;
     double load_started_ms = viewer_begin_streaming_load(v);
     int loaded = 0;
-    if (mode == VIEWER_SCENE_MODE_GENERATED) {
+    int mapsquare_ready = viewer_prepare_mapsquare_window(
+        v, g_player_start_x, g_player_start_y, v->world->player.plane);
+    if (mapsquare_ready > 0) {
+        loaded = viewer_activate_mapsquare_window(
+            v, g_player_start_x, g_player_start_y, v->world->player.plane, 1);
+        if (!loaded) {
+            fprintf(stderr,
+                    "viewer mapsquare: complete startup window failed to "
+                    "load\n");
+            return 0;
+        }
+    }
+    if (mapsquare_ready < 0)
+        return 0;
+    if (!loaded && mode == VIEWER_SCENE_MODE_GENERATED) {
         loaded = load_generated_startup_scene(v, 1);
-    } else if (mode == VIEWER_SCENE_MODE_AUTO
+    } else if (!loaded && mode == VIEWER_SCENE_MODE_AUTO
             && load_generated_startup_scene(v, 0)) {
         loaded = 1;
-    } else {
+    } else if (!loaded) {
         loaded = load_fixed_startup_scene(v, fixed_terrain, fixed_objects);
     }
     if (loaded)
@@ -2370,6 +2692,24 @@ static void ensure_active_scene_plane(ViewerState *v, int plane) {
     plane = clamp_plane(plane);
     if (v->terrain_planes[plane] || v->object_planes[plane])
         return;
+    if (v->mapsquare_streaming_active) {
+        if (viewer_mapsquare_plane_loaded(v, plane))
+            return;
+        double load_started_ms = viewer_begin_streaming_load(v);
+        RcPlayer *p = &v->world->player;
+        int mapsquare_ready = viewer_prepare_mapsquare_window(
+            v, p->x, p->y, plane);
+        if (mapsquare_ready > 0
+                && viewer_activate_mapsquare_window(
+                    v, p->x, p->y, plane, 0)) {
+            viewer_finish_streaming_load(v, load_started_ms,
+                                         "mapsquare-plane", 1);
+        } else if (v->scene_plane_override == plane
+                   && plane != p->plane) {
+            v->scene_plane_override = -1;
+        }
+        return;
+    }
     double load_started_ms = viewer_begin_streaming_load(v);
 
     if (!v->active_scene_prefix[0] && v->initial_scene_ready) {
@@ -2567,14 +2907,18 @@ static void viewer_dev_transport_to(ViewerState *v,
     if (!v || !v->world || !d)
         return;
     RcPlayer *p = &v->world->player;
-    int old_x = p->x;
-    int old_y = p->y;
     int old_plane = p->plane;
 
     viewer_clear_player_activity(v);
     p->plane = clamp_plane(d->plane);
-    if (!reload_scene_around_player(v, d->target_x, d->target_y))
-        handle_player_scene_transition(v, old_x, old_y, old_plane);
+    if (!reload_scene_around_player(v, d->target_x, d->target_y)) {
+        p->plane = old_plane;
+        fprintf(stderr,
+                "dev transport: blocked %s because destination visuals for "
+                "%d,%d,%d are unavailable\n",
+                d->label, d->target_x, d->target_y, d->plane);
+        return;
+    }
 
     int player_x = d->target_x;
     int player_y = d->target_y;
@@ -2701,29 +3045,61 @@ static void handle_player_scene_transition(ViewerState *v, int old_x,
         v->player_moving = 0;
     }
 
-    if (old_plane != p->plane && viewer_tile_in_loaded_scene(p->x, p->y)) {
+    if (old_plane != p->plane && !v->mapsquare_streaming_active
+            && viewer_tile_in_loaded_scene(p->x, p->y)) {
         ensure_active_scene_plane(v, p->plane);
         build_minimap_tiles(v);
     }
 
-    static int last_warn_x = -1;
-    static int last_warn_y = -1;
-    if (!viewer_tile_in_loaded_scene(p->x, p->y)
-            && (p->x != last_warn_x || p->y != last_warn_y)) {
+    int mapsquare_window_changed = v->mapsquare_streaming_active
+        && ((p->x / VIEWER_STREAMING_MAPSQUARE_SIZE)
+                != v->mapsquare_center_region_x
+            || (p->y / VIEWER_STREAMING_MAPSQUARE_SIZE)
+                != v->mapsquare_center_region_y
+            || (v->scene_plane_override < 0
+                && !viewer_mapsquare_plane_loaded(v, p->plane)));
+    if (mapsquare_window_changed
+            || !viewer_tile_in_loaded_scene(p->x, p->y)) {
         if (reload_scene_around_player(v, p->x, p->y)) {
-            last_warn_x = -1;
-            last_warn_y = -1;
+            int display_plane = viewer_scene_plane(v);
+            if (v->mapsquare_streaming_active
+                    && display_plane != p->plane) {
+                double load_started_ms = viewer_begin_streaming_load(v);
+                int mapsquare_ready = viewer_prepare_mapsquare_window(
+                    v, p->x, p->y, display_plane);
+                if (mapsquare_ready > 0
+                        && viewer_activate_mapsquare_window(
+                            v, p->x, p->y, display_plane, 0)) {
+                    viewer_finish_streaming_load(
+                        v, load_started_ms, "mapsquare-plane", 1);
+                } else {
+                    v->scene_plane_override = -1;
+                }
+            }
             return;
         }
-        last_warn_x = p->x;
-        last_warn_y = p->y;
+        int blocked_x = p->x;
+        int blocked_y = p->y;
+        int blocked_plane = p->plane;
+        p->x = old_x;
+        p->y = old_y;
+        p->prev_x = old_x;
+        p->prev_y = old_y;
+        p->plane = old_plane;
+        v->prev_player_x = (float)old_x;
+        v->prev_player_y = (float)old_y;
+        v->tick_frac = 0.0f;
+        v->player_moving = 0;
+        viewer_clear_player_activity(v);
+        if (!viewer_tile_in_loaded_scene(old_x, old_y)
+                || (v->mapsquare_streaming_active
+                    && !viewer_mapsquare_plane_loaded(v, old_plane))) {
+            reload_scene_around_player(v, old_x, old_y);
+        }
         fprintf(stderr,
-                "viewer scene: player at %d,%d,%d outside loaded visual "
-                "window %d,%d %dx%d; core traversal/collision state is "
-                "valid, visual scene assets need a generated slice for that "
-                "destination\n",
-                p->x, p->y, p->plane, g_world_origin_x, g_world_origin_y,
-                g_world_w, g_world_h);
+                "viewer scene: blocked transition to %d,%d,%d because a "
+                "complete visual destination could not be loaded\n",
+                blocked_x, blocked_y, blocked_plane);
     }
 }
 
@@ -4033,28 +4409,38 @@ static void free_object_anim_plane(ViewerState *v, int plane) {
     v->object_anim_model_planes[plane] = NULL;
 }
 
-static void create_object_anim_plane_states(ViewerState *v, int plane) {
-    if (!v || plane < 0 || plane >= RC_MAX_PLANES) return;
-    ObjectMesh *om = v->object_planes[plane];
-    ModelSet *models = v->object_anim_model_planes[plane];
-    if (!om || !models || !models->loaded || om->object_anim_count <= 0)
+static void create_object_anim_states(ObjectMesh *objects, ModelSet *models,
+                                      AnimModelState ***states,
+                                      int *state_count) {
+    if (!states || !state_count)
         return;
-    v->object_anim_state_count[plane] = om->object_anim_count;
-    v->object_anim_states[plane] = calloc(
-        (size_t)om->object_anim_count, sizeof(AnimModelState *));
-    if (!v->object_anim_states[plane]) {
-        v->object_anim_state_count[plane] = 0;
+    free_model_anim_states(states, state_count);
+    if (!objects || !models || !models->loaded
+            || objects->object_anim_count <= 0)
+        return;
+    *state_count = objects->object_anim_count;
+    *states = calloc((size_t)*state_count, sizeof(AnimModelState *));
+    if (!*states) {
+        *state_count = 0;
         return;
     }
-    for (int i = 0; i < om->object_anim_count; i++) {
-        ModelEntry *entry = model_find(models, om->object_anims[i].model_id);
+    for (int i = 0; i < objects->object_anim_count; i++) {
+        ModelEntry *entry = model_find(models, objects->object_anims[i].model_id);
         if (!entry || !entry->loaded || !entry->vertex_skins
                 || entry->base_vert_count <= 0)
             continue;
-        v->object_anim_states[plane][i] = anim_model_state_create_with_faces(
+        (*states)[i] = anim_model_state_create_with_faces(
             entry->vertex_skins, entry->base_vert_count,
             entry->face_skins, entry->face_count, entry->face_alphas);
     }
+}
+
+static void create_object_anim_plane_states(ViewerState *v, int plane) {
+    if (!v || plane < 0 || plane >= RC_MAX_PLANES) return;
+    create_object_anim_states(v->object_planes[plane],
+                              v->object_anim_model_planes[plane],
+                              &v->object_anim_states[plane],
+                              &v->object_anim_state_count[plane]);
 }
 
 static AnimModelState *model_anim_state_for_entry(ModelSet *models,
@@ -4180,6 +4566,10 @@ static int animated_object_should_draw(const ViewerState *v, int scene_plane,
                                        const ObjectAnimRow *row) {
     if (!v || !row)
         return 0;
+    if (v->mapsquare_streaming_active
+            && !viewer_actor_in_draw_range(
+                v, (float)row->world_x, (float)row->world_y, 8.0f))
+        return 0;
     scene_plane = clamp_plane(scene_plane);
     if (v->object_chunk_count[scene_plane] <= 0
             || v->object_chunk_draw_radius <= 0.0f)
@@ -4194,14 +4584,14 @@ static int animated_object_should_draw(const ViewerState *v, int scene_plane,
     return dx * dx + dz * dz <= r * r;
 }
 
-static void draw_animated_objects(ViewerState *v, int scene_plane,
-                                  ObjectMesh *objects) {
+static void draw_animated_object_resources(ViewerState *v, int scene_plane,
+                                           ObjectMesh *objects,
+                                           ModelSet *models,
+                                           AnimModelState **states,
+                                           int state_count) {
     if (!v || !objects || objects->object_anim_count <= 0)
         return;
     scene_plane = clamp_plane(scene_plane);
-    ModelSet *models = v->object_anim_model_planes[scene_plane];
-    AnimModelState **states = v->object_anim_states[scene_plane];
-    int state_count = v->object_anim_state_count[scene_plane];
     if (!models || !models->loaded || !states)
         return;
 
@@ -4253,6 +4643,633 @@ static void draw_animated_objects(ViewerState *v, int scene_plane,
         };
         DrawModel(entry->model, pos, 1.0f, WHITE);
     }
+}
+
+static void draw_animated_objects(ViewerState *v, int scene_plane,
+                                  ObjectMesh *objects) {
+    scene_plane = clamp_plane(scene_plane);
+    draw_animated_object_resources(
+        v, scene_plane, objects, v->object_anim_model_planes[scene_plane],
+        v->object_anim_states[scene_plane],
+        v->object_anim_state_count[scene_plane]);
+}
+
+static void draw_mapsquare_chunks(ViewerState *v, int plane, float frame_dt) {
+    if (!v || !v->mapsquare_streaming_active)
+        return;
+    objects_update_texture_anims(v->mapsquare_materials, frame_dt);
+    plane = clamp_plane(plane);
+    for (int i = 0; i < v->mapsquare_chunk_count; i++) {
+        ViewerMapsquareChunk *chunk = &v->mapsquare_chunks[i];
+        if (chunk->plane != plane)
+            continue;
+        if (chunk->terrain && chunk->terrain->loaded) {
+            DrawModel(chunk->terrain->model, (Vector3){0, 0, 0}, 1.0f,
+                      WHITE);
+        }
+        if (chunk->objects && chunk->objects->loaded) {
+            DrawModel(chunk->objects->model, (Vector3){0, 0, 0}, 1.0f,
+                      WHITE);
+        }
+        draw_animated_object_resources(
+            v, plane, chunk->objects, chunk->object_anim_models,
+            chunk->object_anim_states, chunk->object_anim_state_count);
+    }
+}
+
+static int viewer_mapsquare_cache_allowed(void) {
+    if (!env_bool("RUNEC_MAPSQUARE_STREAMING", 1)
+            || env_has_value("RUNEC_TERRAIN")
+            || env_has_value("RUNEC_OBJECTS"))
+        return 0;
+    const char *mode = getenv("RUNEC_SCENE_MODE");
+    return !mode || !mode[0] || strcmp(mode, "auto") == 0;
+}
+
+static int viewer_mapsquare_asset_path(const ViewerState *v, char *out,
+                                       size_t capacity, int region_x,
+                                       int region_y, int plane,
+                                       const char *suffix) {
+    if (!v)
+        return 0;
+    return viewer_streaming_mapsquare_path(
+        out, capacity, v->mapsquare_directory, region_x, region_y, plane,
+        suffix);
+}
+
+static int viewer_mapsquare_material_path(const ViewerState *v, char *out,
+                                          size_t capacity) {
+    if (!v || !out || capacity == 0 || !v->mapsquare_directory[0])
+        return 0;
+    int n = snprintf(out, capacity, "%s/mapsquare.materials.atlas",
+                     v->mapsquare_directory);
+    return n > 0 && (size_t)n < capacity;
+}
+
+static int viewer_mapsquare_catalog_path(const ViewerState *v, char *out,
+                                         size_t capacity) {
+    if (!v || !out || capacity == 0 || !v->mapsquare_directory[0])
+        return 0;
+    int n = snprintf(out, capacity, "%s/mapsquare.catalog",
+                     v->mapsquare_directory);
+    return n > 0 && (size_t)n < capacity;
+}
+
+static int viewer_load_mapsquare_catalog(ViewerState *v) {
+    if (!v)
+        return 0;
+    if (v->mapsquare_catalog.loaded)
+        return 1;
+    char path[1024];
+    if (!viewer_mapsquare_catalog_path(v, path, sizeof(path))
+            || !rc_asset_exists(path)
+            || !viewer_streaming_catalog_load(&v->mapsquare_catalog, path)) {
+        return 0;
+    }
+    fprintf(stderr, "viewer mapsquare: catalog loaded %u regions from %s\n",
+            v->mapsquare_catalog.count, path);
+    return 1;
+}
+
+static int viewer_mapsquare_region_present(const ViewerState *v,
+                                           int region_x, int region_y) {
+    return !v || !v->mapsquare_catalog.loaded
+        || viewer_streaming_catalog_contains(
+            &v->mapsquare_catalog, region_x, region_y);
+}
+
+static int viewer_filter_mapsquare_plan(const ViewerState *v,
+                                        ViewerMapsquareCoord *plan,
+                                        int count) {
+    return viewer_streaming_filter_mapsquares(
+        v ? &v->mapsquare_catalog : NULL, plan, count);
+}
+
+static int viewer_mapsquare_materials_available(const ViewerState *v) {
+    char atlas_path[1024];
+    char tanim_path[1024];
+    if (!viewer_mapsquare_material_path(v, atlas_path, sizeof(atlas_path)))
+        return 0;
+    int n = snprintf(tanim_path, sizeof(tanim_path),
+                     "%s/mapsquare.materials.tanim",
+                     v->mapsquare_directory);
+    return n > 0 && (size_t)n < sizeof(tanim_path)
+        && rc_asset_exists(atlas_path) && rc_asset_exists(tanim_path);
+}
+
+static int viewer_mapsquare_chunk_available(const ViewerState *v,
+                                            int region_x, int region_y,
+                                            int plane) {
+    char terrain_path[1024];
+    char objects_path[1024];
+    char oanim_path[1024];
+    char models_path[1024];
+    if (!viewer_mapsquare_asset_path(
+            v, terrain_path, sizeof(terrain_path), region_x, region_y,
+            plane, ".terrain")
+            || !viewer_mapsquare_asset_path(
+                v, objects_path, sizeof(objects_path), region_x, region_y,
+                plane, ".objects")
+            || !viewer_mapsquare_asset_path(
+                v, oanim_path, sizeof(oanim_path), region_x, region_y, plane,
+                ".oanim")
+            || !viewer_mapsquare_asset_path(
+                v, models_path, sizeof(models_path), region_x, region_y,
+                plane, ".object_anim.models")
+            || !rc_asset_exists(terrain_path)
+            || !rc_asset_exists(objects_path)
+            || !scene_objects_file_complete(objects_path)) {
+        return 0;
+    }
+
+    int has_animated_objects = 0;
+    if (!scene_oanim_file_complete(oanim_path, &has_animated_objects))
+        return 0;
+    return !has_animated_objects || rc_asset_exists(models_path);
+}
+
+static int viewer_mapsquare_visible_plan(
+    const ViewerState *v, int center_x, int center_y,
+    ViewerMapsquareCoord *plan, int capacity) {
+    if (!v)
+        return -1;
+    ViewerStreamingConfig visible = v->streaming;
+    visible.preload_radius_regions = 0;
+    int count = viewer_streaming_plan_mapsquares(
+        &visible, center_x, center_y, plan, capacity);
+    return count < 0 ? count : viewer_filter_mapsquare_plan(v, plan, count);
+}
+
+static int viewer_mapsquare_window_assets_available(const ViewerState *v,
+                                                     int center_x,
+                                                     int center_y, int plane) {
+    if (!v || !viewer_mapsquare_materials_available(v))
+        return 0;
+    int center_region_x = center_x / VIEWER_STREAMING_MAPSQUARE_SIZE;
+    int center_region_y = center_y / VIEWER_STREAMING_MAPSQUARE_SIZE;
+    if (!viewer_mapsquare_region_present(
+            v, center_region_x, center_region_y)) {
+        return 0;
+    }
+    ViewerMapsquareCoord plan[VIEWER_STREAMING_CHUNK_CAPACITY];
+    int count = viewer_mapsquare_visible_plan(
+        v, center_x, center_y, plan, VIEWER_STREAMING_CHUNK_CAPACITY);
+    if (count <= 0)
+        return 0;
+    plane = clamp_plane(plane);
+    for (int i = 0; i < count; i++) {
+        if (!viewer_mapsquare_chunk_available(
+                v, plan[i].region_x, plan[i].region_y, plane)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int viewer_prepare_mapsquare_window(ViewerState *v, int center_x,
+                                           int center_y, int plane) {
+    if (!v || !viewer_mapsquare_cache_allowed())
+        return 0;
+    viewer_load_mapsquare_catalog(v);
+    plane = clamp_plane(plane);
+    int center_region_x = center_x / VIEWER_STREAMING_MAPSQUARE_SIZE;
+    int center_region_y = center_y / VIEWER_STREAMING_MAPSQUARE_SIZE;
+    if (!viewer_mapsquare_region_present(
+            v, center_region_x, center_region_y)) {
+        return -1;
+    }
+    if (viewer_mapsquare_window_assets_available(
+            v, center_x, center_y, plane)) {
+        return 1;
+    }
+    if (!v->scene_auto_export)
+        return 0;
+
+    const char *cache = viewer_scene_export_cache_path();
+    if (!cache || !cache[0] || !local_dir_exists(cache))
+        return 0;
+
+    ViewerMapsquareCoord plan[VIEWER_STREAMING_CHUNK_CAPACITY];
+    int count = viewer_mapsquare_visible_plan(
+        v, center_x, center_y, plan, VIEWER_STREAMING_CHUNK_CAPACITY);
+    if (count <= 0)
+        return -1;
+
+    char regions[VIEWER_STREAMING_CHUNK_CAPACITY * 9] = {0};
+    size_t used = 0;
+    int missing_count = 0;
+    for (int i = 0; i < count; i++) {
+        if (viewer_mapsquare_chunk_available(
+                v, plan[i].region_x, plan[i].region_y, plane)) {
+            continue;
+        }
+        int n = snprintf(regions + used, sizeof(regions) - used,
+                         "%s%d,%d", missing_count ? " " : "",
+                         plan[i].region_x, plan[i].region_y);
+        if (n <= 0 || (size_t)n >= sizeof(regions) - used)
+            return -1;
+        used += (size_t)n;
+        missing_count++;
+    }
+    if (missing_count == 0) {
+        int region_x = center_x / VIEWER_STREAMING_MAPSQUARE_SIZE;
+        int region_y = center_y / VIEWER_STREAMING_MAPSQUARE_SIZE;
+        int n = snprintf(regions, sizeof(regions), "%d,%d", region_x,
+                         region_y);
+        if (n <= 0 || (size_t)n >= sizeof(regions))
+            return -1;
+        missing_count = 1;
+    }
+
+    char cache_arg[1200];
+    char regions_arg[1400];
+    char output_arg[1200];
+    if (!shell_quote(cache_arg, sizeof(cache_arg), cache)
+            || !shell_quote(regions_arg, sizeof(regions_arg), regions)
+            || !shell_quote(output_arg, sizeof(output_arg),
+                            v->mapsquare_directory)) {
+        return -1;
+    }
+    int timeout_seconds = env_int("RUNEC_SCENE_EXPORT_TIMEOUT_SECONDS", 120);
+    if (timeout_seconds < 1)
+        timeout_seconds = 1;
+    char cmd[4096];
+    int n = snprintf(
+        cmd, sizeof(cmd),
+        "timeout %d python3 tools/cache_pipeline/export_scene_slice.py "
+        "--regions %s --cache %s --split-by-mapsquare --output-dir %s "
+        "--planes %d",
+        timeout_seconds, regions_arg, cache_arg, output_arg, plane);
+    if (n <= 0 || (size_t)n >= sizeof(cmd))
+        return -1;
+
+    fprintf(stderr,
+            "viewer mapsquare: generating %d missing visible chunk%s for "
+            "%d,%d plane %d\n",
+            missing_count, missing_count == 1 ? "" : "s", center_x,
+            center_y, plane);
+    int status = system(cmd);
+    if (status != 0) {
+        fprintf(stderr,
+                "viewer mapsquare: split export failed with status %d; "
+                "keeping the current scene\n",
+                status);
+        return -1;
+    }
+    viewer_load_mapsquare_catalog(v);
+    if (!viewer_mapsquare_window_assets_available(
+            v, center_x, center_y, plane)) {
+        fprintf(stderr,
+                "viewer mapsquare: split export completed without a "
+                "complete visible window; keeping the current scene\n");
+        return -1;
+    }
+    return 1;
+}
+
+static int viewer_mapsquare_center_available(const ViewerState *v, int x,
+                                             int y, int plane) {
+    if (!v || x < 0 || y < 0)
+        return 0;
+    int region_x = x / VIEWER_STREAMING_MAPSQUARE_SIZE;
+    int region_y = y / VIEWER_STREAMING_MAPSQUARE_SIZE;
+    return viewer_mapsquare_region_present(v, region_x, region_y)
+        && viewer_mapsquare_materials_available(v)
+        && viewer_mapsquare_chunk_available(
+            v, region_x, region_y, clamp_plane(plane));
+}
+
+static int find_mapsquare_chunk(const ViewerState *v, int region_x,
+                                int region_y, int plane) {
+    if (!v)
+        return -1;
+    for (int i = 0; i < v->mapsquare_chunk_count; i++) {
+        const ViewerMapsquareChunk *chunk = &v->mapsquare_chunks[i];
+        if (chunk->region_x == region_x && chunk->region_y == region_y
+                && chunk->plane == plane)
+            return i;
+    }
+    return -1;
+}
+
+static void free_mapsquare_chunk(ViewerMapsquareChunk *chunk) {
+    if (!chunk)
+        return;
+    free_model_anim_states(&chunk->object_anim_states,
+                           &chunk->object_anim_state_count);
+    models_free(chunk->object_anim_models);
+    chunk->object_anim_models = NULL;
+    objects_free(chunk->objects);
+    chunk->objects = NULL;
+    terrain_free(chunk->terrain);
+    memset(chunk, 0, sizeof(*chunk));
+}
+
+static void remove_mapsquare_chunk(ViewerState *v, int index) {
+    if (!v || index < 0 || index >= v->mapsquare_chunk_count)
+        return;
+    free_mapsquare_chunk(&v->mapsquare_chunks[index]);
+    v->mapsquare_chunk_count--;
+    if (index < v->mapsquare_chunk_count) {
+        memmove(&v->mapsquare_chunks[index],
+                &v->mapsquare_chunks[index + 1],
+                (size_t)(v->mapsquare_chunk_count - index)
+                    * sizeof(v->mapsquare_chunks[0]));
+    }
+    memset(&v->mapsquare_chunks[v->mapsquare_chunk_count], 0,
+           sizeof(v->mapsquare_chunks[0]));
+}
+
+static void free_mapsquare_cache(ViewerState *v) {
+    if (!v)
+        return;
+    while (v->mapsquare_chunk_count > 0)
+        remove_mapsquare_chunk(v, v->mapsquare_chunk_count - 1);
+    objects_free(v->mapsquare_materials);
+    v->mapsquare_materials = NULL;
+    v->mapsquare_streaming_active = 0;
+    v->mapsquare_center_region_x = 0;
+    v->mapsquare_center_region_y = 0;
+}
+
+static int mapsquare_cache_limit(const ViewerState *v) {
+    int limit = VIEWER_STREAMING_CHUNK_CAPACITY;
+    if (!v)
+        return limit;
+    if (v->streaming.max_cpu_chunks < limit)
+        limit = v->streaming.max_cpu_chunks;
+    if (v->streaming.max_gpu_chunks < limit)
+        limit = v->streaming.max_gpu_chunks;
+    return limit;
+}
+
+static void unload_mapsquare_objects(ViewerMapsquareChunk *chunk) {
+    if (!chunk)
+        return;
+    free_model_anim_states(&chunk->object_anim_states,
+                           &chunk->object_anim_state_count);
+    models_free(chunk->object_anim_models);
+    objects_free(chunk->objects);
+    chunk->object_anim_models = NULL;
+    chunk->objects = NULL;
+}
+
+static int load_mapsquare_objects(ViewerState *v,
+                                  ViewerMapsquareChunk *chunk) {
+    if (!v || !chunk || !v->mapsquare_materials)
+        return 0;
+    char objects_path[1024];
+    if (!viewer_mapsquare_asset_path(
+            v, objects_path, sizeof(objects_path), chunk->region_x,
+            chunk->region_y, chunk->plane, ".objects")
+            || !rc_asset_exists(objects_path)
+            || !scene_objects_file_complete(objects_path))
+        return 0;
+    chunk->objects = objects_load_with_shared_atlas(
+        objects_path, v->mapsquare_materials->atlas_texture);
+    if (!chunk->objects)
+        return 0;
+    objects_offset(chunk->objects, g_world_origin_x, g_world_origin_y);
+    objects_release_cpu_geometry(chunk->objects);
+    if (v->alpha_cutout_shader_static_loaded)
+        objects_set_shader(chunk->objects, v->alpha_cutout_shader_static);
+
+    if (chunk->objects->object_anim_count > 0) {
+        char models_path[1024];
+        if (!viewer_mapsquare_asset_path(
+                v, models_path, sizeof(models_path), chunk->region_x,
+                chunk->region_y, chunk->plane, ".object_anim.models")
+                || !rc_asset_exists(models_path)) {
+            fprintf(stderr,
+                    "viewer mapsquare: missing animated-object models for "
+                    "%d,%d plane %d\n",
+                    chunk->region_x, chunk->region_y, chunk->plane);
+            unload_mapsquare_objects(chunk);
+            return 0;
+        }
+        chunk->object_anim_models = models_load_with_shared_atlas(
+            models_path, v->mapsquare_materials->atlas_texture);
+        if (!chunk->object_anim_models) {
+            unload_mapsquare_objects(chunk);
+            return 0;
+        }
+        if (v->alpha_cutout_shader_static_loaded) {
+            models_set_shader(chunk->object_anim_models,
+                              v->alpha_cutout_shader_static);
+        }
+        create_object_anim_states(
+            chunk->objects, chunk->object_anim_models,
+            &chunk->object_anim_states, &chunk->object_anim_state_count);
+    }
+    v->pending_cpu_decode_ms += chunk->objects->cpu_decode_ms;
+    v->pending_gpu_upload_ms += chunk->objects->gpu_upload_ms;
+    return 1;
+}
+
+static int load_mapsquare_chunk(ViewerState *v, int region_x, int region_y,
+                                int plane, ViewerMapsquareChunk *out) {
+    if (!v || !out)
+        return 0;
+    char terrain_path[1024];
+    if (!viewer_mapsquare_asset_path(v, terrain_path, sizeof(terrain_path),
+                                     region_x, region_y, plane, ".terrain")
+            || !rc_asset_exists(terrain_path))
+        return 0;
+    ViewerMapsquareChunk loaded = {
+        .region_x = region_x,
+        .region_y = region_y,
+        .plane = plane,
+    };
+    loaded.terrain = terrain_load(terrain_path);
+    if (!loaded.terrain)
+        return 0;
+    terrain_offset(loaded.terrain, g_world_origin_x, g_world_origin_y);
+    v->pending_cpu_decode_ms += loaded.terrain->cpu_decode_ms;
+    v->pending_gpu_upload_ms += loaded.terrain->gpu_upload_ms;
+    if (!load_mapsquare_objects(v, &loaded)) {
+        free_mapsquare_chunk(&loaded);
+        return 0;
+    }
+    *out = loaded;
+    return 1;
+}
+
+static int ensure_mapsquare_materials(ViewerState *v) {
+    if (!v)
+        return 0;
+    if (v->mapsquare_materials)
+        return 1;
+    char path[1024];
+    if (!viewer_mapsquare_material_path(v, path, sizeof(path))
+            || !rc_asset_exists(path))
+        return 0;
+    v->mapsquare_materials = objects_load_material_page(path);
+    return v->mapsquare_materials != NULL;
+}
+
+static void prune_mapsquare_cache(ViewerState *v,
+                                  const ViewerMapsquareCoord *plan,
+                                  int plan_count, int plane) {
+    if (!v)
+        return;
+    int player_plane = v->world ? clamp_plane(v->world->player.plane) : plane;
+    for (int i = v->mapsquare_chunk_count - 1; i >= 0; i--) {
+        ViewerMapsquareChunk *chunk = &v->mapsquare_chunks[i];
+        if ((chunk->plane != plane && chunk->plane != player_plane)
+                || !viewer_streaming_mapsquare_in_plan(
+                    plan, plan_count, chunk->region_x, chunk->region_y)) {
+            remove_mapsquare_chunk(v, i);
+        }
+    }
+}
+
+static void rebase_mapsquare_cache(ViewerState *v, int delta_x, int delta_y) {
+    if (!v || (delta_x == 0 && delta_y == 0))
+        return;
+    for (int i = 0; i < v->mapsquare_chunk_count; i++) {
+        terrain_offset(v->mapsquare_chunks[i].terrain, delta_x, delta_y);
+        objects_offset(v->mapsquare_chunks[i].objects, delta_x, delta_y);
+    }
+}
+
+static int viewer_activate_mapsquare_window(ViewerState *v, int center_x,
+                                            int center_y, int plane,
+                                            int activate_backend) {
+    if (!v || !v->world || !viewer_mapsquare_cache_allowed())
+        return 0;
+    plane = clamp_plane(plane);
+    ViewerMapsquareCoord plan[VIEWER_STREAMING_CHUNK_CAPACITY];
+    int plan_count = viewer_streaming_plan_mapsquares(
+        &v->streaming, center_x, center_y, plan,
+        VIEWER_STREAMING_CHUNK_CAPACITY);
+    if (plan_count >= 0)
+        plan_count = viewer_filter_mapsquare_plan(v, plan, plan_count);
+    if (plan_count <= 0
+            || !viewer_mapsquare_window_assets_available(
+                v, center_x, center_y, plane)
+            || !ensure_mapsquare_materials(v)) {
+        return 0;
+    }
+
+    ViewerMapsquareCoord visible_plan[VIEWER_STREAMING_CHUNK_CAPACITY];
+    int visible_count = viewer_mapsquare_visible_plan(
+        v, center_x, center_y, visible_plan,
+        VIEWER_STREAMING_CHUNK_CAPACITY);
+    if (visible_count <= 0)
+        return 0;
+
+    int player_plane = clamp_plane(v->world->player.plane);
+    int retained_count = 0;
+    for (int i = 0; i < v->mapsquare_chunk_count; i++) {
+        ViewerMapsquareChunk *chunk = &v->mapsquare_chunks[i];
+        if ((chunk->plane == plane || chunk->plane == player_plane)
+                && viewer_streaming_mapsquare_in_plan(
+                    plan, plan_count, chunk->region_x, chunk->region_y)) {
+            retained_count++;
+        }
+    }
+
+    ViewerMapsquareChunk staged[VIEWER_STREAMING_CHUNK_CAPACITY] = {0};
+    int staged_count = 0;
+    int loaded_count = 0;
+    int stage_limit = mapsquare_cache_limit(v) - retained_count;
+    if (stage_limit < 0)
+        stage_limit = 0;
+    for (int i = 0; i < plan_count; i++) {
+        int region_x = plan[i].region_x;
+        int region_y = plan[i].region_y;
+        if (find_mapsquare_chunk(v, region_x, region_y, plane) >= 0) {
+            loaded_count++;
+            continue;
+        }
+        if (!viewer_mapsquare_chunk_available(
+                v, region_x, region_y, plane)) {
+            continue;
+        }
+        int required = viewer_streaming_mapsquare_in_plan(
+            visible_plan, visible_count, region_x, region_y);
+        if (staged_count >= stage_limit
+                || !load_mapsquare_chunk(
+                    v, region_x, region_y, plane, &staged[staged_count])) {
+            if (required)
+                goto activation_failed;
+            continue;
+        }
+        staged_count++;
+        loaded_count++;
+    }
+
+    for (int i = 0; i < visible_count; i++) {
+        if (find_mapsquare_chunk(
+                v, visible_plan[i].region_x, visible_plan[i].region_y,
+                plane) >= 0) {
+            continue;
+        }
+        int staged_found = 0;
+        for (int j = 0; j < staged_count; j++) {
+            if (staged[j].region_x == visible_plan[i].region_x
+                    && staged[j].region_y == visible_plan[i].region_y
+                    && staged[j].plane == plane) {
+                staged_found = 1;
+                break;
+            }
+        }
+        if (!staged_found)
+            goto activation_failed;
+    }
+
+    if (activate_backend
+            && !activate_core_area_around_tile(v, center_x, center_y)) {
+        goto activation_failed;
+    }
+
+    prune_mapsquare_cache(v, plan, plan_count, plane);
+    for (int i = 0; i < staged_count; i++) {
+        v->mapsquare_chunks[v->mapsquare_chunk_count++] = staged[i];
+        memset(&staged[i], 0, sizeof(staged[i]));
+    }
+
+    int origin_x = 0;
+    int origin_y = 0;
+    int world_w = 0;
+    int world_h = 0;
+    scene_bounds_for_tile(center_x, center_y,
+                          v->streaming.scene_radius_regions, &origin_x,
+                          &origin_y, &world_w, &world_h);
+    rebase_mapsquare_cache(v, origin_x - g_world_origin_x,
+                           origin_y - g_world_origin_y);
+    g_world_origin_x = origin_x;
+    g_world_origin_y = origin_y;
+    g_world_w = world_w;
+    g_world_h = world_h;
+    clear_aggregate_visual_assets(v);
+
+    v->mapsquare_streaming_active = 1;
+    int center_region_x = center_x / VIEWER_STREAMING_MAPSQUARE_SIZE;
+    int center_region_y = center_y / VIEWER_STREAMING_MAPSQUARE_SIZE;
+    v->mapsquare_center_region_x = center_region_x;
+    v->mapsquare_center_region_y = center_region_y;
+    if (activate_backend
+            && (v->npc_models || v->npc_anims || v->npc_fallback_anims)) {
+        reload_npc_models_for_scene(v);
+    }
+    int object_count = 0;
+    for (int i = 0; i < v->mapsquare_chunk_count; i++)
+        object_count += v->mapsquare_chunks[i].objects != NULL;
+    v->active_scene_prefix[0] = '\0';
+    build_minimap_tiles(v);
+    fprintf(stderr,
+            "viewer mapsquare: center=%d,%d plane=%d terrain=%d/%d "
+            "objects=%d resident=%d origin=%d,%d size=%dx%d\n",
+            center_region_x, center_region_y, plane, loaded_count, plan_count,
+            object_count, v->mapsquare_chunk_count, g_world_origin_x,
+            g_world_origin_y, g_world_w, g_world_h);
+    return 1;
+
+activation_failed:
+    for (int i = 0; i < staged_count; i++)
+        free_mapsquare_chunk(&staged[i]);
+    return 0;
 }
 
 static void animate_item_entry_to_player_frame(ViewerState *v,
@@ -6666,6 +7683,7 @@ static void draw_scene(ViewerState *v) {
         objects_update_texture_anims(scene_objects, frame_dt);
         DrawModel(scene_objects->model, (Vector3){0, 0, 0}, 1.0f, WHITE);
     }
+    draw_mapsquare_chunks(v, scene_plane, frame_dt);
     draw_object_chunks(v, scene_plane);
     models_update_texture_anims(v->object_anim_model_planes[scene_plane],
                                 frame_dt);
@@ -6717,6 +7735,12 @@ static void draw_scene(ViewerState *v) {
         const RcNpc *n = &npcs[i];
         if (!n->active || n->is_dead) continue;
         if (n->plane != scene_plane) continue;
+        if (n->x < g_world_origin_x || n->x >= g_world_origin_x + g_world_w
+                || n->y < g_world_origin_y
+                || n->y >= g_world_origin_y + g_world_h)
+            continue;
+        if (!viewer_actor_in_draw_range(v, (float)n->x, (float)n->y, 0.0f))
+            continue;
 
         const RcNpcDef *def = rc_npc_def_for_npc(n);
         if (!def) continue;
@@ -6770,6 +7794,12 @@ static void draw_scene(ViewerState *v) {
     for (int i = 0; i < v->world->ground_item_count; i++) {
         const RcGroundItem *g = &v->world->ground_items[i];
         if (!g->active || g->plane != scene_plane) continue;
+        if (g->x < g_world_origin_x || g->x >= g_world_origin_x + g_world_w
+                || g->y < g_world_origin_y
+                || g->y >= g_world_origin_y + g_world_h)
+            continue;
+        if (!viewer_actor_in_draw_range(v, (float)g->x, (float)g->y, 0.0f))
+            continue;
         float gx = (float)LOCAL_X(g->x) + 0.5f;
         float gz = -((float)LOCAL_Y(g->y) + 0.5f);
         float gy = ground_y_plane(v, scene_plane, g->x, g->y) + 0.08f;
@@ -7011,6 +8041,8 @@ int main(int argc, char **argv) {
     g_world_origin_y = env_int("RUNEC_WORLD_ORIGIN_Y", DEFAULT_WORLD_ORIGIN_Y);
     g_player_start_x = env_int("RUNEC_PLAYER_START_X", DEFAULT_PLAYER_START_X);
     g_player_start_y = env_int("RUNEC_PLAYER_START_Y", DEFAULT_PLAYER_START_Y);
+    g_player_start_plane = clamp_plane(
+        env_int("RUNEC_PLAYER_START_PLANE", 0));
     int default_world_side =
         (backend_streaming.active_radius_regions * 2 + 1) * RC_REGION_SIZE;
     g_world_w = env_int("RUNEC_WORLD_W", default_world_side);
@@ -7021,9 +8053,13 @@ int main(int argc, char **argv) {
     v.object_chunk_size = env_int("RUNEC_OBJECT_CHUNK_SIZE", 64);
     v.object_chunk_draw_radius =
         env_float("RUNEC_OBJECT_CHUNK_DRAW_RADIUS", 180.0f);
+    v.actor_draw_radius = env_float("RUNEC_ACTOR_DRAW_RADIUS", 64.0f);
     if (v.object_chunk_size <= 0)
         v.object_chunk_size = 64;
-    if (!runtime_data_available())
+    snprintf(v.mapsquare_directory, sizeof(v.mapsquare_directory), "%s",
+             env_path("RUNEC_MAPSQUARE_DIR", "data/regions"));
+    viewer_load_mapsquare_catalog(&v);
+    if (!runtime_data_available(&v))
         return 1;
     int viewer_smoke = env_bool("RUNEC_VIEWER_SMOKE", 0);
     RuneCRenderSettings render_settings = render_settings_from_env();
@@ -7111,6 +8147,7 @@ int main(int argc, char **argv) {
     v.world->player.y = g_player_start_y;
     v.world->player.prev_x = g_player_start_x;
     v.world->player.prev_y = g_player_start_y;
+    v.world->player.plane = g_player_start_plane;
     v.prev_player_x = (float)g_player_start_x;
     v.prev_player_y = (float)g_player_start_y;
     set_viewer_demo_stats(&v.world->player);
@@ -7129,6 +8166,13 @@ int main(int argc, char **argv) {
         }
         if (env_bool("RUNEC_VIEWER_SMOKE_SCENES", 0)
                 && validate_viewer_scene_assets(&v) < 0) {
+            rc_world_destroy(v.world);
+            return 1;
+        }
+        if (env_bool("RUNEC_VIEWER_SMOKE_MAPSQUARES", 0)
+                && validate_mapsquare_window_assets(
+                    &v, g_player_start_x, g_player_start_y,
+                    v.world->player.plane) < 0) {
             rc_world_destroy(v.world);
             return 1;
         }
@@ -7204,19 +8248,28 @@ int main(int argc, char **argv) {
         "data/regions/varrock.terrain");
     const char *initial_objects = env_path("RUNEC_OBJECTS",
         "data/regions/varrock.objects");
+    const char *startup_scene_mode =
+        viewer_mapsquare_cache_allowed()
+            && viewer_mapsquare_center_available(
+                &v, g_player_start_x, g_player_start_y,
+                v.world->player.plane)
+        ? "mapsquare" : viewer_scene_mode_name(scene_mode);
     fprintf(stderr,
             "viewer scene mode: %s auto_export=%s startup_radius=%d "
-            "stream_radius=%d object_chunk_radius=%.1f\n",
-            viewer_scene_mode_name(scene_mode),
+            "stream_radius=%d object_chunk_radius=%.1f "
+            "actor_radius=%.1f\n",
+            startup_scene_mode,
             v.scene_auto_export ? "on" : "off",
             v.streaming.preload_radius_regions,
             v.streaming.scene_radius_regions,
-            v.object_chunk_draw_radius);
+            v.object_chunk_draw_radius, v.actor_draw_radius);
     if (!load_startup_scene(&v, scene_mode, initial_terrain,
                             initial_objects)) {
         fprintf(stderr, "Failed to load initial visual scene\n");
         return 1;
     }
+    if (v.scene_plane_override >= 0)
+        ensure_active_scene_plane(&v, v.scene_plane_override);
     if (loaded_scene_contains_tile(RUNEC_DEV_VARROCK_BANK_X,
                                    RUNEC_DEV_VARROCK_BANK_Y))
         runec_dev_validation_spawn_varrock_bank_dummy(v.world);
@@ -7228,7 +8281,7 @@ int main(int argc, char **argv) {
     int npc_model_id_count = 0;
     if (npc_model_ids) {
         npc_model_id_count = collect_spawned_npc_model_ids(
-            v.world, npc_model_ids, v.world->npc_count, 0, RC_MAX_PLANES - 1);
+            &v, npc_model_ids, v.world->npc_count, 0, RC_MAX_PLANES - 1);
     }
     uint32_t empty_model_ids[1] = {0};
     const uint32_t *model_filter = npc_model_ids ? npc_model_ids : empty_model_ids;
@@ -7361,6 +8414,8 @@ int main(int argc, char **argv) {
     const char *screenshot_path = getenv("RC_VIEWER_SCREENSHOT");
     int screenshot_taken = 0;
     int frame_count = 0;
+    double frame_benchmark_started_ms = max_frames > 0
+        ? viewer_streaming_now_ms() : 0.0;
 
     while (!WindowShouldClose()) {
         RcPlayer *p = &v.world->player;
@@ -7572,6 +8627,15 @@ int main(int argc, char **argv) {
         }
         if (max_frames > 0 && ++frame_count >= max_frames) break;
     }
+    if (max_frames > 0) {
+        double elapsed_ms = viewer_streaming_now_ms()
+                          - frame_benchmark_started_ms;
+        double fps = elapsed_ms > 0.0
+                   ? (double)frame_count * 1000.0 / elapsed_ms : 0.0;
+        fprintf(stderr,
+                "viewer frame benchmark: frames=%d elapsed_ms=%.2f fps=%.2f\n",
+                frame_count, elapsed_ms, fps);
+    }
 
 cleanup:
     for (int plane = 0; plane < RC_MAX_PLANES; plane++) {
@@ -7580,6 +8644,7 @@ cleanup:
         free_object_anim_plane(&v, plane);
         free_object_chunk_plane(&v, plane);
     }
+    free_mapsquare_cache(&v);
     free_item_anim_states(&v);
     free_projectile_anim_states(&v);
     clear_composed_player_model(&v);

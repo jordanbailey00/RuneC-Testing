@@ -181,8 +181,8 @@ backend is `auto`: loose `data/...` files are used when present, otherwise
 before creating a world and reports missing required data paths as startup
 errors.
 
-Data maintainers can export cache-backed terrain, objects, and collision for a
-named or radius-based mapsquare set:
+Data maintainers can export cache-backed visual assets by mapsquare and plane
+for a named or radius-based region set:
 
 ```bash
 export RUNEC_B237_CACHE=/path/to/b237/cache
@@ -197,11 +197,44 @@ python3 tools/data_pipeline.py export-regions --full
 `export-cache-derived-assets`. `full` is a maintainer build selection; local
 development should use a named or radius-based set.
 
+Split exports use deterministic paths such as `regions/50_53.p0.terrain`,
+`regions/50_53.p0.objects`, and `regions/50_53.p0.oanim`. Object chunks and
+animated object model sidecars share `regions/mapsquare.materials.atlas` and
+`regions/mapsquare.materials.tanim`; they do not copy an atlas per chunk.
+`regions/mapsquare.catalog` records every mapsquare with authoritative b237
+terrain. Sparse dungeon/destination windows load every catalog-listed chunk
+while excluding cache-index voids; a missing file for a listed mapsquare still
+blocks activation.
+Terrain color blending, lighting normals, corner heights, and contoured object
+placement sample a one-mapsquare cache halo in every direction. Each split
+terrain file stores a complete `65x65` corner-height grid for its `64x64` tile
+area, so independently exported neighbors retain continuous edges.
+Aggregate scene slices remain available only as a development compatibility
+cache through `tools/cache_pipeline/export_scene_slice.py --output-prefix ...`.
+
+When the complete starting visual window is present, the viewer uses a bounded,
+center-first mapsquare cache. Terrain, static objects, and animated-object
+sidecars remain complete per retained mapsquare; an empty animation sidecar
+does not require an empty model file. The material atlas is bound once as a
+shared page. Moving the window retains overlap and commits only after every
+visible chunk and the backend active area load successfully. Loading is
+synchronous in this first cache version. Development auto-export generates
+only missing mapsquares; an incomplete or failed split export blocks the
+transition instead of launching aggregate generation.
+Height sampling also clamps the outer corner of legacy `64x64` terrain files;
+new exports carry the actual neighboring corner values.
+
+`RUNEC_MAPSQUARE_STREAMING=0` disables the mapsquare path.
+`RUNEC_MAPSQUARE_DIR` selects another mapsquare directory, and
+`RUNEC_PLAYER_START_PLANE` selects the startup plane. Existing viewer radius
+and CPU/GPU chunk-cap settings bound the mapsquare plan.
+
 Headless environments can verify viewer startup without opening a window:
 
 ```bash
 RUNEC_VIEWER_SMOKE=1 RUNEC_ASSET_BACKEND=pack ./build/rc-viewer
 RUNEC_VIEWER_SMOKE=1 RUNEC_ASSET_BACKEND=loose ./build/rc-viewer
+RUNEC_VIEWER_SMOKE=1 RUNEC_VIEWER_SMOKE_MAPSQUARES=1 ./build/rc-viewer
 ```
 
 ## Build

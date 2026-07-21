@@ -1,6 +1,7 @@
 #ifndef RUNEC_VIEWER_STREAMING_H
 #define RUNEC_VIEWER_STREAMING_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 enum {
@@ -10,7 +11,23 @@ enum {
     VIEWER_STREAMING_DEFAULT_MAX_GPU_CHUNKS = 128,
     VIEWER_STREAMING_DEFAULT_MAX_CPU_CHUNKS = 128,
     VIEWER_STREAMING_DEFAULT_UPLOAD_BUDGET_MB = 16,
+    VIEWER_STREAMING_MAPSQUARE_SIZE = 64,
+    VIEWER_STREAMING_MAX_MAPSQUARE_COORD = 255,
+    VIEWER_STREAMING_MAPSQUARE_CATALOG_BYTES = 8192,
 };
+
+#define VIEWER_STREAMING_MAPSQUARE_CATALOG_MAGIC 0x3151534du
+
+typedef struct {
+    int region_x;
+    int region_y;
+} ViewerMapsquareCoord;
+
+typedef struct {
+    uint8_t present[VIEWER_STREAMING_MAPSQUARE_CATALOG_BYTES];
+    uint32_t count;
+    int loaded;
+} ViewerMapsquareCatalog;
 
 typedef struct {
     int scene_radius_regions;
@@ -52,5 +69,25 @@ void viewer_streaming_telemetry_record_load(ViewerStreamingTelemetry *telemetry,
                                             double load_ms,
                                             double cpu_decode_ms,
                                             double gpu_upload_ms);
+int viewer_streaming_plan_mapsquares(
+    const ViewerStreamingConfig *config,
+    int tile_x,
+    int tile_y,
+    ViewerMapsquareCoord *out,
+    int capacity);
+int viewer_streaming_mapsquare_in_plan(const ViewerMapsquareCoord *plan,
+                                       int count, int region_x, int region_y);
+int viewer_streaming_catalog_load(ViewerMapsquareCatalog *catalog,
+                                  const char *path);
+int viewer_streaming_catalog_contains(const ViewerMapsquareCatalog *catalog,
+                                      int region_x, int region_y);
+int viewer_streaming_filter_mapsquares(
+    const ViewerMapsquareCatalog *catalog,
+    ViewerMapsquareCoord *plan,
+    int count);
+int viewer_streaming_mapsquare_path(char *out, size_t capacity,
+                                    const char *directory, int region_x,
+                                    int region_y, int plane,
+                                    const char *suffix);
 
 #endif

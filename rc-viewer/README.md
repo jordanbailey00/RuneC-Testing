@@ -46,6 +46,7 @@ presentation responsibilities.
 - `streaming.c` / `streaming.h`
   - viewer streaming defaults and load telemetry counters
   - monotonic scene/chunk timing independent of the render implementation
+  - deterministic center-first mapsquare planning and asset path contracts
 - `ui.c` / `ui.h`
   - cache-sprite-backed OSRS viewer UI shell
   - clickable chatbox, minimap/orbs, tabs, inventory/equipment panels,
@@ -98,6 +99,11 @@ presentation responsibilities.
 - `rc-viewer` expects to be launched with the project root as the
   working directory because it loads data by relative path.
 - It depends on runtime assets such as:
+  - `data/regions/{rx}_{ry}.p{plane}.terrain`
+  - `data/regions/{rx}_{ry}.p{plane}.objects`
+  - `data/regions/{rx}_{ry}.p{plane}.object_anim.models`
+  - `data/regions/mapsquare.materials.atlas`
+  - `data/regions/mapsquare.catalog`
   - `data/regions/varrock.*`
   - `data/defs/collision_tiles.bin`
   - `data/defs/npc_defs.bin`
@@ -116,13 +122,16 @@ presentation responsibilities.
   - `RUNEC_COMBAT_VISUALS`, `RUNEC_COMBAT_PROFILES`
   - `RUNEC_WORLD_ORIGIN_X`, `RUNEC_WORLD_ORIGIN_Y`,
     `RUNEC_WORLD_W`, `RUNEC_WORLD_H`
-  - `RUNEC_PLAYER_START_X`, `RUNEC_PLAYER_START_Y`
+  - `RUNEC_PLAYER_START_X`, `RUNEC_PLAYER_START_Y`,
+    `RUNEC_PLAYER_START_PLANE`
   - `RUNEC_WORLD_ACTIVE_RADIUS_REGIONS`,
     `RUNEC_WORLD_PRELOAD_RADIUS_REGIONS`,
     `RUNEC_WORLD_MAX_CACHED_REGIONS`
   - `RUNEC_VIEWER_SCENE_RADIUS_REGIONS`, `RUNEC_VIEWER_PRELOAD_RADIUS`,
     `RUNEC_VIEWER_MAX_CPU_CHUNKS`, `RUNEC_VIEWER_MAX_GPU_CHUNKS`,
     `RUNEC_VIEWER_UPLOAD_BUDGET_MB_PER_FRAME`
+  - `RUNEC_MAPSQUARE_STREAMING`, `RUNEC_MAPSQUARE_DIR`,
+    `RUNEC_ACTOR_DRAW_RADIUS`
   - `RUNEC_VIEWER_TELEMETRY_OVERLAY=1` for the opt-in streaming overlay
   - `RUNEC_DEV_VALIDATION`, `RUNEC_DEV_BANK_DUMMY`,
     `RUNEC_DEV_TRANSPORT_DEST`, `RUNEC_DEV_BOSS_ATTACKS`
@@ -141,6 +150,33 @@ preload radius 0, CPU/GPU chunk caps 128, and a declared 16 MB upload budget.
 The upload budget is telemetry/configuration only until the asynchronous upload
 path is implemented. Existing `RUNEC_SCENE_RADIUS_REGIONS` and
 `RUNEC_STARTUP_SCENE_RADIUS_REGIONS` overrides remain accepted.
+
+PR 4 makes per-mapsquare visuals the default when the complete visible window
+and shared material page exist. The current synchronous cache loads complete
+mapsquares center-first, retains overlap, evicts entries outside the new plan,
+and obeys the lower CPU/GPU chunk cap. Empty object-animation sidecars are
+complete without a model sidecar. Newly decoded chunks are staged and committed
+only after the full visible window and backend area succeed, so a failed edge
+load leaves the prior scene intact. Static object CPU geometry is released
+after GPU upload. The shared material page has separate ownership from chunk
+geometry so it is loaded once and can be replaced by paged material ownership
+later without changing chunk files.
+
+Split terrain uses neighboring mapsquares when calculating underlay smoothing,
+lighting normals, and outer corner heights. New chunks carry a `65x65` corner
+grid for their `64x64` tiles; runtime sampling clamps legacy `64x64` edges so a
+player or actor cannot receive an out-of-range sentinel height at a boundary.
+The shared mapsquare catalog is loaded once into an 8 KiB bitset. Cache-index
+voids are removed from sparse destination plans, but every catalog-listed chunk
+remains mandatory before a scene or transport commits.
+
+Fixed and generated aggregate scenes remain a temporary compatibility path.
+Development auto-export requests only missing mapsquares; if that split export
+fails or remains incomplete, it blocks the transition without attempting a
+large aggregate export. Scene or plane transitions load the visual and backend
+destination before committing player coordinates; unavailable destinations
+leave the player in the prior loaded scene. Removing runtime Python generation
+from normal play is the next streaming step.
 
 Streaming telemetry logs startup and scene/active-area changes. It reports
 decode/upload time, resident scene chunks and vertices, deduplicated texture
@@ -182,8 +218,8 @@ Today `rc-viewer` is primarily:
   minimap cover/masks, side icons, orb frames/fillers/icons, and skill
   icons; RuneLite gameval sprite IDs are the naming authority
 - a renderer for core-owned dynamic object state, linked-below scenes,
-  streamed region slices, viewer-owned combat projectiles, spot animations,
-  combat attack animations, and equipment visuals
+  bounded mapsquare scenes, compatibility region slices, viewer-owned combat
+  projectiles, spot animations, combat attack animations, and equipment visuals
 - isolated combat-validation helpers for local manual testing, kept out of
   `rc-core` so they can be disabled or removed without changing simulation
   rules

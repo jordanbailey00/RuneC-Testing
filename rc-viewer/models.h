@@ -72,6 +72,7 @@ typedef struct {
     int count;
     int index_limit;
     int has_textures;
+    int owns_atlas_texture;
     int loaded;
 } ModelSet;
 
@@ -305,7 +306,9 @@ static void models_recompute_texture_uvs_from_vertices(ModelEntry *entry,
                      mesh->vertexCount * 2 * sizeof(float), 0);
 }
 
-static ModelSet *models_load_filtered(const char *path, const uint32_t *ids, int id_count) {
+static ModelSet *models_load_filtered_with_shared_atlas(
+    const char *path, const uint32_t *ids, int id_count,
+    Texture2D shared_atlas) {
     FILE *f = rc_asset_fopen(path, "rb");
     if (!f) { fprintf(stderr, "models: can't open %s\n", path); return NULL; }
 
@@ -348,7 +351,9 @@ static ModelSet *models_load_filtered(const char *path, const uint32_t *ids, int
     set->count = (int)count;
     set->has_textures = has_tex;
 
-    if (has_tex) {
+    if (has_tex && shared_atlas.id > 0) {
+        set->atlas_texture = shared_atlas;
+    } else if (has_tex) {
         char atlas_path[1024];
         strncpy(atlas_path, path, sizeof(atlas_path) - 1);
         atlas_path[sizeof(atlas_path) - 1] = '\0';
@@ -374,8 +379,10 @@ static ModelSet *models_load_filtered(const char *path, const uint32_t *ids, int
                         .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8,
                     };
                     set->atlas_texture = LoadTextureFromImage(img);
-                    if (set->atlas_texture.id > 0)
+                    if (set->atlas_texture.id > 0) {
+                        set->owns_atlas_texture = 1;
                         SetTextureFilter(set->atlas_texture, TEXTURE_FILTER_POINT);
+                    }
                     if (set->atlas_texture.id > 0) {
                         set->atlas_width = (int)width;
                         set->atlas_height = (int)height;
@@ -680,6 +687,18 @@ static ModelSet *models_load_filtered(const char *path, const uint32_t *ids, int
     return set;
 }
 
+static ModelSet *models_load_filtered(const char *path, const uint32_t *ids,
+                                      int id_count) {
+    return models_load_filtered_with_shared_atlas(
+        path, ids, id_count, (Texture2D){0});
+}
+
+static ModelSet *models_load_with_shared_atlas(const char *path,
+                                               Texture2D shared_atlas) {
+    return models_load_filtered_with_shared_atlas(
+        path, NULL, 0, shared_atlas);
+}
+
 static ModelSet *models_load(const char *path) {
     return models_load_filtered(path, NULL, 0);
 }
@@ -711,7 +730,8 @@ static void models_free(ModelSet *set) {
             free(set->entries[i].face_uvs);
         }
     }
-    if (set->atlas_texture.id > 0) UnloadTexture(set->atlas_texture);
+    if (set->owns_atlas_texture && set->atlas_texture.id > 0)
+        UnloadTexture(set->atlas_texture);
     free(set->atlas_base_pixels);
     free(set->atlas_pixels);
     free(set->texture_anims);

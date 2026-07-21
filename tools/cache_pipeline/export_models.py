@@ -2234,6 +2234,7 @@ def write_models_binary(
     tex_colors: dict[int, int] | None = None,
     atlas: "TextureAtlas | None" = None,
     atlas_path: Path | None = None,
+    write_atlas_companion: bool = True,
     bake_priority_offsets: bool = True,
     model_lighting: str = "client",
     ambient: int = 64,
@@ -2243,8 +2244,8 @@ def write_models_binary(
     """Write models to .models binary format.
 
     MDL2 is the legacy vertex-color format. MDL3 keeps the MDL2 animation
-    payload and adds expanded texcoords after colors; a sibling ATLS file is
-    written when an atlas is supplied.
+    payload and adds expanded texcoords after colors. A sibling ATLS file is
+    written by default; mapsquare exports disable it and use one shared atlas.
 
     V2 format adds animation data per model:
       - base vertex positions (indexed, pre-animation reference pose)
@@ -2271,7 +2272,7 @@ def write_models_binary(
     has_textures = atlas is not None
     magic = MDL3_MAGIC if has_textures else MDL2_MAGIC
 
-    if atlas is not None:
+    if atlas is not None and write_atlas_companion:
         _write_atlas_binary(atlas_path or output_path.with_suffix(".atlas"), atlas)
 
     with open(output_path, "wb") as f:

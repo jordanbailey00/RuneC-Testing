@@ -489,26 +489,52 @@ def region_export_spec(
     selection: region_sets.RegionSet,
 ) -> RuntimeOutputSpec:
     region_args = region_sets.format_regions(selection.regions)
-    output_stem = ctx.data_root / "regions" / selection.name
-    output_suffixes = (
-        ".terrain",
-        ".objects",
-        ".atlas",
-        ".tanim",
-        ".oanim",
-        ".object_anim.models",
-        ".object_anim.atlas",
-        ".cmap",
+    output_dir = rel(ctx.data_root / "regions")
+    return RuntimeOutputSpec(
+        dataset="mapsquare_visuals",
+        logical_paths=("regions/",),
+        rebuild_inputs=B237_CACHE_INPUT,
+        commands=(
+            py_cmd(
+                "tools/cache_pipeline/export_scene_slice.py",
+                "--cache",
+                "{b237_cache}",
+                "--regions",
+                " ".join(region_args),
+                "--planes",
+                "0,1,2,3",
+                "--split-by-mapsquare",
+                "--output-dir",
+                output_dir,
+            ),
+        ),
+        authority="b237 cache per-mapsquare visual geometry with shared materials",
     )
+
+
+def aggregate_varrock_compatibility_spec(ctx: PipelineContext) -> RuntimeOutputSpec:
+    """Keep the current aggregate viewer boot path until PR 4 consumes chunks."""
+    selection = region_sets.RegionSet("varrock", tuple(region_sets.varrock()))
+    region_args = region_sets.format_regions(selection.regions)
+    output_stem = ctx.data_root / "regions" / selection.name
     output_paths = {
         suffix: rel(output_stem.with_suffix(suffix))
         for suffix in (".terrain", ".objects", ".cmap")
     }
     return RuntimeOutputSpec(
-        dataset="regions",
+        dataset="varrock_aggregate_compatibility",
         logical_paths=tuple(
             f"regions/{selection.name}{suffix}"
-            for suffix in output_suffixes
+            for suffix in (
+                ".terrain",
+                ".objects",
+                ".atlas",
+                ".tanim",
+                ".oanim",
+                ".object_anim.models",
+                ".object_anim.atlas",
+                ".cmap",
+            )
         ),
         rebuild_inputs=B237_CACHE_INPUT,
         commands=(
@@ -540,7 +566,7 @@ def region_export_spec(
                 output_paths[".cmap"],
             ),
         ),
-        authority="b237 cache mapsquares selected by tools/region_sets.py",
+        authority="b237 cache aggregate Varrock compatibility scene for the pre-PR 4 viewer",
     )
 
 
@@ -548,7 +574,11 @@ def cache_derived_rebuild_specs(
     ctx: PipelineContext,
 ) -> tuple[tuple[RuntimeOutputSpec, ...], region_sets.RegionSet]:
     selection = selected_region_set(ctx)
-    return (*CACHE_DERIVED_REBUILD_SPECS, region_export_spec(ctx, selection)), selection
+    return (
+        *CACHE_DERIVED_REBUILD_SPECS,
+        region_export_spec(ctx, selection),
+        aggregate_varrock_compatibility_spec(ctx),
+    ), selection
 
 
 def record_region_selection(
@@ -752,7 +782,7 @@ STAGE_SPECS: dict[str, StageSpec] = {
         name="export-regions",
         inputs=("data-sources/sources.lock", "RUNEC_B237_CACHE", "tools/region_sets.py"),
         outputs=("data/regions/", "generated/pipeline/stages/export-regions.json"),
-        description="Export aggregate terrain, objects, and collision for one reusable region set.",
+        description="Export per-mapsquare, per-plane visual assets for one reusable region set.",
     ),
     "export-defs": StageSpec(
         name="export-defs",
@@ -1077,6 +1107,7 @@ def stage_export_cache_derived_assets(ctx: PipelineContext, record: dict[str, An
     record["notes"] = [
         "Cache-derived release assets require explicit maintainer b237 inputs.",
         "If those inputs are absent, the stage records required rebuild gaps and the pack stage refuses to publish stale loose outputs.",
+        "The aggregate Varrock scene remains a compatibility output until PR 4 switches the viewer to mapsquare chunks.",
     ]
     record_region_selection(record, selection, ctx.region_set)
     emit_rebuild_plan(ctx, record, specs)
