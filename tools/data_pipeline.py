@@ -490,6 +490,14 @@ def region_export_spec(
 ) -> RuntimeOutputSpec:
     region_args = region_sets.format_regions(selection.regions)
     output_dir = rel(ctx.data_root / "regions")
+    export_jobs = (
+        os.environ.get(
+            "RUNEC_REGION_EXPORT_JOBS",
+            str(min(12, max(1, (os.cpu_count() or 1) // 2))),
+        )
+        if selection.name == "full"
+        else "1"
+    )
     return RuntimeOutputSpec(
         dataset="mapsquare_visuals",
         logical_paths=("regions/",),
@@ -503,70 +511,14 @@ def region_export_spec(
                 " ".join(region_args),
                 "--planes",
                 "0,1,2,3",
+                "--jobs",
+                export_jobs,
                 "--split-by-mapsquare",
                 "--output-dir",
                 output_dir,
             ),
         ),
         authority="b237 cache per-mapsquare visual geometry with shared materials",
-    )
-
-
-def aggregate_varrock_compatibility_spec(ctx: PipelineContext) -> RuntimeOutputSpec:
-    """Keep the current aggregate viewer boot path until PR 4 consumes chunks."""
-    selection = region_sets.RegionSet("varrock", tuple(region_sets.varrock()))
-    region_args = region_sets.format_regions(selection.regions)
-    output_stem = ctx.data_root / "regions" / selection.name
-    output_paths = {
-        suffix: rel(output_stem.with_suffix(suffix))
-        for suffix in (".terrain", ".objects", ".cmap")
-    }
-    return RuntimeOutputSpec(
-        dataset="varrock_aggregate_compatibility",
-        logical_paths=tuple(
-            f"regions/{selection.name}{suffix}"
-            for suffix in (
-                ".terrain",
-                ".objects",
-                ".atlas",
-                ".tanim",
-                ".oanim",
-                ".object_anim.models",
-                ".object_anim.atlas",
-                ".cmap",
-            )
-        ),
-        rebuild_inputs=B237_CACHE_INPUT,
-        commands=(
-            py_cmd(
-                "tools/cache_pipeline/export_terrain.py",
-                "--modern-cache",
-                "{b237_cache}",
-                "--regions",
-                " ".join(region_args),
-                "--output",
-                output_paths[".terrain"],
-            ),
-            py_cmd(
-                "tools/cache_pipeline/export_objects.py",
-                "--modern-cache",
-                "{b237_cache}",
-                "--regions",
-                " ".join(region_args),
-                "--output",
-                output_paths[".objects"],
-            ),
-            py_cmd(
-                "tools/cache_pipeline/export_collision_map_modern.py",
-                "--cache",
-                "{b237_cache}",
-                "--regions",
-                *region_args,
-                "--output",
-                output_paths[".cmap"],
-            ),
-        ),
-        authority="b237 cache aggregate Varrock compatibility scene for the pre-PR 4 viewer",
     )
 
 
@@ -577,7 +529,6 @@ def cache_derived_rebuild_specs(
     return (
         *CACHE_DERIVED_REBUILD_SPECS,
         region_export_spec(ctx, selection),
-        aggregate_varrock_compatibility_spec(ctx),
     ), selection
 
 
@@ -1107,7 +1058,7 @@ def stage_export_cache_derived_assets(ctx: PipelineContext, record: dict[str, An
     record["notes"] = [
         "Cache-derived release assets require explicit maintainer b237 inputs.",
         "If those inputs are absent, the stage records required rebuild gaps and the pack stage refuses to publish stale loose outputs.",
-        "The aggregate Varrock scene remains a compatibility output until PR 4 switches the viewer to mapsquare chunks.",
+        "Release builds export mapsquare visuals only; aggregate scenes remain an explicit development-tool output.",
     ]
     record_region_selection(record, selection, ctx.region_set)
     emit_rebuild_plan(ctx, record, specs)
@@ -1179,6 +1130,11 @@ def stage_pack_runtime_data(ctx: PipelineContext, record: dict[str, Any]) -> Non
         ctx.version,
         "--force",
     ]
+    if ctx.region_set.strip().lower() != "full":
+        args.append("--allow-partial-mapsquares")
+        record["mapsquare_scope"] = "development-partial"
+    else:
+        record["mapsquare_scope"] = "production-full"
     run_command(args, record)
     copy_dist_manifest_to_data(ctx, record)
     record.setdefault("outputs_observed", []).extend(

@@ -43,6 +43,21 @@ class MapsquareSceneTests(unittest.TestCase):
             with self.subTest(raw=raw), self.assertRaises(ValueError):
                 export_scene_slice.parse_planes(raw)
 
+        regions = [(index, 53) for index in range(7)]
+        self.assertEqual(
+            [
+                len(batch)
+                for batch in export_scene_slice.partition_regions(regions, 3)
+            ],
+            [3, 2, 2],
+        )
+        self.assertEqual(
+            export_scene_slice.partition_regions(regions[:2], 8),
+            [regions[:1], regions[1:2]],
+        )
+        with self.assertRaisesRegex(ValueError, "jobs must be >= 1"):
+            export_scene_slice.partition_regions(regions, 0)
+
     def test_cli_rejects_ambiguous_or_incomplete_output_contracts(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -55,6 +70,17 @@ class MapsquareSceneTests(unittest.TestCase):
                 ["--center-x", "3213"],
                 [*center, "--regions", "50,53"],
                 [*center, "--radius-regions", "-1"],
+                [
+                    *center,
+                    "--jobs", "0",
+                    "--split-by-mapsquare",
+                    "--output-dir", str(root / "regions"),
+                ],
+                [
+                    *center,
+                    "--jobs", "2",
+                    "--output-prefix", str(root / "scene"),
+                ],
                 [*center, "--planes", "4", "--output-prefix", str(root / "scene")],
                 [*center, "--split-by-mapsquare"],
                 [
@@ -134,15 +160,14 @@ class MapsquareSceneTests(unittest.TestCase):
 
             expected_regions = [(50, 53), (51, 53)]
             catalog_export.assert_called_once_with(cache, output)
-            terrain_export.assert_called_once_with(
-                cache, expected_regions, output, [0, 2]
-            )
+            terrain_export.assert_called_once_with(cache, expected_regions, output, [0, 2])
             object_export.assert_called_once_with(
                 cache,
                 expected_regions,
                 output,
                 [0, 2],
                 rsmod_visual_levels=True,
+                write_shared_materials=True,
             )
 
     def test_split_mode_skips_authoritative_void_mapsquares(self) -> None:
@@ -177,7 +202,65 @@ class MapsquareSceneTests(unittest.TestCase):
             expected = [(28, 81), (29, 81)]
             terrain_export.assert_called_once_with(cache, expected, output, [0])
             object_export.assert_called_once_with(
-                cache, expected, output, [0], rsmod_visual_levels=True)
+                cache,
+                expected,
+                output,
+                [0],
+                rsmod_visual_levels=True,
+                write_shared_materials=True,
+            )
+
+    def test_parallel_split_dispatches_disjoint_bounded_batches(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache = root / "cache"
+            output = root / "regions"
+            cache.mkdir()
+            regions = [(48, 53), (49, 53), (50, 53), (51, 53), (52, 53)]
+            submitted: list[tuple[object, ...]] = []
+            worker_counts: list[int] = []
+
+            class ImmediateFuture:
+                def result(self) -> tuple[int, int]:
+                    return 4, 9
+
+            class ImmediateExecutor:
+                def __init__(self, max_workers: int):
+                    worker_counts.append(max_workers)
+
+                def __enter__(self) -> "ImmediateExecutor":
+                    return self
+
+                def __exit__(self, *_args: object) -> None:
+                    return None
+
+                def submit(self, _call: object, *args: object) -> ImmediateFuture:
+                    submitted.append(args)
+                    return ImmediateFuture()
+
+            with (
+                patch(
+                    "export_scene_slice.write_mapsquare_catalog",
+                    return_value=set(regions),
+                ),
+                patch("export_scene_slice.ProcessPoolExecutor", ImmediateExecutor),
+                patch("export_scene_slice.as_completed", side_effect=lambda values: values),
+            ):
+                export_scene_slice.main([
+                    "--cache", str(cache),
+                    "--regions", " ".join(f"{x},{y}" for x, y in regions),
+                    "--planes", "0,1,2,3",
+                    "--jobs", "2",
+                    "--split-by-mapsquare",
+                    "--output-dir", str(output),
+                ])
+
+            self.assertEqual(len(submitted), 2)
+            self.assertEqual(worker_counts, [2])
+            self.assertEqual(submitted[0][1], regions[:3])
+            self.assertEqual(submitted[1][1], regions[3:])
+            self.assertTrue(submitted[0][-1])
+            self.assertFalse(submitted[1][-1])
 
     def test_mapsquare_catalog_is_sorted_and_marks_terrain_regions(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -463,6 +546,180 @@ class SharedMaterialTests(unittest.TestCase):
         for name in names:
             with self.subTest(name=name):
                 self.assertTrue(pack_runtime_data.is_region_runtime_file(Path(name)))
+        for name in (
+            "varrock.terrain",
+            "scene_cache/50_53.p0.terrain",
+            "scene_cache/scene_3136_3392_r1.terrain",
+            "varrock_chunks/49_53.objects",
+        ):
+            with self.subTest(name=name):
+                self.assertFalse(
+                    pack_runtime_data.is_region_runtime_file(Path(name)))
+
+
+class RuntimePackMapsquareTests(unittest.TestCase):
+    @staticmethod
+    def write_fixture(root: Path) -> Path:
+        regions = root / "regions"
+        regions.mkdir()
+        (regions / "mapsquare.catalog").write_bytes(
+            struct.pack("<II", pack_runtime_data.MAPSQUARE_CATALOG_MAGIC, 1)
+            + struct.pack("<BB", 50, 53)
+        )
+        (regions / "mapsquare.materials.atlas").write_bytes(b"atlas")
+        (regions / "mapsquare.materials.tanim").write_bytes(b"tanim")
+        for plane in range(4):
+            stem = regions / f"50_53.p{plane}"
+            stem.with_suffix(f".p{plane}.terrain").write_bytes(b"terrain")
+            stem.with_suffix(f".p{plane}.objects").write_bytes(b"objects")
+            stem.with_suffix(f".p{plane}.oanim").write_bytes(
+                struct.pack(
+                    "<III",
+                    pack_runtime_data.MAPSQUARE_OANIM_MAGIC,
+                    pack_runtime_data.MAPSQUARE_OANIM_VERSION,
+                    0,
+                )
+            )
+        return regions
+
+    def test_release_pack_requires_every_catalog_plane(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            regions = self.write_fixture(root)
+            summary = pack_runtime_data.validate_mapsquare_runtime_assets(
+                root, allow_partial=False)
+            self.assertEqual(summary["catalog_regions"], 1)
+            self.assertEqual(summary["expected_catalog_regions"], 1)
+            self.assertEqual(summary["required_region_planes"], 4)
+            self.assertEqual(summary["complete_region_planes"], 4)
+            self.assertTrue(summary["complete"])
+            self.assertEqual(summary["scope"], "full")
+
+            (regions / "50_53.p2.objects").unlink()
+            with self.assertRaisesRegex(
+                SystemExit, "incomplete prebuilt mapsquare runtime data"
+            ):
+                pack_runtime_data.validate_mapsquare_runtime_assets(
+                    root, allow_partial=False)
+            partial = pack_runtime_data.validate_mapsquare_runtime_assets(
+                root, allow_partial=True)
+            self.assertFalse(partial["complete"])
+            self.assertEqual(partial["scope"], "partial")
+            self.assertEqual(partial["missing_asset_count"], 1)
+            self.assertEqual(partial["complete_region_planes"], 3)
+
+            with self.assertRaisesRegex(
+                SystemExit, "incomplete b237 mapsquare catalog"
+            ):
+                pack_runtime_data.validate_mapsquare_runtime_assets(
+                    root,
+                    allow_partial=False,
+                    expected_catalog_regions=2870,
+                )
+
+    def test_spawn_pack_includes_npcs_and_static_ground_items(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            spawns = root / "spawns"
+            spawns.mkdir()
+            (spawns / "world.npc-spawns.bin").write_bytes(b"npcs")
+            (spawns / "world.ground-items.bin").write_bytes(b"items")
+            specs = pack_runtime_data.build_specs(root)
+            spawn_spec = next(spec for spec in specs if spec.stem == "runec-spawns")
+            self.assertEqual(
+                {
+                    pack_runtime_data.logical_path(root, path)
+                    for path in spawn_spec.files
+                },
+                {
+                    "spawns/world.npc-spawns.bin",
+                    "spawns/world.ground-items.bin",
+                },
+            )
+
+    def test_animated_object_plane_requires_model_sidecar(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            regions = self.write_fixture(root)
+            (regions / "50_53.p1.oanim").write_bytes(
+                struct.pack(
+                    "<III",
+                    pack_runtime_data.MAPSQUARE_OANIM_MAGIC,
+                    pack_runtime_data.MAPSQUARE_OANIM_VERSION,
+                    1,
+                )
+            )
+            with self.assertRaisesRegex(
+                SystemExit, "50_53.p1.object_anim.models"
+            ):
+                pack_runtime_data.validate_mapsquare_runtime_assets(
+                    root, allow_partial=False)
+            (regions / "50_53.p1.object_anim.models").write_bytes(b"models")
+            summary = pack_runtime_data.validate_mapsquare_runtime_assets(
+                root, allow_partial=False)
+            self.assertEqual(summary["animated_model_assets"], 1)
+
+    def test_catalog_must_be_exact_sorted_and_unique(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "mapsquare.catalog"
+            with self.assertRaisesRegex(SystemExit, "missing mapsquare catalog"):
+                pack_runtime_data.load_mapsquare_catalog(path)
+            path.write_bytes(b"short")
+            with self.assertRaisesRegex(SystemExit, "truncated mapsquare catalog"):
+                pack_runtime_data.load_mapsquare_catalog(path)
+            path.write_bytes(struct.pack("<II", 0, 0))
+            with self.assertRaisesRegex(SystemExit, "invalid mapsquare catalog"):
+                pack_runtime_data.load_mapsquare_catalog(path)
+            path.write_bytes(
+                struct.pack("<II", pack_runtime_data.MAPSQUARE_CATALOG_MAGIC, 2)
+                + struct.pack("<BBBB", 50, 53, 49, 53)
+            )
+            with self.assertRaisesRegex(SystemExit, "sorted and unique"):
+                pack_runtime_data.load_mapsquare_catalog(path)
+
+    def test_pack_validation_rejects_missing_shared_and_unknown_regions(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "regions").mkdir()
+            with self.assertRaisesRegex(
+                SystemExit, "missing mapsquare runtime assets"
+            ):
+                pack_runtime_data.validate_mapsquare_runtime_assets(
+                    root, allow_partial=True)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            regions = self.write_fixture(root)
+            (regions / "51_53.p0.terrain").write_bytes(b"terrain")
+            with self.assertRaisesRegex(SystemExit, "absent from the b237 catalog"):
+                pack_runtime_data.validate_mapsquare_runtime_assets(
+                    root, allow_partial=True)
+
+    def test_pack_validation_rejects_malformed_animation_sidecars(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            regions = self.write_fixture(root)
+            oanim = regions / "50_53.p0.oanim"
+            oanim.write_bytes(b"short")
+            with self.assertRaisesRegex(
+                SystemExit, "truncated mapsquare animation sidecar"
+            ):
+                pack_runtime_data.validate_mapsquare_runtime_assets(
+                    root, allow_partial=False)
+            oanim.write_bytes(struct.pack("<III", 0, 0, 0))
+            with self.assertRaisesRegex(
+                SystemExit, "invalid mapsquare animation sidecar"
+            ):
+                pack_runtime_data.validate_mapsquare_runtime_assets(
+                    root, allow_partial=False)
+            oanim.unlink()
+            oanim.mkdir()
+            with self.assertRaisesRegex(
+                SystemExit, "cannot read mapsquare animation sidecar"
+            ):
+                pack_runtime_data.mapsquare_oanim_count(oanim)
 
 
 if __name__ == "__main__":

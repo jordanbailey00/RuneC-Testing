@@ -103,8 +103,8 @@ presentation responsibilities.
   - `data/regions/{rx}_{ry}.p{plane}.objects`
   - `data/regions/{rx}_{ry}.p{plane}.object_anim.models`
   - `data/regions/mapsquare.materials.atlas`
+  - `data/regions/mapsquare.materials.tanim`
   - `data/regions/mapsquare.catalog`
-  - `data/regions/varrock.*`
   - `data/defs/collision_tiles.bin`
   - `data/defs/npc_defs.bin`
   - `data/spawns/world.npc-spawns.bin`
@@ -112,8 +112,8 @@ presentation responsibilities.
   - `data/models/item_render.map`
   - `data/anims/*.anims`
   - `data/sprites/ui/*.png`
-- The default slice is Varrock, but the viewer can be pointed at other
-  local datasets with environment overrides:
+- The normal viewer starts from prebuilt mapsquare data. Explicit development
+  and compatibility datasets can be selected with environment overrides:
   - `RUNEC_TERRAIN`, `RUNEC_OBJECTS`, `RUNEC_CMAP`
   - `RUNEC_NPC_DEFS`, `RUNEC_NPC_SPAWNS`, `RUNEC_NPC_MODELS`
   - `RUNEC_NPC_ANIMS`, `RUNEC_PLAYER_MODELS`,
@@ -132,6 +132,8 @@ presentation responsibilities.
     `RUNEC_VIEWER_UPLOAD_BUDGET_MB_PER_FRAME`
   - `RUNEC_MAPSQUARE_STREAMING`, `RUNEC_MAPSQUARE_DIR`,
     `RUNEC_ACTOR_DRAW_RADIUS`
+  - `RUNEC_SCENE_AUTO_EXPORT=1` enables development-only mapsquare generation
+    from a local b237 cache; it is off by default
   - `RUNEC_VIEWER_TELEMETRY_OVERLAY=1` for the opt-in streaming overlay
   - `RUNEC_DEV_VALIDATION`, `RUNEC_DEV_BANK_DUMMY`,
     `RUNEC_DEV_TRANSPORT_DEST`, `RUNEC_DEV_BOSS_ATTACKS`
@@ -151,8 +153,8 @@ The upload budget is telemetry/configuration only until the asynchronous upload
 path is implemented. Existing `RUNEC_SCENE_RADIUS_REGIONS` and
 `RUNEC_STARTUP_SCENE_RADIUS_REGIONS` overrides remain accepted.
 
-PR 4 makes per-mapsquare visuals the default when the complete visible window
-and shared material page exist. The current synchronous cache loads complete
+PR 5 makes per-mapsquare visuals mandatory during normal gameplay. The current
+synchronous cache loads complete
 mapsquares center-first, retains overlap, evicts entries outside the new plan,
 and obeys the lower CPU/GPU chunk cap. Empty object-animation sidecars are
 complete without a model sidecar. Newly decoded chunks are staged and committed
@@ -170,13 +172,13 @@ The shared mapsquare catalog is loaded once into an 8 KiB bitset. Cache-index
 voids are removed from sparse destination plans, but every catalog-listed chunk
 remains mandatory before a scene or transport commits.
 
-Fixed and generated aggregate scenes remain a temporary compatibility path.
-Development auto-export requests only missing mapsquares; if that split export
-fails or remains incomplete, it blocks the transition without attempting a
-large aggregate export. Scene or plane transitions load the visual and backend
-destination before committing player coordinates; unavailable destinations
-leave the player in the prior loaded scene. Removing runtime Python generation
-from normal play is the next streaming step.
+Fixed and generated aggregate scenes remain an explicit development
+compatibility path and are not included in runtime-data packs. Normal startup
+and transitions never launch Python or read the source cache. Missing installed
+assets report the first incomplete path and leave the player in the prior
+loaded scene. `RUNEC_SCENE_AUTO_EXPORT=1` retains bounded missing-mapsquare
+generation for maintainers with a local b237 cache. Scene or plane transitions
+still load the visual and backend destination before committing coordinates.
 
 Streaming telemetry logs startup and scene/active-area changes. It reports
 decode/upload time, resident scene chunks and vertices, deduplicated texture

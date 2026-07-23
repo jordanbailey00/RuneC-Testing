@@ -10,8 +10,9 @@ typedef struct RuneCUiAssetSpec {
     int required;
 } RuneCUiAssetSpec;
 
-#define UI_ASSET(name) { name, name ".png", 1 }
-#define UI_OPTIONAL_ASSET(name, file) { name, file, 0 }
+#define UI_ASSET(name) { name, "data/sprites/ui/" name ".png", 1 }
+#define UI_OPTIONAL_ASSET(name, file) \
+    { name, "data/sprites/items/" file, 0 }
 
 static const RuneCUiAssetSpec g_ui_asset_specs[] = {
     UI_ASSET("tradebacking_dark"),
@@ -195,44 +196,44 @@ static const RuneCUiAssetSpec g_ui_asset_specs[] = {
     UI_ASSET("sideicons_interface_14"),
     UI_ASSET("sideicons_interface_15"),
     UI_ASSET("sideicons_interface_16"),
-    UI_OPTIONAL_ASSET("item_995", "../items/item_995.png"),
-    UI_OPTIONAL_ASSET("item_995_1", "../items/item_995_1.png"),
-    UI_OPTIONAL_ASSET("item_995_2", "../items/item_995_2.png"),
-    UI_OPTIONAL_ASSET("item_995_3", "../items/item_995_3.png"),
-    UI_OPTIONAL_ASSET("item_995_4", "../items/item_995_4.png"),
-    UI_OPTIONAL_ASSET("item_995_5", "../items/item_995_5.png"),
-    UI_OPTIONAL_ASSET("item_995_25", "../items/item_995_25.png"),
-    UI_OPTIONAL_ASSET("item_995_100", "../items/item_995_100.png"),
-    UI_OPTIONAL_ASSET("item_995_250", "../items/item_995_250.png"),
-    UI_OPTIONAL_ASSET("item_995_1000", "../items/item_995_1000.png"),
-    UI_OPTIONAL_ASSET("item_995_10000", "../items/item_995_10000.png"),
-    UI_OPTIONAL_ASSET("item_1038", "../items/item_1038.png"),
-    UI_OPTIONAL_ASSET("item_1040", "../items/item_1040.png"),
-    UI_OPTIONAL_ASSET("item_1042", "../items/item_1042.png"),
-    UI_OPTIONAL_ASSET("item_1044", "../items/item_1044.png"),
-    UI_OPTIONAL_ASSET("item_1046", "../items/item_1046.png"),
-    UI_OPTIONAL_ASSET("item_1048", "../items/item_1048.png"),
-    UI_OPTIONAL_ASSET("item_4151", "../items/item_4151.png"),
-    UI_OPTIONAL_ASSET("item_554", "../items/item_554.png"),
-    UI_OPTIONAL_ASSET("item_555", "../items/item_555.png"),
-    UI_OPTIONAL_ASSET("item_556", "../items/item_556.png"),
-    UI_OPTIONAL_ASSET("item_557", "../items/item_557.png"),
-    UI_OPTIONAL_ASSET("item_558", "../items/item_558.png"),
-    UI_OPTIONAL_ASSET("item_560", "../items/item_560.png"),
-    UI_OPTIONAL_ASSET("item_562", "../items/item_562.png"),
-    UI_OPTIONAL_ASSET("item_861", "../items/item_861.png"),
-    UI_OPTIONAL_ASSET("item_892", "../items/item_892.png"),
-    UI_OPTIONAL_ASSET("item_1381", "../items/item_1381.png"),
-    UI_OPTIONAL_ASSET("item_10346", "../items/item_10346.png"),
-    UI_OPTIONAL_ASSET("item_10348", "../items/item_10348.png"),
-    UI_OPTIONAL_ASSET("item_10350", "../items/item_10350.png"),
-    UI_OPTIONAL_ASSET("item_10352", "../items/item_10352.png"),
-    UI_OPTIONAL_ASSET("item_11802", "../items/item_11802.png"),
-    UI_OPTIONAL_ASSET("item_11832", "../items/item_11832.png"),
-    UI_OPTIONAL_ASSET("item_11834", "../items/item_11834.png"),
-    UI_OPTIONAL_ASSET("item_26382", "../items/item_26382.png"),
-    UI_OPTIONAL_ASSET("item_26384", "../items/item_26384.png"),
-    UI_OPTIONAL_ASSET("item_26386", "../items/item_26386.png"),
+    UI_OPTIONAL_ASSET("item_995", "item_995.png"),
+    UI_OPTIONAL_ASSET("item_995_1", "item_995_1.png"),
+    UI_OPTIONAL_ASSET("item_995_2", "item_995_2.png"),
+    UI_OPTIONAL_ASSET("item_995_3", "item_995_3.png"),
+    UI_OPTIONAL_ASSET("item_995_4", "item_995_4.png"),
+    UI_OPTIONAL_ASSET("item_995_5", "item_995_5.png"),
+    UI_OPTIONAL_ASSET("item_995_25", "item_995_25.png"),
+    UI_OPTIONAL_ASSET("item_995_100", "item_995_100.png"),
+    UI_OPTIONAL_ASSET("item_995_250", "item_995_250.png"),
+    UI_OPTIONAL_ASSET("item_995_1000", "item_995_1000.png"),
+    UI_OPTIONAL_ASSET("item_995_10000", "item_995_10000.png"),
+    UI_OPTIONAL_ASSET("item_1038", "item_1038.png"),
+    UI_OPTIONAL_ASSET("item_1040", "item_1040.png"),
+    UI_OPTIONAL_ASSET("item_1042", "item_1042.png"),
+    UI_OPTIONAL_ASSET("item_1044", "item_1044.png"),
+    UI_OPTIONAL_ASSET("item_1046", "item_1046.png"),
+    UI_OPTIONAL_ASSET("item_1048", "item_1048.png"),
+    UI_OPTIONAL_ASSET("item_4151", "item_4151.png"),
+    UI_OPTIONAL_ASSET("item_554", "item_554.png"),
+    UI_OPTIONAL_ASSET("item_555", "item_555.png"),
+    UI_OPTIONAL_ASSET("item_556", "item_556.png"),
+    UI_OPTIONAL_ASSET("item_557", "item_557.png"),
+    UI_OPTIONAL_ASSET("item_558", "item_558.png"),
+    UI_OPTIONAL_ASSET("item_560", "item_560.png"),
+    UI_OPTIONAL_ASSET("item_562", "item_562.png"),
+    UI_OPTIONAL_ASSET("item_861", "item_861.png"),
+    UI_OPTIONAL_ASSET("item_892", "item_892.png"),
+    UI_OPTIONAL_ASSET("item_1381", "item_1381.png"),
+    UI_OPTIONAL_ASSET("item_10346", "item_10346.png"),
+    UI_OPTIONAL_ASSET("item_10348", "item_10348.png"),
+    UI_OPTIONAL_ASSET("item_10350", "item_10350.png"),
+    UI_OPTIONAL_ASSET("item_10352", "item_10352.png"),
+    UI_OPTIONAL_ASSET("item_11802", "item_11802.png"),
+    UI_OPTIONAL_ASSET("item_11832", "item_11832.png"),
+    UI_OPTIONAL_ASSET("item_11834", "item_11834.png"),
+    UI_OPTIONAL_ASSET("item_26382", "item_26382.png"),
+    UI_OPTIONAL_ASSET("item_26384", "item_26384.png"),
+    UI_OPTIONAL_ASSET("item_26386", "item_26386.png"),
     UI_ASSET("skill_icon_0"),
     UI_ASSET("skill_icon_1"),
     UI_ASSET("skill_icon_2"),
@@ -411,7 +412,7 @@ void runec_ui_assets_load(RuneCUiAssets *assets) {
 
     for (int i = 0; i < count; i++) {
         char path[256];
-        snprintf(path, sizeof(path), "data/sprites/ui/%s", g_ui_asset_specs[i].file);
+        snprintf(path, sizeof(path), "%s", g_ui_asset_specs[i].file);
         if (g_ui_asset_specs[i].required)
             assets->required_count++;
         if (!rc_asset_exists(path)) {

@@ -141,13 +141,31 @@ class RegionPipelineTests(unittest.TestCase):
             "/tmp/runec-region-test/regions",
         )
         self.assertIn("--split-by-mapsquare", spec.commands[0])
+        self.assertEqual(
+            spec.commands[0][spec.commands[0].index("--jobs") + 1],
+            "1",
+        )
+
+        with (
+            patch(
+                "data_pipeline.region_sets.resolve",
+                return_value=region_sets.RegionSet("full", ((1, 2),)),
+            ),
+            patch.dict("os.environ", {"RUNEC_REGION_EXPORT_JOBS": "7"}),
+        ):
+            full_selection = data_pipeline.selected_region_set(self.context("full"))
+            full_spec = data_pipeline.region_export_spec(
+                self.context("full"), full_selection)
+        self.assertEqual(
+            full_spec.commands[0][full_spec.commands[0].index("--jobs") + 1],
+            "7",
+        )
 
     def test_pipeline_selection_records_bounds_and_builds_dynamic_spec(self) -> None:
         ctx = self.context("edgeville")
         specs, selection = data_pipeline.cache_derived_rebuild_specs(ctx)
         self.assertEqual(selection.name, "edgeville")
-        self.assertEqual(specs[-2].dataset, "mapsquare_visuals")
-        self.assertEqual(specs[-1].dataset, "varrock_aggregate_compatibility")
+        self.assertEqual(specs[-1].dataset, "mapsquare_visuals")
 
         record: dict[str, object] = {}
         data_pipeline.record_region_selection(record, selection, ctx.region_set)
@@ -162,16 +180,6 @@ class RegionPipelineTests(unittest.TestCase):
                 "max_region_y": 56,
             },
         })
-
-    def test_aggregate_compatibility_spec_stays_varrock_scoped(self) -> None:
-        spec = data_pipeline.aggregate_varrock_compatibility_spec(self.context("full"))
-        self.assertEqual(spec.dataset, "varrock_aggregate_compatibility")
-        self.assertEqual(
-            spec.commands[0][5].split(),
-            region_sets.format_regions(region_sets.varrock()),
-        )
-        self.assertEqual(spec.commands[0][-1], "/tmp/runec-region-test/regions/varrock.terrain")
-        self.assertEqual(spec.commands[2][-1], "/tmp/runec-region-test/regions/varrock.cmap")
 
     def test_pipeline_selection_reports_invalid_and_empty_sets(self) -> None:
         with self.assertRaisesRegex(data_pipeline.PipelineError, "cannot resolve region set"):
@@ -222,6 +230,29 @@ class RegionPipelineTests(unittest.TestCase):
         run_command.assert_called_once()
         run_specs.assert_called_once()
         self.assertNotIn("status_detail", built_record)
+
+    def test_pack_stage_requires_full_mapsquares_only_for_release_scope(self) -> None:
+        with (
+            patch("data_pipeline.fail_if_required_rebuild_gaps"),
+            patch("data_pipeline.run_command") as run_command,
+            patch("data_pipeline.copy_dist_manifest_to_data"),
+            patch("data_pipeline.file_ref", return_value={}),
+        ):
+            partial_record: dict[str, object] = {}
+            data_pipeline.stage_pack_runtime_data(
+                self.context("varrock"), partial_record)
+            partial_args = run_command.call_args.args[0]
+            self.assertIn("--allow-partial-mapsquares", partial_args)
+            self.assertEqual(
+                partial_record["mapsquare_scope"], "development-partial")
+
+            run_command.reset_mock()
+            full_record: dict[str, object] = {}
+            data_pipeline.stage_pack_runtime_data(
+                self.context("full"), full_record)
+            full_args = run_command.call_args.args[0]
+            self.assertNotIn("--allow-partial-mapsquares", full_args)
+            self.assertEqual(full_record["mapsquare_scope"], "production-full")
 
     def test_region_cli_rejects_ambiguous_or_incomplete_radius_modes(self) -> None:
         invalid = (

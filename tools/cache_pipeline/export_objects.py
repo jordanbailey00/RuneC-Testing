@@ -1910,8 +1910,13 @@ def export_modern_objects_split(
     output_dir: Path,
     planes: list[int] | tuple[int, ...] = (0, 1, 2, 3),
     rsmod_visual_levels: bool = True,
+    write_shared_materials: bool = True,
 ) -> list[Path]:
-    """Export per-mapsquare object geometry backed by one shared atlas."""
+    """Export per-mapsquare object geometry backed by one shared atlas.
+
+    Parallel sibling batches set ``write_shared_materials`` for exactly one
+    writer while all workers retain the same decoded material/UV mapping.
+    """
     if not cache_dir.is_dir():
         raise FileNotFoundError(f"modern cache directory not found: {cache_dir}")
     if not regions:
@@ -1941,7 +1946,7 @@ def export_modern_objects_split(
     shared_atlas = output_dir / "mapsquare.materials.atlas"
     shared_tanim = output_dir / "mapsquare.materials.tanim"
     generated: list[Path] = []
-    if atlas is not None:
+    if atlas is not None and write_shared_materials:
         write_atlas_binary(shared_atlas, atlas)
         write_texture_anim_binary(shared_tanim, atlas, texture_defs)
         generated.extend((shared_atlas, shared_tanim))
@@ -1949,7 +1954,7 @@ def export_modern_objects_split(
             f"shared mapsquare materials: {shared_atlas} "
             f"({atlas.width}x{atlas.height}, {len(atlas.uv_map)} textures)"
         )
-    else:
+    elif atlas is None and write_shared_materials:
         shared_atlas.unlink(missing_ok=True)
         shared_tanim.unlink(missing_ok=True)
 

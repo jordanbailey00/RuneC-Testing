@@ -195,7 +195,21 @@ python3 tools/data_pipeline.py export-regions --full
 `RUNEC_REGION_SET` accepts `varrock`, `edgeville`,
 `around:<x>,<y>,r=<radius>`, or `full` when running
 `export-cache-derived-assets`. `full` is a maintainer build selection; local
-development should use a named or radius-based set.
+development should use a named or radius-based set. Full exports use bounded
+parallel worker batches by default; set `RUNEC_REGION_EXPORT_JOBS` to a
+positive worker count when release-machine resources require a different cap.
+
+A production runtime-data build must export the full catalog before packing:
+
+```bash
+export RUNEC_B237_CACHE=/path/to/b237/cache
+export RUNEC_B237_DUMP=/path/to/b237/dump
+python3 tools/data_pipeline.py all --full --version v1
+```
+
+The production packer rejects missing mapsquare planes or animated-object
+sidecars. `--allow-partial-mapsquares` exists only for explicit development
+packs; `data_pipeline.py` applies it automatically for non-`full` region sets.
 
 Split exports use deterministic paths such as `regions/50_53.p0.terrain`,
 `regions/50_53.p0.objects`, and `regions/50_53.p0.oanim`. Object chunks and
@@ -211,6 +225,7 @@ terrain file stores a complete `65x65` corner-height grid for its `64x64` tile
 area, so independently exported neighbors retain continuous edges.
 Aggregate scene slices remain available only as a development compatibility
 cache through `tools/cache_pipeline/export_scene_slice.py --output-prefix ...`.
+They and `data/regions/scene_cache/` are excluded from runtime-data packs.
 
 When the complete starting visual window is present, the viewer uses a bounded,
 center-first mapsquare cache. Terrain, static objects, and animated-object
@@ -218,9 +233,12 @@ sidecars remain complete per retained mapsquare; an empty animation sidecar
 does not require an empty model file. The material atlas is bound once as a
 shared page. Moving the window retains overlap and commits only after every
 visible chunk and the backend active area load successfully. Loading is
-synchronous in this first cache version. Development auto-export generates
-only missing mapsquares; an incomplete or failed split export blocks the
-transition instead of launching aggregate generation.
+synchronous in this first cache version. Normal gameplay reads only installed
+mapsquare assets. A missing catalog, material page, or catalog-listed chunk
+produces an explicit startup/transition error and never launches Python or
+reads the source cache. Maintainers can opt into bounded development generation
+with `RUNEC_SCENE_AUTO_EXPORT=1`; an incomplete or failed split export still
+blocks the transition instead of launching aggregate generation.
 Height sampling also clamps the outer corner of legacy `64x64` terrain files;
 new exports carry the actual neighboring corner values.
 

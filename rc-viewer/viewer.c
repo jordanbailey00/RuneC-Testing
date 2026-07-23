@@ -365,6 +365,13 @@ static int viewer_mapsquare_center_available(const ViewerState *v, int x,
 static int viewer_mapsquare_chunk_available(const ViewerState *v,
                                              int region_x, int region_y,
                                              int plane);
+static int viewer_mapsquare_missing_asset_path(
+    const ViewerState *v, int region_x, int region_y, int plane,
+    char *out, size_t capacity);
+static void viewer_report_missing_mapsquare_assets(const ViewerState *v,
+                                                    int center_x,
+                                                    int center_y, int plane,
+                                                    const char *operation);
 static int viewer_mapsquare_visible_plan(
     const ViewerState *v, int center_x, int center_y,
     ViewerMapsquareCoord *plan, int capacity);
@@ -430,10 +437,6 @@ static const char *viewer_scene_export_cache_path(void) {
     return NULL;
 }
 
-static int viewer_default_scene_auto_export(void) {
-    return viewer_scene_export_cache_path() != NULL;
-}
-
 static ViewerSceneMode viewer_scene_mode_from_env(void) {
     const char *mode = getenv("RUNEC_SCENE_MODE");
     if (mode && mode[0]) {
@@ -480,11 +483,17 @@ static int runtime_data_available(const ViewerState *v) {
     }
 
     ViewerSceneMode scene_mode = viewer_scene_mode_from_env();
-    int mapsquare_available = viewer_mapsquare_cache_allowed()
-        && viewer_mapsquare_center_available(v, g_player_start_x,
-                                             g_player_start_y,
-                                             g_player_start_plane);
-    if (!mapsquare_available && (scene_mode == VIEWER_SCENE_MODE_FIXED
+    int mapsquare_mode = viewer_mapsquare_cache_allowed();
+    if (mapsquare_mode && !v->scene_auto_export
+            && (!v->mapsquare_catalog.loaded
+                || !viewer_mapsquare_window_assets_available(
+                    v, g_player_start_x, g_player_start_y,
+                    g_player_start_plane))) {
+        viewer_report_missing_mapsquare_assets(
+            v, g_player_start_x, g_player_start_y, g_player_start_plane,
+            "startup");
+        missing = 1;
+    } else if (!mapsquare_mode && (scene_mode == VIEWER_SCENE_MODE_FIXED
             || env_has_value("RUNEC_TERRAIN")
             || env_has_value("RUNEC_OBJECTS"))) {
         const char *fixed_required[] = {
@@ -4760,32 +4769,41 @@ static int viewer_mapsquare_materials_available(const ViewerState *v) {
 static int viewer_mapsquare_chunk_available(const ViewerState *v,
                                             int region_x, int region_y,
                                             int plane) {
-    char terrain_path[1024];
-    char objects_path[1024];
-    char oanim_path[1024];
-    char models_path[1024];
-    if (!viewer_mapsquare_asset_path(
-            v, terrain_path, sizeof(terrain_path), region_x, region_y,
-            plane, ".terrain")
-            || !viewer_mapsquare_asset_path(
-                v, objects_path, sizeof(objects_path), region_x, region_y,
-                plane, ".objects")
-            || !viewer_mapsquare_asset_path(
-                v, oanim_path, sizeof(oanim_path), region_x, region_y, plane,
-                ".oanim")
-            || !viewer_mapsquare_asset_path(
-                v, models_path, sizeof(models_path), region_x, region_y,
-                plane, ".object_anim.models")
-            || !rc_asset_exists(terrain_path)
-            || !rc_asset_exists(objects_path)
-            || !scene_objects_file_complete(objects_path)) {
-        return 0;
+    char missing_path[1024];
+    return !viewer_mapsquare_missing_asset_path(
+        v, region_x, region_y, plane, missing_path, sizeof(missing_path));
+}
+
+static int viewer_mapsquare_missing_asset_path(
+    const ViewerState *v, int region_x, int region_y, int plane,
+    char *out, size_t capacity) {
+    static const char *const suffixes[] = {
+        ".terrain", ".objects", ".oanim",
+    };
+    if (!v || !out || capacity == 0)
+        return 1;
+    for (size_t i = 0; i < sizeof(suffixes) / sizeof(suffixes[0]); i++) {
+        if (!viewer_mapsquare_asset_path(
+                v, out, capacity, region_x, region_y, plane, suffixes[i])
+                || !rc_asset_exists(out)) {
+            return 1;
+        }
+        if (i == 1 && !scene_objects_file_complete(out))
+            return 1;
     }
 
     int has_animated_objects = 0;
-    if (!scene_oanim_file_complete(oanim_path, &has_animated_objects))
+    if (!scene_oanim_file_complete(out, &has_animated_objects))
+        return 1;
+    if (!has_animated_objects)
         return 0;
-    return !has_animated_objects || rc_asset_exists(models_path);
+    if (!viewer_mapsquare_asset_path(
+            v, out, capacity, region_x, region_y, plane,
+            ".object_anim.models")
+            || !rc_asset_exists(out)) {
+        return 1;
+    }
+    return 0;
 }
 
 static int viewer_mapsquare_visible_plan(
@@ -4798,6 +4816,63 @@ static int viewer_mapsquare_visible_plan(
     int count = viewer_streaming_plan_mapsquares(
         &visible, center_x, center_y, plan, capacity);
     return count < 0 ? count : viewer_filter_mapsquare_plan(v, plan, count);
+}
+
+static void viewer_report_missing_mapsquare_assets(const ViewerState *v,
+                                                    int center_x,
+                                                    int center_y, int plane,
+                                                    const char *operation) {
+    const char *label = operation && operation[0] ? operation : "transition";
+    char path[1024];
+    fprintf(stderr,
+            "viewer mapsquare: %s requires a complete prebuilt visual "
+            "window at %d,%d plane %d\n",
+            label, center_x, center_y, clamp_plane(plane));
+    if (!v || !v->mapsquare_catalog.loaded) {
+        if (!viewer_mapsquare_catalog_path(v, path, sizeof(path)))
+            snprintf(path, sizeof(path), "data/regions/mapsquare.catalog");
+        fprintf(stderr, "viewer mapsquare: missing catalog: %s\n", path);
+    } else {
+        int region_x = center_x / VIEWER_STREAMING_MAPSQUARE_SIZE;
+        int region_y = center_y / VIEWER_STREAMING_MAPSQUARE_SIZE;
+        if (!viewer_mapsquare_region_present(v, region_x, region_y)) {
+            fprintf(stderr,
+                    "viewer mapsquare: center mapsquare %d,%d is not present "
+                    "in the installed b237 catalog\n",
+                    region_x, region_y);
+        }
+    }
+    if (v && !viewer_mapsquare_materials_available(v)) {
+        if (!viewer_mapsquare_material_path(v, path, sizeof(path)))
+            snprintf(path, sizeof(path),
+                     "data/regions/mapsquare.materials.atlas");
+        fprintf(stderr,
+                "viewer mapsquare: missing shared material assets under %s\n",
+                path);
+    }
+    if (v && v->mapsquare_catalog.loaded) {
+        ViewerMapsquareCoord plan[VIEWER_STREAMING_CHUNK_CAPACITY];
+        int count = viewer_mapsquare_visible_plan(
+            v, center_x, center_y, plan, VIEWER_STREAMING_CHUNK_CAPACITY);
+        for (int i = 0; i < count; i++) {
+            if (viewer_mapsquare_missing_asset_path(
+                    v, plan[i].region_x, plan[i].region_y,
+                    clamp_plane(plane), path, sizeof(path))) {
+                fprintf(stderr,
+                        "viewer mapsquare: first missing or incomplete asset: "
+                        "%s\n",
+                        path);
+                break;
+            }
+        }
+    }
+    fprintf(stderr,
+            "viewer mapsquare: run ./scripts/setup-data.sh to install the "
+            "complete runtime-data release; normal gameplay does not generate "
+            "assets\n");
+    fprintf(stderr,
+            "viewer mapsquare: maintainers may opt in with "
+            "RUNEC_SCENE_AUTO_EXPORT=1 and a local b237 cache\n");
 }
 
 static int viewer_mapsquare_window_assets_available(const ViewerState *v,
@@ -4830,24 +4905,39 @@ static int viewer_prepare_mapsquare_window(ViewerState *v, int center_x,
                                            int center_y, int plane) {
     if (!v || !viewer_mapsquare_cache_allowed())
         return 0;
-    viewer_load_mapsquare_catalog(v);
+    int catalog_loaded = viewer_load_mapsquare_catalog(v);
     plane = clamp_plane(plane);
+    if (!catalog_loaded && !v->scene_auto_export) {
+        viewer_report_missing_mapsquare_assets(
+            v, center_x, center_y, plane, "transition");
+        return -1;
+    }
     int center_region_x = center_x / VIEWER_STREAMING_MAPSQUARE_SIZE;
     int center_region_y = center_y / VIEWER_STREAMING_MAPSQUARE_SIZE;
     if (!viewer_mapsquare_region_present(
             v, center_region_x, center_region_y)) {
+        viewer_report_missing_mapsquare_assets(
+            v, center_x, center_y, plane, "transition");
         return -1;
     }
     if (viewer_mapsquare_window_assets_available(
             v, center_x, center_y, plane)) {
         return 1;
     }
-    if (!v->scene_auto_export)
-        return 0;
+    if (!v->scene_auto_export) {
+        viewer_report_missing_mapsquare_assets(
+            v, center_x, center_y, plane, "transition");
+        return -1;
+    }
 
     const char *cache = viewer_scene_export_cache_path();
-    if (!cache || !cache[0] || !local_dir_exists(cache))
-        return 0;
+    if (!cache || !cache[0] || !local_dir_exists(cache)) {
+        fprintf(stderr,
+                "viewer mapsquare: development auto-export requires "
+                "RUNEC_CACHE, RUNEC_B237_CACHE, or %s\n",
+                DEFAULT_B237_CACHE_PATH);
+        return -1;
+    }
 
     ViewerMapsquareCoord plan[VIEWER_STREAMING_CHUNK_CAPACITY];
     int count = viewer_mapsquare_visible_plan(
@@ -8047,8 +8137,7 @@ int main(int argc, char **argv) {
         (backend_streaming.active_radius_regions * 2 + 1) * RC_REGION_SIZE;
     g_world_w = env_int("RUNEC_WORLD_W", default_world_side);
     g_world_h = env_int("RUNEC_WORLD_H", default_world_side);
-    v.scene_auto_export = env_bool("RUNEC_SCENE_AUTO_EXPORT",
-                                   viewer_default_scene_auto_export());
+    v.scene_auto_export = env_bool("RUNEC_SCENE_AUTO_EXPORT", 0);
     v.preload_scene_planes = env_bool("RUNEC_PRELOAD_SCENE_PLANES", 0);
     v.object_chunk_size = env_int("RUNEC_OBJECT_CHUNK_SIZE", 64);
     v.object_chunk_draw_radius =
@@ -8059,6 +8148,11 @@ int main(int argc, char **argv) {
     snprintf(v.mapsquare_directory, sizeof(v.mapsquare_directory), "%s",
              env_path("RUNEC_MAPSQUARE_DIR", "data/regions"));
     viewer_load_mapsquare_catalog(&v);
+    if (v.scene_auto_export) {
+        fprintf(stderr,
+                "viewer scene: development-only runtime export enabled by "
+                "RUNEC_SCENE_AUTO_EXPORT=1\n");
+    }
     if (!runtime_data_available(&v))
         return 1;
     int viewer_smoke = env_bool("RUNEC_VIEWER_SMOKE", 0);
@@ -8169,12 +8263,16 @@ int main(int argc, char **argv) {
             rc_world_destroy(v.world);
             return 1;
         }
-        if (env_bool("RUNEC_VIEWER_SMOKE_MAPSQUARES", 0)
-                && validate_mapsquare_window_assets(
+        if (env_bool("RUNEC_VIEWER_SMOKE_MAPSQUARES", 0)) {
+            int prepared = viewer_prepare_mapsquare_window(
+                &v, g_player_start_x, g_player_start_y,
+                v.world->player.plane);
+            if (prepared <= 0 || validate_mapsquare_window_assets(
                     &v, g_player_start_x, g_player_start_y,
                     v.world->player.plane) < 0) {
-            rc_world_destroy(v.world);
-            return 1;
+                rc_world_destroy(v.world);
+                return 1;
+            }
         }
         v.telemetry.startup_ms = viewer_streaming_now_ms() - startup_started_ms;
         viewer_log_streaming_telemetry(&v, "startup-smoke");

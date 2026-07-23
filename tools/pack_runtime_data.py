@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,6 +31,22 @@ IO_CHUNK_BYTES = 1024 * 1024
 INDEX_COUNT = struct.Struct("<8sQ")
 INDEX_PATH_LEN = struct.Struct("<H")
 INDEX_ENTRY_FIXED = struct.Struct("<BQQQ32s")
+MAPSQUARE_CATALOG_HEADER = struct.Struct("<II")
+MAPSQUARE_CATALOG_MAGIC = 0x3151534D
+MAPSQUARE_OANIM_HEADER = struct.Struct("<III")
+MAPSQUARE_OANIM_MAGIC = 0x4D4E414F
+MAPSQUARE_OANIM_VERSION = 1
+EXPECTED_B237_MAPSQUARE_REGIONS = 2870
+MAPSQUARE_PLANES = range(4)
+MAPSQUARE_SHARED_FILES = (
+    "mapsquare.catalog",
+    "mapsquare.materials.atlas",
+    "mapsquare.materials.tanim",
+)
+MAPSQUARE_ASSET_RE = re.compile(
+    r"^(?P<x>\d{1,3})_(?P<y>\d{1,3})\.p(?P<plane>[0-3])\."
+    r"(?P<kind>terrain|objects|oanim|object_anim\.models)$"
+)
 
 STORE_EXTENSIONS = {
     ".jpg",
@@ -43,6 +60,7 @@ STORE_EXTENSIONS = {
 REQUIRED_LOGICAL_PATHS = (
     "defs/npc_defs.bin",
     "spawns/world.npc-spawns.bin",
+    "spawns/world.ground-items.bin",
     "defs/varbits.bin",
     "defs/varps.bin",
     "defs/items.bin",
@@ -75,6 +93,9 @@ REQUIRED_LOGICAL_PATHS = (
     "defs/area_flags.bin",
     "defs/traversal_edges.bin",
     "defs/encounters.bin",
+    "regions/mapsquare.catalog",
+    "regions/mapsquare.materials.atlas",
+    "regions/mapsquare.materials.tanim",
 )
 
 PROVISIONAL_REQUIRED_LOGICAL_PATHS = (
@@ -164,6 +185,15 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Overwrite existing output files.",
     )
+    parser.add_argument(
+        "--allow-partial-mapsquares",
+        action="store_true",
+        help=(
+            "Allow a development pack whose mapsquare files cover only part "
+            "of mapsquare.catalog. Production runtime-data packs must omit "
+            "this flag."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -235,21 +265,144 @@ def add_unique(
 
 
 def is_region_runtime_file(path: Path) -> bool:
-    name = path.name
-    if name.endswith(".npc-spawns.bin"):
+    if "scene_cache" in path.parts or "varrock_chunks" in path.parts:
         return False
+    name = path.name
     return (
-        name == "mapsquare.catalog"
-        or name.endswith(".terrain")
-        or name.endswith(".objects")
-        or name.endswith(".cmap")
-        or name.endswith(".atlas")
-        or name.endswith(".tanim")
-        or name.endswith(".oanim")
-        or name.endswith(".object_anim.models")
-        or name.endswith(".object_anim.atlas")
-        or name.endswith(".object_anim.tanim")
+        name in MAPSQUARE_SHARED_FILES
+        or MAPSQUARE_ASSET_RE.fullmatch(name) is not None
     )
+
+
+def load_mapsquare_catalog(path: Path) -> tuple[tuple[int, int], ...]:
+    try:
+        payload = path.read_bytes()
+    except FileNotFoundError as exc:
+        raise SystemExit(f"missing mapsquare catalog: {path}") from exc
+    if len(payload) < MAPSQUARE_CATALOG_HEADER.size:
+        raise SystemExit(f"truncated mapsquare catalog: {path}")
+    magic, count = MAPSQUARE_CATALOG_HEADER.unpack_from(payload)
+    expected_size = MAPSQUARE_CATALOG_HEADER.size + count * 2
+    if magic != MAPSQUARE_CATALOG_MAGIC or len(payload) != expected_size:
+        raise SystemExit(f"invalid mapsquare catalog: {path}")
+    regions = tuple(
+        (payload[offset], payload[offset + 1])
+        for offset in range(MAPSQUARE_CATALOG_HEADER.size, len(payload), 2)
+    )
+    ordered = tuple(
+        sorted(set(regions), key=lambda region: (region[1], region[0]))
+    )
+    if regions != ordered:
+        raise SystemExit(f"mapsquare catalog is not sorted and unique: {path}")
+    return regions
+
+
+def mapsquare_oanim_count(path: Path) -> int:
+    try:
+        with path.open("rb") as handle:
+            header = handle.read(MAPSQUARE_OANIM_HEADER.size)
+    except OSError as exc:
+        raise SystemExit(f"cannot read mapsquare animation sidecar: {path}") from exc
+    if len(header) != MAPSQUARE_OANIM_HEADER.size:
+        raise SystemExit(f"truncated mapsquare animation sidecar: {path}")
+    magic, version, count = MAPSQUARE_OANIM_HEADER.unpack(header)
+    if magic != MAPSQUARE_OANIM_MAGIC or version != MAPSQUARE_OANIM_VERSION:
+        raise SystemExit(f"invalid mapsquare animation sidecar: {path}")
+    return count
+
+
+def validate_mapsquare_runtime_assets(
+    data_root: Path,
+    *,
+    allow_partial: bool,
+    expected_catalog_regions: int | None = None,
+) -> dict[str, int | bool | str]:
+    regions_root = data_root / "regions"
+    missing_shared = [
+        name for name in MAPSQUARE_SHARED_FILES
+        if not (regions_root / name).is_file()
+    ]
+    if missing_shared:
+        raise SystemExit(
+            "missing mapsquare runtime assets: "
+            + ", ".join(f"regions/{name}" for name in missing_shared)
+        )
+
+    regions = load_mapsquare_catalog(regions_root / "mapsquare.catalog")
+    catalog_complete = (
+        expected_catalog_regions is None
+        or len(regions) == expected_catalog_regions
+    )
+    if not catalog_complete and not allow_partial:
+        raise SystemExit(
+            "incomplete b237 mapsquare catalog: "
+            f"found {len(regions)}, expected {expected_catalog_regions}"
+        )
+    catalog_set = set(regions)
+    for path in iter_files(regions_root):
+        match = MAPSQUARE_ASSET_RE.fullmatch(path.name)
+        if not match:
+            continue
+        coordinate = (int(match.group("x")), int(match.group("y")))
+        if coordinate not in catalog_set:
+            raise SystemExit(
+                f"mapsquare asset is absent from the b237 catalog: {path}"
+            )
+
+    missing_count = 0
+    missing_sample: list[str] = []
+    complete_region_planes = 0
+    animated_model_assets = 0
+    for region_x, region_y in regions:
+        for plane in MAPSQUARE_PLANES:
+            stem = f"{region_x}_{region_y}.p{plane}"
+            plane_missing = False
+            for suffix in ("terrain", "objects", "oanim"):
+                path = regions_root / f"{stem}.{suffix}"
+                if path.is_file():
+                    continue
+                plane_missing = True
+                missing_count += 1
+                if len(missing_sample) < 8:
+                    missing_sample.append(f"regions/{path.name}")
+
+            oanim_path = regions_root / f"{stem}.oanim"
+            if oanim_path.is_file() and mapsquare_oanim_count(oanim_path) > 0:
+                models_path = regions_root / f"{stem}.object_anim.models"
+                if models_path.is_file():
+                    animated_model_assets += 1
+                else:
+                    plane_missing = True
+                    missing_count += 1
+                    if len(missing_sample) < 8:
+                        missing_sample.append(f"regions/{models_path.name}")
+            if not plane_missing:
+                complete_region_planes += 1
+
+    complete = catalog_complete and missing_count == 0
+    if not complete and not allow_partial:
+        sample = ", ".join(missing_sample)
+        raise SystemExit(
+            "incomplete prebuilt mapsquare runtime data: "
+            f"{missing_count} required assets missing across "
+            f"{len(regions)} catalog regions; first missing: {sample}. "
+            "Run the full region export or use --allow-partial-mapsquares "
+            "only for a development pack."
+        )
+    return {
+        "catalog_regions": len(regions),
+        "expected_catalog_regions": (
+            expected_catalog_regions
+            if expected_catalog_regions is not None
+            else len(regions)
+        ),
+        "required_region_planes": len(regions) * len(MAPSQUARE_PLANES),
+        "complete_region_planes": complete_region_planes,
+        "missing_asset_count": missing_count,
+        "animated_model_assets": animated_model_assets,
+        "complete": complete,
+        "scope": "full" if complete else "partial",
+    }
 
 
 def is_audio_file(path: Path) -> bool:
@@ -298,6 +451,7 @@ def build_specs(data_root: Path) -> tuple[PackSpec, ...]:
     add_spec(
         "runec-spawns",
         list((data_root / "spawns").glob("*.npc-spawns.bin"))
+        + list((data_root / "spawns").glob("*.ground-items.bin"))
         + list((data_root / "regions").rglob("*.npc-spawns.bin")),
     )
 
@@ -650,6 +804,7 @@ def build_manifest(
     packs: list[dict],
     assets: list[dict],
     max_pack_bytes: int,
+    mapsquare_visuals: dict[str, int | bool | str],
 ) -> dict:
     source_lock_path = Path("data-sources/sources.lock")
     content_catalog_path = Path("content/catalog.toml")
@@ -692,6 +847,7 @@ def build_manifest(
         "required_logical_paths": list(REQUIRED_LOGICAL_PATHS),
         "provisional_required_logical_paths": list(PROVISIONAL_REQUIRED_LOGICAL_PATHS),
         "optional_logical_paths": list(OPTIONAL_LOGICAL_PATHS),
+        "mapsquare_visuals": mapsquare_visuals,
         "loose_asset_checksums": loose_asset_checksums(assets),
         "target_max_pack_bytes": max_pack_bytes,
         "packs": packs,
@@ -725,12 +881,19 @@ def dry_run(
     data_root: Path,
     version: str,
     list_assets: bool,
+    mapsquare_visuals: dict[str, int | bool | str],
 ) -> None:
     total_files = sum(len(spec.files) for spec in specs)
     total_size = sum(sum(p.stat().st_size for p in spec.files) for spec in specs)
     print(f"RuneC runtime data pack plan ({version})")
     print(f"data root: {data_root}")
     print(f"runtime assets: {total_files} files, {human_size(total_size)}")
+    print(
+        "mapsquare visuals: "
+        f"{mapsquare_visuals['scope']} "
+        f"({mapsquare_visuals['complete_region_planes']}/"
+        f"{mapsquare_visuals['required_region_planes']} region-planes)"
+    )
     print()
     for spec in specs:
         chunks = chunks_by_spec[spec.stem]
@@ -790,6 +953,11 @@ def main() -> int:
     if not data_root.exists():
         raise SystemExit(f"data root does not exist: {data_root}")
 
+    mapsquare_visuals = validate_mapsquare_runtime_assets(
+        data_root,
+        allow_partial=args.allow_partial_mapsquares,
+        expected_catalog_regions=EXPECTED_B237_MAPSQUARE_REGIONS,
+    )
     specs = build_specs(data_root)
     validate_required_specs(specs)
     chunks_by_spec = {
@@ -797,7 +965,14 @@ def main() -> int:
     }
 
     if args.dry_run:
-        dry_run(specs, chunks_by_spec, data_root, version, args.list_assets)
+        dry_run(
+            specs,
+            chunks_by_spec,
+            data_root,
+            version,
+            args.list_assets,
+            mapsquare_visuals,
+        )
         return 0
 
     manifest_path = output_root / "manifest.json"
@@ -844,6 +1019,7 @@ def main() -> int:
         packs=packs,
         assets=assets,
         max_pack_bytes=args.max_pack_bytes,
+        mapsquare_visuals=mapsquare_visuals,
     )
     tmp_manifest = manifest_path.with_name(f"{manifest_path.name}.tmp")
     with tmp_manifest.open("w", encoding="utf-8") as f:

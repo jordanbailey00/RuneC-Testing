@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import struct
 import sys
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parents[1]
@@ -22,6 +23,49 @@ from source_inputs import B237_CACHE, require_path
 
 MAPSQUARE_CATALOG_MAGIC = 0x3151534D
 MAPSQUARE_CATALOG_NAME = "mapsquare.catalog"
+
+
+def partition_regions(
+    regions: list[tuple[int, int]], jobs: int
+) -> list[list[tuple[int, int]]]:
+    """Split row-major regions into bounded contiguous worker batches."""
+    if jobs < 1:
+        raise ValueError("jobs must be >= 1")
+    worker_count = min(jobs, len(regions))
+    if worker_count == 0:
+        return []
+    batch_size, remainder = divmod(len(regions), worker_count)
+    batches: list[list[tuple[int, int]]] = []
+    offset = 0
+    for index in range(worker_count):
+        count = batch_size + (1 if index < remainder else 0)
+        batches.append(regions[offset : offset + count])
+        offset += count
+    return batches
+
+
+def export_split_batch(
+    cache: Path,
+    regions: list[tuple[int, int]],
+    output_dir: Path,
+    planes: list[int],
+    write_shared_materials: bool,
+) -> tuple[int, int]:
+    terrain_outputs = export_modern_terrain_split(
+        cache,
+        regions,
+        output_dir,
+        planes,
+    )
+    object_outputs = export_modern_objects_split(
+        cache,
+        regions,
+        output_dir,
+        planes,
+        rsmod_visual_levels=True,
+        write_shared_materials=write_shared_materials,
+    )
+    return len(terrain_outputs), len(object_outputs)
 
 
 def plane_path(prefix: Path, plane: int, suffix: str) -> Path:
@@ -99,6 +143,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--split-by-mapsquare", action="store_true")
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--planes", type=str, default="0,1,2,3")
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=1,
+        help="parallel worker processes for split mapsquare export (default: 1)",
+    )
     args = parser.parse_args(argv)
 
     cache = require_path(args.cache, "--cache", "RUNEC_B237_CACHE")
@@ -106,6 +156,10 @@ def main(argv: list[str] | None = None) -> None:
         parser.error(f"cache directory not found: {cache}")
     if args.radius_regions < 0:
         parser.error("--radius-regions must be >= 0")
+    if args.jobs < 1:
+        parser.error("--jobs must be >= 1")
+    if not args.split_by_mapsquare and args.jobs != 1:
+        parser.error("--jobs is only valid with --split-by-mapsquare")
 
     has_center = args.center_x is not None or args.center_y is not None
     if has_center and (args.center_x is None or args.center_y is None):
@@ -153,22 +207,41 @@ def main(argv: list[str] | None = None) -> None:
                 file=sys.stderr,
             )
             return
-        terrain_outputs = export_modern_terrain_split(
-            cache,
-            selected_regions,
-            args.output_dir,
-            planes,
-        )
-        object_outputs = export_modern_objects_split(
-            cache,
-            selected_regions,
-            args.output_dir,
-            planes,
-            rsmod_visual_levels=True,
-        )
+        if args.jobs == 1 or len(selected_regions) == 1:
+            terrain_count, object_count = export_split_batch(
+                cache,
+                selected_regions,
+                args.output_dir,
+                planes,
+                True,
+            )
+        else:
+            batches = partition_regions(selected_regions, args.jobs)
+            print(
+                f"scene_slice: exporting with {len(batches)} bounded workers",
+                file=sys.stderr,
+            )
+            terrain_count = 0
+            object_count = 0
+            with ProcessPoolExecutor(max_workers=len(batches)) as executor:
+                futures = [
+                    executor.submit(
+                        export_split_batch,
+                        cache,
+                        batch,
+                        args.output_dir,
+                        planes,
+                        index == 0,
+                    )
+                    for index, batch in enumerate(batches)
+                ]
+                for future in as_completed(futures):
+                    batch_terrain_count, batch_object_count = future.result()
+                    terrain_count += batch_terrain_count
+                    object_count += batch_object_count
         print(
-            f"scene_slice: wrote {len(terrain_outputs)} terrain and "
-            f"{len(object_outputs)} object/material files plus catalog",
+            f"scene_slice: wrote {terrain_count} terrain and "
+            f"{object_count} object/material files plus catalog",
             file=sys.stderr,
         )
         return
