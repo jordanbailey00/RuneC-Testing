@@ -55,7 +55,8 @@ int main(void) {
     assert(nex_render && nex_render->model_count > 0);
 
     char spawns_path[512];
-    path_join(spawns_path, sizeof(spawns_path), "data/spawns/world.npc-spawns.bin");
+    path_join(spawns_path, sizeof(spawns_path),
+              "data/spawns/world.npc-spawns.indexed.bin");
     RcWorldConfig spawn_cfg = rc_preset_base_only();
     RcWorld *spawn_world = rc_world_create_config(&spawn_cfg);
     assert(spawn_world != NULL);

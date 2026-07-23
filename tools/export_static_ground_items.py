@@ -8,17 +8,14 @@ packing, and validation can exercise the path without hardcoded item spawns.
 from __future__ import annotations
 
 import csv
-import struct
 from pathlib import Path
+
+from spawn_index import write_ground_item_spawns
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "content/world/static_ground_items.tsv"
-OUT = ROOT / "data/spawns/world.ground-items.bin"
+OUT = ROOT / "data/spawns/world.ground-items.indexed.bin"
 REPORT = ROOT / "tools/reports/static_ground_items.txt"
-
-GSPN_MAGIC = 0x4E505347
-GSPN_VERSION = 1
-
 
 def parse_rows() -> list[dict[str, int | str]]:
     rows: list[dict[str, int | str]] = []
@@ -54,16 +51,18 @@ def parse_rows() -> list[dict[str, int | str]]:
 
 
 def write_binary(rows: list[dict[str, int | str]]) -> None:
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    with OUT.open("wb") as f:
-        f.write(struct.pack("<III", GSPN_MAGIC, GSPN_VERSION, len(rows)))
-        for row in rows:
-            f.write(struct.pack("<I", int(row["item_id"])))
-            f.write(struct.pack("<I", int(row["quantity"])))
-            f.write(struct.pack("<i", int(row["x"])))
-            f.write(struct.pack("<i", int(row["y"])))
-            f.write(struct.pack("<B", int(row["plane"])))
-            f.write(struct.pack("<B", 0))
+    indexed_rows = [
+        (
+            int(row["item_id"]),
+            int(row["quantity"]),
+            int(row["x"]),
+            int(row["y"]),
+            int(row["plane"]),
+            0,
+        )
+        for row in rows
+    ]
+    write_ground_item_spawns(OUT, indexed_rows)
 
 
 def write_report(rows: list[dict[str, int | str]]) -> None:

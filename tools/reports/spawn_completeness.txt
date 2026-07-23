@@ -1,10 +1,8 @@
-world NSPN: expected=24110 actual=24110
-varrock NSPN: expected=840 actual=840
+world NSPI: expected=24110 actual=24110
 static spawn ids missing NDEF rows: 0
 world static loadable rows: 20796
 world instance-only rows: 3314
 world planes: 0=20487, 1=2237, 2=1193, 3=193
-varrock planes: 0=778, 1=38, 2=23, 3=1
 top static spawn regions:
   50,50: 167
   38,54: 158

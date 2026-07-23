@@ -1,16 +1,14 @@
-Varrock Npc Spawn Slice
+World NPC Spawn Coverage
 
 status: READY_WITH_ACCEPTED_SIMPLIFICATIONS
 source: content/runtime_snapshots/manifest.json
 authority: runec_owned_reviewed_runtime_snapshot
-snapshot files: 1
-snapshot bytes: 13452
-entries: 840
-NPCList spawns: 840
-
-installed files:
-  - data/regions/varrock.npc-spawns.bin bytes=13452 sha256=8bbedde6f7b168690b17d624800ac3c9efad1558866abba5cec2b5559069c04b
+NPCList spawns: 24110
+indexed world rows: 24110
+occupied mapsquares: 923
+planes: 0=20487, 1=2237, 2=1193, 3=193
+runtime output: data/spawns/world.npc-spawns.indexed.bin
 
 accepted simplifications:
-  - this first-release bridge preserves the reviewed runtime snapshot while semantic source tables are normalized later
-  - no external checkout, wiki cache, private-server source, or wrong-game source is read during rebuild
+  - direction and wander metadata retain the reviewed first-release defaults
+  - source semantics are unchanged; PR6 only adds mapsquare indexing

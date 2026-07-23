@@ -2311,10 +2311,10 @@ static int activate_core_area_bounds(ViewerState *v, int origin_x,
                | RC_ACTIVE_AREA_LOAD_STATIC_GROUND_ITEMS
                | RC_ACTIVE_AREA_CLEAR_STATIC_GROUND_ITEMS,
         .npc_spawns_path = env_path("RUNEC_NPC_SPAWNS",
-                                    "data/spawns/world.npc-spawns.bin"),
+            "data/spawns/world.npc-spawns.indexed.bin"),
         .ground_item_spawns_path = env_path(
             "RUNEC_GROUND_ITEM_SPAWNS",
-            "data/spawns/world.ground-items.bin"),
+            "data/spawns/world.ground-items.indexed.bin"),
     };
     RcActiveAreaStats stats;
     int ok = rc_world_activate_area(v->world, &request, &stats);
@@ -2322,17 +2322,22 @@ static int activate_core_area_bounds(ViewerState *v, int origin_x,
         memset(v->npc_render, 0, sizeof(v->npc_render));
         fprintf(stderr,
                 "core active area: origin=%d,%d size=%dx%d collision=%d"
-                " npc_rows=%d matched=%d spawned=%d planes=[%d,%d,%d,%d]"
-                " ground_item_rows=%d matched=%d spawned=%d"
+                " npc_pages=%d npc_rows=%d/%d matched=%d spawned=%d"
+                " planes=[%d,%d,%d,%d]"
+                " ground_item_pages=%d ground_item_rows=%d/%d"
+                " matched=%d spawned=%d"
                 " backend_pages=%d page_load_ms=%.2f area_load_ms=%.2f\n",
                 stats.active_area.origin_x, stats.active_area.origin_y,
                 stats.active_area.width, stats.active_area.height,
-                stats.collision_regions, stats.npc_stats.total_rows,
+                stats.collision_regions, stats.npc_stats.pages_loaded,
+                stats.npc_stats.rows_loaded, stats.npc_stats.total_rows,
                 stats.npc_stats.matched_filter, stats.npc_stats.spawned,
                 stats.npc_stats.spawned_plane_counts[0],
                 stats.npc_stats.spawned_plane_counts[1],
                 stats.npc_stats.spawned_plane_counts[2],
                 stats.npc_stats.spawned_plane_counts[3],
+                stats.ground_item_stats.pages_loaded,
+                stats.ground_item_stats.rows_loaded,
                 stats.ground_item_stats.total_rows,
                 stats.ground_item_stats.matched_filter,
                 stats.ground_item_stats.spawned,
@@ -8209,7 +8214,7 @@ int main(int argc, char **argv) {
     cfg.collision_tiles_path = env_path("RUNEC_COLLISION_TILES",
         "data/defs/collision_tiles.bin");
     cfg.spawns_path = env_path("RUNEC_NPC_SPAWNS",
-        "data/spawns/world.npc-spawns.bin");
+        "data/spawns/world.npc-spawns.indexed.bin");
     cfg.area_flags_path = env_path("RUNEC_AREA_FLAGS",
         "data/defs/area_flags.bin");
     cfg.traversal_edges_path = env_path("RUNEC_TRAVERSAL_EDGES",

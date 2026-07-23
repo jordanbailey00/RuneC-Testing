@@ -1,10 +1,10 @@
-Static Npc Spawn Source Rows
+Mapsquare-Indexed Static Npc Spawn Rows
 
 status: READY_WITH_ACCEPTED_SIMPLIFICATIONS
 source: content/runtime_snapshots/manifest.json
 authority: runec_owned_reviewed_runtime_snapshot
 snapshot files: 1
-snapshot bytes: 385772
+snapshot bytes: 1006524
 entries: 24110
 source rows: 24110
 compiled static spawn source rows: 24110
@@ -12,7 +12,7 @@ source rows: 24110
 unresolved required activity markers: 0
 
 installed files:
-  - data/spawns/world.npc-spawns.bin bytes=385772 sha256=4865d5045d54910c4d4927d9844930606443332d7be8878b7d77c3849d1b7d36
+  - data/spawns/world.npc-spawns.indexed.bin bytes=1006524 sha256=c8935413cf452d0088fe371aea240d6ff36ea151a7d81f0f594347af038105c0
 
 accepted simplifications:
   - this first-release bridge preserves the reviewed runtime snapshot while semantic source tables are normalized later

@@ -4,6 +4,7 @@
 #include "io.h"
 #include "rng.h"
 #include "pathfinding.h"
+#include "spawn_index.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -298,11 +299,20 @@ bool rc_npc_def_option_is_attack(const RcNpcDef *def, int option_idx) {
     return strcmp(option, "Attack") == 0;
 }
 
-// Load NSPN binary: magic(u32) version(u32) count(u32)
-// v1 per spawn: npc_id(u32) x(i32) y(i32) plane(u8) direction(u8) wander_range(u8)
-// v2 per spawn: v1 fields + flags(u8) — bit0=instance_only (boss arena etc.)
-#define NSPN_MAGIC 0x4E53504E
-#define NSPN_FLAG_INSTANCE 0x01
+#define NSPI_MAGIC 0x4950534Eu
+#define NSPI_RECORD_SIZE 20u
+#define NPC_SPAWN_FLAG_INSTANCE 0x01
+
+static uint32_t spawn_read_u32(const unsigned char **p) {
+    const unsigned char *v = *p;
+    *p += 4;
+    return (uint32_t)v[0] | ((uint32_t)v[1] << 8)
+         | ((uint32_t)v[2] << 16) | ((uint32_t)v[3] << 24);
+}
+
+static uint8_t spawn_read_u8(const unsigned char **p) {
+    return *(*p)++;
+}
 
 static void npc_face_move_delta(RcNpc *npc, int dx, int dy) {
     if (!npc || (!dx && !dy)) return;
@@ -319,54 +329,38 @@ static int load_npc_spawns_filtered(RcWorld *world, const char *path,
                                     RcNpcSpawnLoadStats *stats) {
     if (!world || !path) return -1;
     if (stats) memset(stats, 0, sizeof(*stats));
-    FILE *f = rc_asset_fopen(path, "rb");
-    if (!f) { fprintf(stderr, "npc_spawns: can't open %s\n", path); return -1; }
-
-    uint32_t magic, version, count;
-    if (!rc_read_exact(f, &magic, sizeof(magic), 1, path, "npc spawn magic")
-            || magic != NSPN_MAGIC) {
-        rc_asset_close(f);
-        fprintf(stderr, "npc_spawns: bad magic\n");
+    RcSpawnIndexSlice slice = {0};
+    if (!rc_spawn_index_read(path, NSPI_MAGIC, NSPI_RECORD_SIZE, use_filter,
+                             min_x, min_y, max_x, max_y, &slice)
+            || !rc_spawn_index_sort_source_order(&slice)) {
+        rc_spawn_index_slice_free(&slice);
+        fprintf(stderr, "npc_spawns: invalid indexed spawn file %s\n", path);
         return -1;
     }
-    if (!rc_read_exact(f, &version, sizeof(version), 1, path, "npc spawn version")
-            || !rc_read_exact(f, &count, sizeof(count), 1, path, "npc spawn count")) {
-        rc_asset_close(f);
-        return -1;
-    }
-    if (version < 1 || version > 2) {
-        rc_asset_close(f);
-        fprintf(stderr, "npc_spawns: unsupported version %u\n", version);
-        return -1;
+    if (stats) {
+        stats->total_rows = (int)slice.total_rows;
+        stats->pages_loaded = (int)slice.pages_loaded;
+        stats->rows_loaded = (int)slice.record_count;
+        for (int plane = 0; plane < RC_MAX_PLANES; plane++) {
+            stats->source_plane_counts[plane]
+                = (int)slice.source_plane_counts[plane];
+        }
     }
 
-    for (uint32_t i = 0; i < count; i++) {
-        uint32_t nid;
-        int32_t x, y;
-        uint8_t plane, direction, wander_range, flags = 0;
-        if (!rc_read_exact(f, &nid, sizeof(nid), 1, path, "spawn npc id")
-                || !rc_read_exact(f, &x, sizeof(x), 1, path, "spawn x")
-                || !rc_read_exact(f, &y, sizeof(y), 1, path, "spawn y")
-                || !rc_read_exact(f, &plane, sizeof(plane), 1, path, "spawn plane")
-                || !rc_read_exact(f, &direction, sizeof(direction), 1, path, "spawn direction")
-                || !rc_read_exact(f, &wander_range, sizeof(wander_range), 1, path, "spawn wander range")) {
-            rc_asset_close(f);
-            return -1;
-        }
-        if (version >= 2
-                && !rc_read_exact(f, &flags, sizeof(flags), 1, path, "spawn flags")) {
-            rc_asset_close(f);
-            return -1;
-        }
-
-        if (stats) {
-            stats->total_rows++;
-            if (plane < RC_MAX_PLANES)
-                stats->source_plane_counts[plane]++;
-        }
+    for (uint32_t i = 0; i < slice.record_count; i++) {
+        const unsigned char *record = slice.records
+            + (size_t)i * slice.record_size;
+        const unsigned char *p = record + 4;
+        uint32_t nid = spawn_read_u32(&p);
+        int32_t x = (int32_t)spawn_read_u32(&p);
+        int32_t y = (int32_t)spawn_read_u32(&p);
+        uint8_t plane = spawn_read_u8(&p);
+        uint8_t direction = spawn_read_u8(&p);
+        uint8_t wander_range = spawn_read_u8(&p);
+        uint8_t flags = spawn_read_u8(&p);
+        (void)direction;
         if (use_filter && (x < min_x || x > max_x || y < min_y || y > max_y
                 || plane < min_plane || plane > max_plane)) {
-            if (stats) stats->skipped_filter++;
             continue;
         }
         if (stats) {
@@ -378,7 +372,7 @@ static int load_npc_spawns_filtered(RcWorld *world, const char *path,
         // Instance-marked NPCs are skipped by default for conservative static
         // world loading. Viewers/validators can opt in when the active scene
         // window is the instance/dungeon map being inspected.
-        if ((flags & NSPN_FLAG_INSTANCE)
+        if ((flags & NPC_SPAWN_FLAG_INSTANCE)
                 && !(load_flags & RC_NPC_SPAWN_LOAD_INCLUDE_INSTANCE)) {
             if (stats) stats->skipped_instance++;
             continue;
@@ -402,11 +396,17 @@ static int load_npc_spawns_filtered(RcWorld *world, const char *path,
             stats->skipped_capacity++;
         }
     }
-    rc_asset_close(f);
+    if (stats && use_filter)
+        stats->skipped_filter = stats->total_rows - stats->matched_filter;
+    rc_spawn_index_slice_free(&slice);
     fprintf(stderr, "npc_spawns: spawned %d NPCs from %s"
-            " (matched %d, skipped %d filtered, %d instance-only,"
+            " (pages %d, rows %d/%d, matched %d, skipped %d filtered,"
+            " %d instance-only,"
             " %d missing-def, %d capacity)\n",
             stats ? stats->spawned : 0, path,
+            stats ? stats->pages_loaded : 0,
+            stats ? stats->rows_loaded : 0,
+            stats ? stats->total_rows : 0,
             stats ? stats->matched_filter : 0,
             stats ? stats->skipped_filter : 0,
             stats ? stats->skipped_instance : 0,

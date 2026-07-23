@@ -9,13 +9,16 @@
 #include "pathfinding.h"
 
 #define NPC_PATH RC_TEST_SOURCE_DIR "/data/defs/npc_defs.bin"
-#define SPAWN_PATH RC_TEST_SOURCE_DIR "/data/spawns/world.npc-spawns.bin"
+#define SPAWN_PATH \
+    RC_TEST_SOURCE_DIR "/data/spawns/world.npc-spawns.indexed.bin"
 #define CTIL_PATH RC_TEST_SOURCE_DIR "/data/defs/collision_tiles.bin"
 #define STATIC_GROUND_ITEM_TEST_PATH "/tmp/runec_static_ground_items_test.bin"
 
 enum {
-    GSPN_TEST_MAGIC = 0x4E505347,
-    GSPN_TEST_VERSION = 1,
+    GSPI_TEST_MAGIC = 0x49505347,
+    GSPI_TEST_VERSION = 1,
+    GSPI_TEST_RECORD_SIZE = 22,
+    GSPI_TEST_MAPSQUARES = 65536,
 };
 
 static void write_u32(FILE *f, uint32_t v) {
@@ -30,9 +33,11 @@ static void write_u8(FILE *f, uint8_t v) {
     assert(fwrite(&v, sizeof(v), 1, f) == 1);
 }
 
-static void write_ground_item_row(FILE *f, uint32_t item_id,
+static void write_ground_item_row(FILE *f, uint32_t source_order,
+                                  uint32_t item_id,
                                   uint32_t quantity, int32_t x, int32_t y,
                                   uint8_t plane) {
+    write_u32(f, source_order);
     write_u32(f, item_id);
     write_u32(f, quantity);
     write_i32(f, x);
@@ -44,13 +49,31 @@ static void write_ground_item_row(FILE *f, uint32_t item_id,
 static void write_static_ground_item_fixture(void) {
     FILE *f = fopen(STATIC_GROUND_ITEM_TEST_PATH, "wb");
     assert(f != NULL);
-    write_u32(f, GSPN_TEST_MAGIC);
-    write_u32(f, GSPN_TEST_VERSION);
+    write_u32(f, GSPI_TEST_MAGIC);
+    write_u32(f, GSPI_TEST_VERSION);
     write_u32(f, 4);
-    write_ground_item_row(f, 995, 100, 3213, 3428, 0);
-    write_ground_item_row(f, 995, 50, 3213, 3428, 0);
-    write_ground_item_row(f, 995, 25, 3214, 3428, 1);
-    write_ground_item_row(f, 995, 10, 4000, 4000, 0);
+    write_u32(f, GSPI_TEST_RECORD_SIZE);
+    write_u32(f, 2);
+    write_u32(f, 3);
+    write_u32(f, 1);
+    write_u32(f, 0);
+    write_u32(f, 0);
+
+    uint32_t first_row = 0;
+    for (uint32_t mapsquare = 0; mapsquare < GSPI_TEST_MAPSQUARES;
+         mapsquare++) {
+        uint32_t count = 0;
+        if (mapsquare == ((50u << 8) | 53u)) count = 3;
+        if (mapsquare == ((62u << 8) | 62u)) count = 1;
+        write_u32(f, first_row);
+        write_u32(f, count);
+        first_row += count;
+    }
+    assert(first_row == 4);
+    write_ground_item_row(f, 0, 995, 100, 3213, 3428, 0);
+    write_ground_item_row(f, 1, 995, 50, 3213, 3428, 0);
+    write_ground_item_row(f, 2, 995, 25, 3214, 3428, 1);
+    write_ground_item_row(f, 3, 995, 10, 4000, 4000, 0);
     assert(fclose(f) == 0);
 }
 
@@ -116,7 +139,11 @@ int main(void) {
     assert(stats.streaming.active_area_load_count == 1);
     assert(stats.streaming.active_area_load_ms >= 0.0);
     assert(stats.streaming.backend_page_load_ms >= 0.0);
-    assert(stats.streaming.backend_pages_loaded == stats.collision_regions);
+    assert(stats.npc_stats.pages_loaded > 0);
+    assert(stats.npc_stats.pages_loaded <= stats.collision_regions);
+    assert(stats.npc_stats.rows_loaded < stats.npc_stats.total_rows);
+    assert(stats.streaming.backend_pages_loaded
+           == stats.collision_regions + stats.npc_stats.pages_loaded);
     assert(stats.streaming.active_npcs == 837);
     assert(stats.streaming.active_ground_items == 0);
     assert(world->npc_count == 837);
@@ -183,6 +210,15 @@ int main(void) {
     assert(stats.spawned_npcs == 837);
 
     write_static_ground_item_fixture();
+    RcGroundItemSpawnLoadStats empty_ground_stats;
+    assert(rc_load_ground_item_spawns_rect_stats(
+        world, STATIC_GROUND_ITEM_TEST_PATH,
+        -128, -128, -1, -1, 0, RC_MAX_PLANES - 1,
+        &empty_ground_stats) == 0);
+    assert(empty_ground_stats.total_rows == 4);
+    assert(empty_ground_stats.pages_loaded == 0);
+    assert(empty_ground_stats.rows_loaded == 0);
+
     RcActiveAreaRequest ground_items = req;
     ground_items.max_plane = 0;
     ground_items.flags = RC_ACTIVE_AREA_CLEAR_STATIC_GROUND_ITEMS
@@ -190,6 +226,8 @@ int main(void) {
     ground_items.ground_item_spawns_path = STATIC_GROUND_ITEM_TEST_PATH;
     assert(rc_world_activate_area(world, &ground_items, &stats) == 1);
     assert(stats.ground_item_stats.total_rows == 4);
+    assert(stats.ground_item_stats.pages_loaded == 1);
+    assert(stats.ground_item_stats.rows_loaded == 3);
     assert(stats.ground_item_stats.matched_filter == 2);
     assert(stats.ground_item_stats.skipped_plane == 1);
     assert(stats.ground_item_stats.skipped_filtered == 1);
@@ -212,6 +250,15 @@ int main(void) {
     assert(!world->ground_items[1].static_spawn);
     assert(rc_world_get_streaming_telemetry(world, &telemetry) == 1);
     assert(telemetry.active_ground_items == 1);
+    remove(STATIC_GROUND_ITEM_TEST_PATH);
+
+    FILE *bad_ground_items = fopen(STATIC_GROUND_ITEM_TEST_PATH, "wb");
+    assert(bad_ground_items != NULL);
+    write_u32(bad_ground_items, 0);
+    assert(fclose(bad_ground_items) == 0);
+    assert(rc_load_ground_item_spawns_rect_stats(
+        world, STATIC_GROUND_ITEM_TEST_PATH,
+        3200, 3400, 3264, 3464, 0, 0, &empty_ground_stats) == -1);
     remove(STATIC_GROUND_ITEM_TEST_PATH);
 
     RcActiveAreaRequest stronghold = req;

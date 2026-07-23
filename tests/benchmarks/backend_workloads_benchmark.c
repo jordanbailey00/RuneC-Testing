@@ -22,7 +22,8 @@
 #define OTRP_PATH RC_TEST_SOURCE_DIR "/data/defs/object_transports.bin"
 #define TRAV_PATH RC_TEST_SOURCE_DIR "/data/defs/traversal_edges.bin"
 #define NPC_PATH RC_TEST_SOURCE_DIR "/data/defs/npc_defs.bin"
-#define SPAWN_PATH RC_TEST_SOURCE_DIR "/data/spawns/world.npc-spawns.bin"
+#define SPAWN_PATH \
+    RC_TEST_SOURCE_DIR "/data/spawns/world.npc-spawns.indexed.bin"
 
 typedef enum RcWorkloadMode {
     RC_WORKLOAD_ALL = 0,

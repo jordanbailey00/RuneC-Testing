@@ -103,14 +103,9 @@
       "sha256": "f2395783f6d33535d08f1ac30860b5bc1243a921750b9de816aee80fe7a2acf1"
     },
     {
-      "bytes": 13452,
-      "path": "data/regions/varrock.npc-spawns.bin",
-      "sha256": "8bbedde6f7b168690b17d624800ac3c9efad1558866abba5cec2b5559069c04b"
-    },
-    {
-      "bytes": 385772,
-      "path": "data/spawns/world.npc-spawns.bin",
-      "sha256": "4865d5045d54910c4d4927d9844930606443332d7be8878b7d77c3849d1b7d36"
+      "bytes": 1006524,
+      "path": "data/spawns/world.npc-spawns.indexed.bin",
+      "sha256": "c8935413cf452d0088fe371aea240d6ff36ea151a7d81f0f594347af038105c0"
     }
   ],
   "format": "runec-runtime-snapshot-manifest-v1"

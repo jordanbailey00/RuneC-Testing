@@ -21,10 +21,10 @@ except ModuleNotFoundError:  # pragma: no cover
 ROOT = Path(__file__).resolve().parents[1]
 from legacy_external_source_paths import DATA_OSRS, MODEL_DUMP
 from content_paths import content_read_path
+from spawn_index import read_npc_spawns
 
 NDEF_MAGIC = 0x4E444546
 DROP_MAGIC = 0x504F5244
-NSPN_MAGIC = 0x4E53504E
 MDL2_MAGIC = 0x4D444C32
 MDL3_MAGIC = 0x4D444C33
 
@@ -111,20 +111,12 @@ def drop_table_ids(path: Path) -> set[int]:
 def spawn_ids(path: Path) -> tuple[set[int], set[int], int]:
     all_ids: set[int] = set()
     instance_ids: set[int] = set()
-    rows = 0
-    with path.open("rb") as f:
-        magic, version, count = struct.unpack("<III", read_exact(f, 12))
-        if magic != NSPN_MAGIC:
-            raise ValueError("bad NSPN magic")
-        for _ in range(count):
-            npc_id = struct.unpack("<I", read_exact(f, 4))[0]
-            read_exact(f, 4 + 4 + 1 + 1 + 1)
-            flags = struct.unpack("<B", read_exact(f, 1))[0] if version >= 2 else 0
-            rows += 1
-            all_ids.add(npc_id)
-            if flags & 1:
-                instance_ids.add(npc_id)
-    return all_ids, instance_ids, rows
+    spawns = read_npc_spawns(path)
+    for npc_id, _x, _y, _plane, _direction, _wander, flags in spawns:
+        all_ids.add(npc_id)
+        if flags & 1:
+            instance_ids.add(npc_id)
+    return all_ids, instance_ids, len(spawns)
 
 
 def model_mesh_ids(path: Path) -> set[int]:
@@ -173,7 +165,9 @@ def main() -> int:
     missing_external_refs = sorted(set(external_refs) - set(defs) - sailing)
 
     drop_ids = drop_table_ids(ROOT / "data/defs/drops.bin")
-    spawn_all, spawn_instance, spawn_rows = spawn_ids(ROOT / "data/spawns/world.npc-spawns.bin")
+    spawn_all, spawn_instance, spawn_rows = spawn_ids(
+        ROOT / "data/spawns/world.npc-spawns.indexed.bin"
+    )
     render_ids = model_mesh_ids(ROOT / "data/models/npcs.models")
     model_export = model_export_summary(ROOT / "tools/reports/npc_models_full.txt")
     morphs_raw = load_json(DATA_OSRS / "npc_morph_collection.json")

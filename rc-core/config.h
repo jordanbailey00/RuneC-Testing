@@ -56,7 +56,7 @@ typedef struct {
     // without forcing unused data into a sim.
     const char *regions_dir;         // base: region *.terrain/.objects/.cmap
     const char *npc_defs_path;       // base: npc_defs.bin
-    const char *spawns_path;         // explicit load: world.npc-spawns.bin
+    const char *spawns_path;         // explicit load: indexed world NPC spawns
     const char *varbits_path;        // explicit state: varbits.bin
     const char *varps_path;          // explicit state: varps.bin
     const char *items_path;          // RC_SUB_EQUIPMENT / _INVENTORY

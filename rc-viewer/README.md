@@ -107,7 +107,8 @@ presentation responsibilities.
   - `data/regions/mapsquare.catalog`
   - `data/defs/collision_tiles.bin`
   - `data/defs/npc_defs.bin`
-  - `data/spawns/world.npc-spawns.bin`
+  - `data/spawns/world.npc-spawns.indexed.bin`
+  - `data/spawns/world.ground-items.indexed.bin`
   - `data/models/*.models`
   - `data/models/item_render.map`
   - `data/anims/*.anims`

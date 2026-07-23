@@ -18,8 +18,10 @@ REPORTS = ROOT / "tools/reports"
 
 REPORT_BY_PATH = {
     "data/defs/npc_defs.bin": ("npc_defs_full.txt", "npc definitions"),
-    "data/spawns/world.npc-spawns.bin": ("spawn_sources.txt", "static NPC spawn source rows"),
-    "data/regions/varrock.npc-spawns.bin": ("spawn_coverage.txt", "Varrock NPC spawn slice"),
+    "data/spawns/world.npc-spawns.indexed.bin": (
+        "spawn_sources.txt",
+        "mapsquare-indexed static NPC spawn rows",
+    ),
     "data/defs/drops.bin": ("drops.txt", "NPC drops"),
     "data/defs/rdt.bin": ("rdt_gdt.txt", "rare drop table"),
     "data/defs/gdt.bin": ("rdt_gdt.txt", "gem drop table"),
@@ -125,8 +127,6 @@ def write_reports(installed: list[dict[str, Any]]) -> None:
         if report_name == "spawn_sources.txt":
             lines.append("source rows: " + str(total_rows))
             lines.append("unresolved required activity markers: 0")
-        if report_name == "spawn_coverage.txt":
-            lines.append("NPCList spawns: " + str(total_rows))
         if report_name == "skill_drops.txt":
             lines.append("entries: " + str(total_rows))
         if report_name == "drops.txt":

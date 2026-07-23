@@ -30,6 +30,12 @@ typedef struct {
     size_t pos;
 } RcIndexReader;
 
+struct RcAssetReader {
+    FILE *file;
+    uint64_t base_offset;
+    uint64_t size;
+};
+
 static RcPackEntry *g_entries;
 static size_t g_entry_count;
 static size_t g_entry_cap;
@@ -582,6 +588,88 @@ static FILE *rc_asset_extract_to_tmp(const RcPackEntry *entry) {
         return NULL;
     }
     return tmp;
+}
+
+static RcAssetReader *rc_asset_reader_create(FILE *file,
+                                              uint64_t base_offset,
+                                              uint64_t size) {
+    if (!file) return NULL;
+    RcAssetReader *reader = (RcAssetReader *)malloc(sizeof(*reader));
+    if (!reader) {
+        fclose(file);
+        return NULL;
+    }
+    reader->file = file;
+    reader->base_offset = base_offset;
+    reader->size = size;
+    return reader;
+}
+
+static RcAssetReader *rc_asset_reader_open_loose(const char *path) {
+    FILE *file = fopen(path, "rb");
+    if (!file) return NULL;
+    if (fseeko(file, 0, SEEK_END) != 0) {
+        fclose(file);
+        return NULL;
+    }
+    off_t end = ftello(file);
+    if (end < 0) {
+        fclose(file);
+        return NULL;
+    }
+    return rc_asset_reader_create(file, 0, (uint64_t)end);
+}
+
+RcAssetReader *rc_asset_reader_open(const char *path) {
+    rc_asset_init();
+    const char *logical = rc_asset_logical_path(path);
+    char loose[2048];
+    if (rc_asset_try_loose_first()
+            && rc_loose_path(loose, sizeof(loose), path)) {
+        RcAssetReader *reader = rc_asset_reader_open_loose(loose);
+        if (reader) return reader;
+        if (rc_path_is_absolute(path) && logical == path) return NULL;
+    }
+
+    if (rc_asset_try_pack()) {
+        const RcPackEntry *entry = rc_find_pack_entry(logical);
+        if (entry) {
+            if (entry->compression != 0 || entry->packed_size != entry->size)
+                return NULL;
+            return rc_asset_reader_create(fopen(entry->pack_path, "rb"),
+                                          entry->offset, entry->size);
+        }
+    }
+
+    if (g_backend == RC_ASSET_BACKEND_PACK) return NULL;
+    return rc_asset_reader_open_loose(path);
+}
+
+uint64_t rc_asset_reader_size(const RcAssetReader *reader) {
+    return reader ? reader->size : 0;
+}
+
+int rc_asset_reader_read_at(RcAssetReader *reader, uint64_t offset,
+                            void *dst, size_t size) {
+    if (!reader || !reader->file || (size > 0 && !dst)
+            || offset > reader->size
+            || (uint64_t)size > reader->size - offset
+            || reader->base_offset > UINT64_MAX - offset) {
+        return 0;
+    }
+    uint64_t absolute = reader->base_offset + offset;
+    off_t target = (off_t)absolute;
+    if (target < 0 || (uint64_t)target != absolute
+            || fseeko(reader->file, target, SEEK_SET) != 0) {
+        return 0;
+    }
+    return size == 0 || fread(dst, 1, size, reader->file) == size;
+}
+
+void rc_asset_reader_close(RcAssetReader *reader) {
+    if (!reader) return;
+    fclose(reader->file);
+    free(reader);
 }
 
 static RcAssetBytes rc_asset_read_loose(const char *path) {

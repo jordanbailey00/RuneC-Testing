@@ -79,6 +79,8 @@ typedef struct {
     int skipped_plane;
     int skipped_invalid;
     int skipped_capacity;
+    int pages_loaded;
+    int rows_loaded;
 } RcGroundItemSpawnLoadStats;
 
 int rc_player_take_ground_item(RcWorld *world, int ground_item_idx,

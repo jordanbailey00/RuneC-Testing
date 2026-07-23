@@ -76,7 +76,7 @@ CONTENT_EXPORT_OUTPUTS = (
     "data/defs/activity_schemas.bin",
     "data/defs/dialogue.bin",
     "data/defs/combat_visuals.tsv",
-    "data/spawns/world.ground-items.bin",
+    "data/spawns/world.ground-items.indexed.bin",
     "tools/reports/encounters.txt",
     "tools/reports/activity_spawns.txt",
     "tools/reports/activity_states.txt",
@@ -315,12 +315,11 @@ DEF_REBUILD_SPECS = (
     ),
     RuntimeOutputSpec(
         dataset="spawns",
-        logical_paths=("spawns/world.npc-spawns.bin", "regions/varrock.npc-spawns.bin"),
+        logical_paths=("spawns/world.npc-spawns.indexed.bin",),
         rebuild_inputs=(),
         commands=(
             snapshot_cmd(
-                "data/spawns/world.npc-spawns.bin",
-                "data/regions/varrock.npc-spawns.bin",
+                "data/spawns/world.npc-spawns.indexed.bin",
             ),
         ),
         authority="tracked RuneC-owned reviewed runtime snapshot; direction/wander simplification accepted for first release",

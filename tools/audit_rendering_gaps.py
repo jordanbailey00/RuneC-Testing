@@ -22,13 +22,17 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from spawn_index import (
+    GROUND_ITEM_INDEX_MAGIC,
+    read_indexed_header,
+)
+
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / "tools"
 PIPELINE = ROOT / "tools/cache_pipeline"
 LOCAL_CACHE_ROOT = "data"
 LOCAL_CACHE_PATH = LOCAL_CACHE_ROOT + "/source/b237-openrs2-2528/cache"
 SCENE_RE = re.compile(r"^scene_(\d+)_(\d+)_r(\d+)(?:\.p([0-3]))?\.(terrain|objects|atlas)$")
-GSPN_MAGIC = 0x4E505347
 
 
 @dataclass(frozen=True)
@@ -376,7 +380,9 @@ def audit_scene_npcs(
 
     npc_defs = world_audit.parse_npc_defs(ROOT / "data/defs/npc_defs.bin")
     npc_models = world_audit.parse_model_ids(ROOT / "data/models/npcs.models")
-    spawns = list(world_audit.iter_npc_spawns(ROOT / "data/spawns/world.npc-spawns.bin"))
+    spawns = list(world_audit.iter_npc_spawns(
+        ROOT / "data/spawns/world.npc-spawns.indexed.bin"
+    ))
     cache_model_ids: dict[int, list[int]] = {}
     if cache_dir:
         sys.path.insert(0, str(PIPELINE))
@@ -439,23 +445,16 @@ def audit_scene_npcs(
 
 def static_ground_item_count(path: Path) -> int | None:
     try:
-        with path.open("rb") as f:
-            header = f.read(12)
-    except OSError:
+        return int(read_indexed_header(path, GROUND_ITEM_INDEX_MAGIC)[2])
+    except (OSError, ValueError):
         return None
-    if len(header) != 12:
-        return None
-    magic, _version, count = struct.unpack("<III", header)
-    if magic != GSPN_MAGIC:
-        return None
-    return int(count)
 
 
 def audit_static_ground_items(
     buckets: dict[tuple[str, str], Bucket],
 ) -> tuple[int, int]:
     candidates = [
-        ROOT / "data/spawns/world.ground-items.bin",
+        ROOT / "data/spawns/world.ground-items.indexed.bin",
     ]
     present = [path for path in candidates if path.exists()]
     if present:

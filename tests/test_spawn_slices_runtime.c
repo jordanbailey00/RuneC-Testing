@@ -6,7 +6,8 @@
 #include "npc.h"
 
 #define NPC_PATH RC_TEST_SOURCE_DIR "/data/defs/npc_defs.bin"
-#define SPAWN_PATH RC_TEST_SOURCE_DIR "/data/spawns/world.npc-spawns.bin"
+#define SPAWN_PATH \
+    RC_TEST_SOURCE_DIR "/data/spawns/world.npc-spawns.indexed.bin"
 
 int main(void) {
     g_npc_def_count = 0;
@@ -45,6 +46,9 @@ int main(void) {
                                             &stats);
     assert(spawned == 837);
     assert(stats.total_rows == 24110);
+    assert(stats.pages_loaded > 0);
+    assert(stats.pages_loaded <= 25);
+    assert(stats.rows_loaded < stats.total_rows);
     assert(stats.skipped_filter == 23270);
     assert(stats.matched_filter == 840);
     assert(stats.skipped_instance == 3);

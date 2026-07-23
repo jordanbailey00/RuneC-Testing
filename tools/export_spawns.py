@@ -9,38 +9,27 @@ Cross-check: OSRS Wiki `locline` bucket — keyed by `page_name`. We
 join via simple name-equality against NPCList to spot coverage gaps.
 
 Outputs:
-  - data/spawns/world.npc-spawns.bin            — NSPN, every spawn
-  - data/regions/varrock.npc-spawns.bin         — NSPN, Varrock-only
-  - tools/reports/spawn_coverage.txt            — cross-check report
-
-NSPN format (loaded by rc-core/npc.c):
-  magic(u32)='NSPN' version(u32) count(u32)
-  per spawn: npc_id(u32) x(i32) y(i32) plane(u8) direction(u8) wander_range(u8)
+  - data/spawns/world.npc-spawns.indexed.bin - mapsquare-indexed NPC spawns
+  - tools/reports/spawn_coverage.txt - cross-check report
 """
 from __future__ import annotations
 
 import argparse
 import json
-import struct
 import sys
 from collections import defaultdict
 from pathlib import Path
 
 from legacy_external_source_paths import DATA_OSRS
+from spawn_index import write_npc_spawns
 
-NSPN_MAGIC = 0x4E53504E
-NSPN_VERSION = 2  # v2 adds flags byte (bit0=instance_only)
-NSPN_FLAG_INSTANCE = 0x01
+NPC_SPAWN_FLAG_INSTANCE = 0x01
 
 ROOT = Path(__file__).resolve().parents[1]
 NPCLIST = DATA_OSRS / "NPCList_OSRS.json"
 
 OUT = ROOT / "data"
 REPORTS = ROOT / "tools/reports"
-
-# Varrock/viewer bounding box (inclusive) in world tile coords.
-# Matches rc-viewer defaults: origin (3072,3264), size 320x320.
-VARROCK_BOUNDS = {"x0": 3072, "x1": 3391, "y0": 3264, "y1": 3583}
 
 # NPCList_OSRS does not carry direction or wander_range — defaults below
 # match what rc-core's NPC wander AI treats as "unspecified":
@@ -53,24 +42,20 @@ def load_npclist() -> list[dict]:
     return json.loads(NPCLIST.read_text())
 
 
-def write_nspn(path: Path, spawns: list[dict]):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("wb") as f:
-        f.write(struct.pack("<III", NSPN_MAGIC, NSPN_VERSION, len(spawns)))
-        for s in spawns:
-            f.write(struct.pack("<I", int(s["id"])))
-            f.write(struct.pack("<i", int(s["x"])))
-            f.write(struct.pack("<i", int(s["y"])))
-            f.write(struct.pack("<B", int(s.get("p", 0)) & 0xFF))
-            f.write(struct.pack("<B", DEFAULT_DIRECTION))
-            f.write(struct.pack("<B", DEFAULT_WANDER))
-            f.write(struct.pack("<B", int(s.get("flags", 0)) & 0xFF))
-
-
-def filter_bounds(spawns: list[dict], b: dict) -> list[dict]:
-    return [s for s in spawns
-            if b["x0"] <= s["x"] <= b["x1"]
-            and b["y0"] <= s["y"] <= b["y1"]]
+def write_indexed(path: Path, spawns: list[dict]) -> None:
+    rows = [
+        (
+            int(spawn["id"]),
+            int(spawn["x"]),
+            int(spawn["y"]),
+            int(spawn.get("p", 0)),
+            DEFAULT_DIRECTION,
+            DEFAULT_WANDER,
+            int(spawn.get("flags", 0)) & 0xFF,
+        )
+        for spawn in spawns
+    ]
+    write_npc_spawns(path, rows)
 
 
 def load_locline_rows() -> list[dict]:
@@ -149,9 +134,7 @@ def cross_check(spawns: list[dict], locline: list[dict]) -> str:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--varrock-only", action="store_true",
-                    help="skip full-world export; Varrock only")
-    args = ap.parse_args()
+    ap.parse_args()
 
     print(f"loading {NPCLIST}", file=sys.stderr)
     spawns = load_npclist()
@@ -165,24 +148,14 @@ def main():
     flagged = 0
     for s in spawns:
         if s["name"].lower() in inst_names:
-            s["flags"] = NSPN_FLAG_INSTANCE
+            s["flags"] = NPC_SPAWN_FLAG_INSTANCE
             flagged += 1
     print(f"  flagged {flagged} spawns as instance-only (via locline)",
           file=sys.stderr)
 
-    # Full world
-    if not args.varrock_only:
-        out_world = OUT / "spawns/world.npc-spawns.bin"
-        write_nspn(out_world, spawns)
-        print(f"  → {out_world} ({out_world.stat().st_size} bytes)",
-              file=sys.stderr)
-
-    # Varrock (drop-in for viewer)
-    varrock = filter_bounds(spawns, VARROCK_BOUNDS)
-    out_varrock = OUT / "regions/varrock.npc-spawns.bin"
-    # Keep the current filename for viewer/runtime compatibility.
-    write_nspn(out_varrock, varrock)
-    print(f"  Varrock: {len(varrock)} spawns → {out_varrock}",
+    out_world = OUT / "spawns/world.npc-spawns.indexed.bin"
+    write_indexed(out_world, spawns)
+    print(f"  -> {out_world} ({out_world.stat().st_size} bytes)",
           file=sys.stderr)
 
     # Cross-check report

@@ -138,17 +138,33 @@ two regions, a preload radius of three regions, and a 64-region cache limit.
 PR 1 records this policy without changing the request-driven activation path;
 later paging work will consume the preload and cache limits.
 
-`rc_world_activate_area` populates `RcWorld.map` from `collision_tiles.bin`,
-clears/reloads the active NPC spawn slice from `world.npc-spawns.bin`, and
-records the active area generation on `RcWorld`. The viewer and headless agents
-use the same API before issuing gameplay actions. Scenario/dev validation code
+`rc_world_activate_area` populates `RcWorld.map` from `collision_tiles.bin`
+and reloads NPC and static ground-item rows from mapsquare-indexed spawn
+binaries. Only records in mapsquares intersecting the requested area are read;
+records are restored to source order before spawning so indexing does not
+change NPC UID or ground-item merge order. The viewer and headless agents use
+the same API before issuing gameplay actions. Scenario/dev validation code
 that needs a guaranteed target uses `rc_world_ensure_npc_near`; presentation
 frontends should not resolve NPC definitions or mutate `world->npcs` directly.
 
-`rc_world_get_streaming_telemetry` returns the latest collision-page and full
-active-area timings, loaded page count, active NPC count, and active ground-item
-count. Measurement is confined to area activation and does not add work to the
-tick path.
+`rc_world_get_streaming_telemetry` returns the latest collision/spawn page and
+full active-area timings, loaded page count, active NPC count, and active
+ground-item count. Spawn load stats also expose indexed pages and rows read.
+Measurement is confined to area activation and does not add work to the tick
+path.
+
+The NSPI/GSPI v1 files use a fixed 65,536-entry mapsquare directory. Each
+entry stores the first record and count for `(region_x << 8) | region_y`.
+Records carry their original source ordinal; `rc-core/spawn_index.c` reads
+only selected page ranges and restores that order before subsystem loaders
+apply exact tile/plane filters.
+
+`RcAssetReader` provides bounded reads over loose files and stored pack
+entries. Indexed spatial files are packed without compression so the pack
+backend seeks directly to directory and record ranges. A packed range reader
+rejects compressed entries rather than silently materializing the whole asset;
+ordinary compressed assets continue to use `rc_asset_fopen` or
+`rc_asset_read_all`.
 
 Object interactions that originate from placed scene data should pass the
 placement key into core. Placement-key APIs make dynamic loc state local to one
@@ -373,7 +389,7 @@ Each subsystem owns its binary(s):
 | combat / slayer / encounter | `regular_npc_mechanics.bin` |
 | encounter | `encounters.bin` (ENCT v12), `activity_schemas.bin`, `activity_spawns.bin`, `activity_mechanics.bin`, `activity_states.bin`, curated encounter TOMLs |
 | slayer | `slayer.bin` |
-| active area | world NPC spawns via `rc_world_activate_area`; lower-level rect/near loaders remain available for tools/tests |
+| active area | mapsquare-indexed world NPC/static ground-item spawns via `rc_world_activate_area`; lower-level NPC rect/near loaders remain available for tools/tests |
 | (audio → rc-viewer) | `music.bin` |
 
 If a subsystem is disabled in the config, its binaries are never

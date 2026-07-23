@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build a unified spawn-source parity surface.
 
-This does not replace world.npc-spawns.bin. It records static world
+This does not replace the indexed world NPC spawn file. It records static world
 spawns, wiki locline NPC coordinates, curated activity spawns, dynamic
 spawns, object anchors, and unresolved required spawn markers together
 so spawn parity can be audited without conflating source classes.
@@ -15,6 +15,7 @@ from collections import Counter
 from pathlib import Path
 
 from content_paths import content_read_path
+from spawn_index import read_npc_spawns
 
 try:
     import tomllib
@@ -91,22 +92,18 @@ def read_ndef_names(path: Path) -> dict[int, str]:
     return out
 
 
-def read_nspn(path: Path) -> list[dict]:
-    rows: list[dict] = []
-    with path.open("rb") as f:
-        magic, version, count = struct.unpack("<III", read_exact(f, 12))
-        if magic != 0x4E53504E:
-            raise ValueError(f"bad NSPN magic: {path}")
-        for _ in range(count):
-            npc_id = struct.unpack("<I", read_exact(f, 4))[0]
-            x = struct.unpack("<i", read_exact(f, 4))[0]
-            y = struct.unpack("<i", read_exact(f, 4))[0]
-            plane = struct.unpack("<B", read_exact(f, 1))[0]
-            read_exact(f, 2)
-            flags = struct.unpack("<B", read_exact(f, 1))[0] if version >= 2 else 0
-            rows.append({"npc_id": npc_id, "x": x, "y": y,
-                         "plane": plane, "flags": flags})
-    return rows
+def read_world_spawns(path: Path) -> list[dict]:
+    return [
+        {
+            "npc_id": npc_id,
+            "x": x,
+            "y": y,
+            "plane": plane,
+            "flags": flags,
+        }
+        for npc_id, x, y, plane, _direction, _wander, flags
+        in read_npc_spawns(path)
+    ]
 
 
 def parse_ids(raw) -> list[int]:
@@ -299,8 +296,9 @@ def write_rows(rows: list[dict]):
 
 def main() -> int:
     npc_names = read_ndef_names(ROOT / "data/defs/npc_defs.bin")
-    world = read_nspn(ROOT / "data/spawns/world.npc-spawns.bin")
-    varrock = read_nspn(ROOT / "data/regions/varrock.npc-spawns.bin")
+    world = read_world_spawns(
+        ROOT / "data/spawns/world.npc-spawns.indexed.bin"
+    )
     world_ids = {r["npc_id"] for r in world}
     rows: list[dict] = []
 
@@ -370,7 +368,6 @@ def main() -> int:
         f"  world rows:            {len(world)}",
         f"  world NPC IDs:         {len(world_ids)}",
         f"  instance-flagged rows: {sum(1 for r in world if r['flags'] & 1)}",
-        f"  varrock rows:          {len(varrock)}",
         "",
         "wiki locline:",
         f"  rows:                  {loc_rows}",

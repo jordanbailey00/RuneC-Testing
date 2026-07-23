@@ -276,6 +276,7 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
     int max_y = request->origin_y + request->height - 1;
 
     int collision_regions = world->map.region_count;
+    int pages_loaded = 0;
     double page_load_ms = 0.0;
     if (flags & RC_ACTIVE_AREA_LOAD_COLLISION) {
         double page_load_started_ms = monotonic_ms();
@@ -285,6 +286,7 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
         page_load_ms = monotonic_ms() - page_load_started_ms;
         if (collision_regions < 0)
             return -1;
+        pages_loaded += collision_regions;
     }
 
     if (flags & RC_ACTIVE_AREA_CLEAR_NPCS)
@@ -302,12 +304,15 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
             uint32_t npc_load_flags = 0;
             if (flags & RC_ACTIVE_AREA_INCLUDE_INSTANCE_NPCS)
                 npc_load_flags |= RC_NPC_SPAWN_LOAD_INCLUDE_INSTANCE;
+            double page_load_started_ms = monotonic_ms();
             spawned = rc_load_npc_spawns_rect_stats_flags(
                 world, path, min_x, min_y, max_x, max_y,
                 request->min_plane, request->max_plane, npc_load_flags,
                 &npc_stats);
+            page_load_ms += monotonic_ms() - page_load_started_ms;
             if (spawned < 0)
                 return -1;
+            pages_loaded += npc_stats.pages_loaded;
         }
     }
 
@@ -317,11 +322,14 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
     if (flags & RC_ACTIVE_AREA_LOAD_STATIC_GROUND_ITEMS) {
         const char *path = request->ground_item_spawns_path;
         if (path && path[0]) {
+            double page_load_started_ms = monotonic_ms();
             spawned_ground_items = rc_load_ground_item_spawns_rect_stats(
                 world, path, min_x, min_y, max_x, max_y,
                 request->min_plane, request->max_plane, &ground_item_stats);
+            page_load_ms += monotonic_ms() - page_load_started_ms;
             if (spawned_ground_items < 0)
                 return -1;
+            pages_loaded += ground_item_stats.pages_loaded;
         }
     }
 
@@ -344,7 +352,7 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
     telemetry->active_area_load_total_ms += area_load_ms;
     telemetry->backend_page_load_ms = page_load_ms;
     telemetry->backend_page_load_total_ms += page_load_ms;
-    telemetry->backend_pages_loaded = collision_regions;
+    telemetry->backend_pages_loaded = pages_loaded;
     telemetry->active_npcs = active_npc_count(world);
     telemetry->active_ground_items = active_ground_item_count(world);
 

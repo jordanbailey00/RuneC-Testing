@@ -6,7 +6,7 @@
 
 #define DEFAULT_REGIONS     "data/regions"
 #define DEFAULT_NPC_DEFS    "data/defs/npc_defs.bin"
-#define DEFAULT_SPAWNS      "data/spawns/world.npc-spawns.bin"
+#define DEFAULT_SPAWNS      "data/spawns/world.npc-spawns.indexed.bin"
 #define DEFAULT_VARBITS     "data/defs/varbits.bin"
 #define DEFAULT_VARPS       "data/defs/varps.bin"
 #define DEFAULT_ITEMS       "data/defs/items.bin"

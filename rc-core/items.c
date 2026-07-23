@@ -5,6 +5,7 @@
 #include "events.h"
 #include "interaction.h"
 #include "player_actions.h"
+#include "spawn_index.h"
 #include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -38,8 +39,8 @@ enum {
 };
 
 enum {
-    GSPN_MAGIC = 0x4E505347,
-    GSPN_VERSION = 1,
+    GSPI_MAGIC = 0x49505347,
+    GSPI_RECORD_SIZE = 22,
 };
 
 static int read_u8(const unsigned char **p, const unsigned char *end,
@@ -752,42 +753,50 @@ int rc_load_ground_item_spawns_rect_stats(RcWorld *world, const char *path,
                                           int min_plane, int max_plane,
                                           RcGroundItemSpawnLoadStats *stats) {
     if (stats) memset(stats, 0, sizeof(*stats));
-    if (!world || !path || !path[0]) return -1;
-
-    FILE *f = rc_asset_fopen(path, "rb");
-    if (!f) return -1;
-
-    uint32_t magic = 0, version = 0, count = 0;
-    if (fread(&magic, sizeof(magic), 1, f) != 1
-            || fread(&version, sizeof(version), 1, f) != 1
-            || fread(&count, sizeof(count), 1, f) != 1
-            || magic != GSPN_MAGIC || version != GSPN_VERSION) {
-        rc_asset_close(f);
+    if (!world || !path || !path[0] || min_x > max_x || min_y > max_y
+            || min_plane > max_plane) {
         return -1;
+    }
+    RcSpawnIndexSlice slice = {0};
+    if (!rc_spawn_index_read(path, GSPI_MAGIC, GSPI_RECORD_SIZE, 1,
+                             min_x, min_y, max_x, max_y, &slice)
+            || !rc_spawn_index_sort_source_order(&slice)) {
+        rc_spawn_index_slice_free(&slice);
+        return -1;
+    }
+    if (stats) {
+        stats->total_rows = (int)slice.total_rows;
+        stats->pages_loaded = (int)slice.pages_loaded;
+        stats->rows_loaded = (int)slice.record_count;
+        for (int plane = 0; plane < RC_MAX_PLANES; plane++) {
+            if (plane < min_plane || plane > max_plane)
+                stats->skipped_plane += (int)slice.source_plane_counts[plane];
+        }
     }
 
     int spawned = 0;
-    for (uint32_t i = 0; i < count; i++) {
-        uint32_t item_id_u = 0, quantity_u = 0;
-        int32_t x = 0, y = 0;
+    for (uint32_t i = 0; i < slice.record_count; i++) {
+        const unsigned char *record = slice.records
+            + (size_t)i * slice.record_size;
+        const unsigned char *p = record + 4;
+        uint32_t item_id_u = 0, quantity_u = 0, x_u = 0, y_u = 0;
         uint8_t plane = 0, flags = 0;
-        if (fread(&item_id_u, sizeof(item_id_u), 1, f) != 1
-                || fread(&quantity_u, sizeof(quantity_u), 1, f) != 1
-                || fread(&x, sizeof(x), 1, f) != 1
-                || fread(&y, sizeof(y), 1, f) != 1
-                || fread(&plane, sizeof(plane), 1, f) != 1
-                || fread(&flags, sizeof(flags), 1, f) != 1) {
-            rc_asset_close(f);
+        if (!read_u32(&p, record + slice.record_size, &item_id_u)
+                || !read_u32(&p, record + slice.record_size, &quantity_u)
+                || !read_u32(&p, record + slice.record_size, &x_u)
+                || !read_u32(&p, record + slice.record_size, &y_u)
+                || !read_u8(&p, record + slice.record_size, &plane)
+                || !read_u8(&p, record + slice.record_size, &flags)) {
+            rc_spawn_index_slice_free(&slice);
             return -1;
         }
+        int32_t x = (int32_t)x_u;
+        int32_t y = (int32_t)y_u;
         (void)flags;
-        if (stats) stats->total_rows++;
         if ((int)plane < min_plane || (int)plane > max_plane) {
-            if (stats) stats->skipped_plane++;
             continue;
         }
         if (x < min_x || x > max_x || y < min_y || y > max_y) {
-            if (stats) stats->skipped_filtered++;
             continue;
         }
         if (stats) stats->matched_filter++;
@@ -806,7 +815,12 @@ int rc_load_ground_item_spawns_rect_stats(RcWorld *world, const char *path,
             stats->skipped_capacity++;
         }
     }
-    rc_asset_close(f);
+    if (stats) {
+        stats->skipped_filtered = stats->total_rows
+                                - stats->skipped_plane
+                                - stats->matched_filter;
+    }
+    rc_spawn_index_slice_free(&slice);
     return spawned;
 }
 

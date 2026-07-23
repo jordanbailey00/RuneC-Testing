@@ -22,6 +22,7 @@ import export_objects
 import export_scene_slice
 import export_terrain
 import pack_runtime_data
+import spawn_index
 from export_textures import TextureAtlas
 
 
@@ -622,8 +623,8 @@ class RuntimePackMapsquareTests(unittest.TestCase):
             root = Path(tmp)
             spawns = root / "spawns"
             spawns.mkdir()
-            (spawns / "world.npc-spawns.bin").write_bytes(b"npcs")
-            (spawns / "world.ground-items.bin").write_bytes(b"items")
+            (spawns / "world.npc-spawns.indexed.bin").write_bytes(b"npcs")
+            (spawns / "world.ground-items.indexed.bin").write_bytes(b"items")
             specs = pack_runtime_data.build_specs(root)
             spawn_spec = next(spec for spec in specs if spec.stem == "runec-spawns")
             self.assertEqual(
@@ -632,8 +633,42 @@ class RuntimePackMapsquareTests(unittest.TestCase):
                     for path in spawn_spec.files
                 },
                 {
-                    "spawns/world.npc-spawns.bin",
-                    "spawns/world.ground-items.bin",
+                    "spawns/world.npc-spawns.indexed.bin",
+                    "spawns/world.ground-items.indexed.bin",
+                },
+            )
+
+    def test_indexed_assets_are_stored_for_pack_range_reads(self) -> None:
+        self.assertEqual(
+            pack_runtime_data.compression_for(
+                Path("world.npc-spawns.indexed.bin"), set(), 6
+            ),
+            "store",
+        )
+        self.assertEqual(
+            pack_runtime_data.compression_for(Path("npc_defs.bin"), set(), 6),
+            "zlib",
+        )
+
+    def test_spawn_pack_validation_reads_indexed_files(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            spawns = root / "spawns"
+            spawn_index.write_npc_spawns(
+                spawns / "world.npc-spawns.indexed.bin",
+                [(10, 3200, 3200, 0, 2, 0, 0)],
+            )
+            spawn_index.write_ground_item_spawns(
+                spawns / "world.ground-items.indexed.bin",
+                [(995, 1, 3200, 3200, 0, 0)],
+            )
+            self.assertEqual(
+                pack_runtime_data.validate_spawn_runtime_assets(root),
+                {
+                    "npc_rows": 1,
+                    "npc_mapsquares": 1,
+                    "ground_item_rows": 1,
+                    "ground_item_mapsquares": 1,
                 },
             )
 

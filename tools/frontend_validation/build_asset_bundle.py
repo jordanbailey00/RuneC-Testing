@@ -36,7 +36,8 @@ BASE_ASSETS = {
     "defs/collision_tiles.bin": ROOT / "data/defs/collision_tiles.bin",
     "defs/area_flags.bin": ROOT / "data/defs/area_flags.bin",
     "defs/traversal_edges.bin": ROOT / "data/defs/traversal_edges.bin",
-    "spawns/world.npc-spawns.bin": ROOT / "data/spawns/world.npc-spawns.bin",
+    "spawns/world.npc-spawns.indexed.bin":
+        ROOT / "data/spawns/world.npc-spawns.indexed.bin",
     "models/npcs.models": ROOT / "data/models/npcs.models",
     "models/npcs.atlas": ROOT / "data/models/npcs.atlas",
     "models/player.models": ROOT / "data/models/player.models",
@@ -278,7 +279,7 @@ def env_from_manifest(bundle_root: Path, manifest: dict) -> dict[str, str | int 
         "RUNEC_OBJECT_BEHAVIORS": "defs/object_behaviors.bin",
         "RUNEC_OBJECT_TRANSPORTS": "defs/object_transports.bin",
         "RUNEC_COLLISION_TILES": "defs/collision_tiles.bin",
-        "RUNEC_NPC_SPAWNS": "spawns/world.npc-spawns.bin",
+        "RUNEC_NPC_SPAWNS": "spawns/world.npc-spawns.indexed.bin",
         "RUNEC_AREA_FLAGS": "defs/area_flags.bin",
         "RUNEC_TRAVERSAL_EDGES": "defs/traversal_edges.bin",
         "RUNEC_TERRAIN": terrain,

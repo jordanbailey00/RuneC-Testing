@@ -10,5 +10,10 @@ self-contained. `tools/export_runtime_snapshots.py` verifies
 `manifest.json`, installs selected files back into `data/`, and writes
 source-clean reports for the migrated datasets.
 
+Spatial NPC snapshots use the mapsquare-indexed NSPI runtime format. The
+single full-world snapshot replaces both the row-scanned global NSPN file and
+the duplicate Varrock-only slice; indexing changes storage and access cost,
+not source rows or spawn ordering.
+
 Do not add new snapshots casually. Prefer b237/cache-derived exporters or
 human-readable content tables when the dataset can be rebuilt that way.

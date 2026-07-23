@@ -40,6 +40,8 @@ typedef struct {
     int skipped_missing_def;
     int skipped_capacity;
     int spawned;
+    int pages_loaded;
+    int rows_loaded;
     int source_plane_counts[RC_MAX_PLANES];
     int matched_plane_counts[RC_MAX_PLANES];
     int spawned_plane_counts[RC_MAX_PLANES];
@@ -71,7 +73,7 @@ const RcNpcDef *rc_npc_defs_all(int *count);
 const char *rc_npc_def_option(const RcNpcDef *def, int option_idx);
 bool rc_npc_def_option_is_attack(const RcNpcDef *def, int option_idx);
 
-// Load and spawn all NPCs from binary NSPN file
+// Load NPCs from the mapsquare-indexed NSPI binary.
 int rc_load_npc_spawns(RcWorld *world, const char *path);
 int rc_load_npc_spawns_rect(RcWorld *world, const char *path,
                             int min_x, int min_y, int max_x, int max_y,

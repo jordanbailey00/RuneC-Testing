@@ -21,6 +21,14 @@ import tomllib
 from typing import Iterable
 import zlib
 
+from spawn_index import (
+    GROUND_ITEM_INDEX_MAGIC,
+    NPC_SPAWN_INDEX_MAGIC,
+    read_ground_item_spawns,
+    read_indexed_header,
+    read_npc_spawns,
+)
+
 
 PACK_MAGIC = b"RCPK0002"
 INDEX_MAGIC = b"RCPI0001"
@@ -56,11 +64,12 @@ STORE_EXTENSIONS = {
     ".flac",
     ".png",
 }
+STORE_SUFFIXES = (".indexed.bin",)
 
 REQUIRED_LOGICAL_PATHS = (
     "defs/npc_defs.bin",
-    "spawns/world.npc-spawns.bin",
-    "spawns/world.ground-items.bin",
+    "spawns/world.npc-spawns.indexed.bin",
+    "spawns/world.ground-items.indexed.bin",
     "defs/varbits.bin",
     "defs/varps.bin",
     "defs/items.bin",
@@ -450,9 +459,10 @@ def build_specs(data_root: Path) -> tuple[PackSpec, ...]:
 
     add_spec(
         "runec-spawns",
-        list((data_root / "spawns").glob("*.npc-spawns.bin"))
-        + list((data_root / "spawns").glob("*.ground-items.bin"))
-        + list((data_root / "regions").rglob("*.npc-spawns.bin")),
+        (
+            data_root / "spawns/world.npc-spawns.indexed.bin",
+            data_root / "spawns/world.ground-items.indexed.bin",
+        ),
     )
 
     add_spec(
@@ -599,7 +609,9 @@ def human_size(size: int) -> str:
 
 
 def compression_for(path: Path, store_extensions: set[str], compression_level: int) -> str:
-    if compression_level == 0 or path.suffix.lower() in store_extensions:
+    if (compression_level == 0
+            or path.suffix.lower() in store_extensions
+            or path.name.endswith(STORE_SUFFIXES)):
         return "store"
     return "zlib"
 
@@ -805,6 +817,7 @@ def build_manifest(
     assets: list[dict],
     max_pack_bytes: int,
     mapsquare_visuals: dict[str, int | bool | str],
+    spawn_index: dict[str, int],
 ) -> dict:
     source_lock_path = Path("data-sources/sources.lock")
     content_catalog_path = Path("content/catalog.toml")
@@ -848,6 +861,7 @@ def build_manifest(
         "provisional_required_logical_paths": list(PROVISIONAL_REQUIRED_LOGICAL_PATHS),
         "optional_logical_paths": list(OPTIONAL_LOGICAL_PATHS),
         "mapsquare_visuals": mapsquare_visuals,
+        "spawn_index": spawn_index,
         "loose_asset_checksums": loose_asset_checksums(assets),
         "target_max_pack_bytes": max_pack_bytes,
         "packs": packs,
@@ -937,6 +951,26 @@ def validate_required_specs(specs: tuple[PackSpec, ...]) -> None:
         )
 
 
+def validate_spawn_runtime_assets(data_root: Path) -> dict[str, int]:
+    npc_path = data_root / "spawns/world.npc-spawns.indexed.bin"
+    ground_path = data_root / "spawns/world.ground-items.indexed.bin"
+    try:
+        npc_rows = read_npc_spawns(npc_path)
+        ground_rows = read_ground_item_spawns(ground_path)
+        npc_header = read_indexed_header(npc_path, NPC_SPAWN_INDEX_MAGIC)
+        ground_header = read_indexed_header(
+            ground_path, GROUND_ITEM_INDEX_MAGIC
+        )
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"invalid indexed spawn runtime data: {exc}") from exc
+    return {
+        "npc_rows": len(npc_rows),
+        "npc_mapsquares": int(npc_header[4]),
+        "ground_item_rows": len(ground_rows),
+        "ground_item_mapsquares": int(ground_header[4]),
+    }
+
+
 def main() -> int:
     args = parse_args()
     version = version_slug(args.version)
@@ -958,6 +992,7 @@ def main() -> int:
         allow_partial=args.allow_partial_mapsquares,
         expected_catalog_regions=EXPECTED_B237_MAPSQUARE_REGIONS,
     )
+    spawn_index = validate_spawn_runtime_assets(data_root)
     specs = build_specs(data_root)
     validate_required_specs(specs)
     chunks_by_spec = {
@@ -972,6 +1007,13 @@ def main() -> int:
             version,
             args.list_assets,
             mapsquare_visuals,
+        )
+        print(
+            "indexed spawns: "
+            f"NPCs={spawn_index['npc_rows']} in "
+            f"{spawn_index['npc_mapsquares']} mapsquares, "
+            f"ground_items={spawn_index['ground_item_rows']} in "
+            f"{spawn_index['ground_item_mapsquares']} mapsquares"
         )
         return 0
 
@@ -1020,6 +1062,7 @@ def main() -> int:
         assets=assets,
         max_pack_bytes=args.max_pack_bytes,
         mapsquare_visuals=mapsquare_visuals,
+        spawn_index=spawn_index,
     )
     tmp_manifest = manifest_path.with_name(f"{manifest_path.name}.tmp")
     with tmp_manifest.open("w", encoding="utf-8") as f:

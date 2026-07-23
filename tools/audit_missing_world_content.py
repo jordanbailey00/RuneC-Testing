@@ -17,12 +17,13 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from spawn_index import read_npc_spawns
+
 ROOT = Path(__file__).resolve().parents[1]
 PIPELINE = ROOT / "tools/cache_pipeline"
 
 NDEF_MAGIC = 0x4E444546
-NSPN_MAGIC = 0x4E53504E
-NSPN_FLAG_INSTANCE = 0x01
+NPC_SPAWN_FLAG_INSTANCE = 0x01
 ODEF_MAGIC = 0x4645444F
 OPLC_MAGIC = 0x434C504F
 MDL2_MAGIC = 0x4D444C32
@@ -110,19 +111,7 @@ def parse_npc_defs(path: Path) -> dict[int, NpcDef]:
 
 
 def iter_npc_spawns(path: Path):
-    with path.open("rb") as f:
-        magic, version, count = struct.unpack("<III", read_exact(f, 12, path))
-        if magic != NSPN_MAGIC or version not in (1, 2):
-            raise ValueError(f"{path}: unsupported NSPN header")
-        for _ in range(count):
-            npc_id = struct.unpack("<I", read_exact(f, 4, path))[0]
-            x = struct.unpack("<i", read_exact(f, 4, path))[0]
-            y = struct.unpack("<i", read_exact(f, 4, path))[0]
-            plane = struct.unpack("<B", read_exact(f, 1, path))[0]
-            direction = struct.unpack("<B", read_exact(f, 1, path))[0]
-            wander = struct.unpack("<B", read_exact(f, 1, path))[0]
-            flags = struct.unpack("<B", read_exact(f, 1, path))[0] if version >= 2 else 0
-            yield npc_id, x, y, plane, direction, wander, flags
+    yield from read_npc_spawns(path)
 
 
 def parse_model_ids(path: Path) -> set[int]:
@@ -288,10 +277,10 @@ def audit_npcs(
         rows += 1
         npc_def = npc_defs.get(npc_id)
         name = npc_def.name if npc_def else f"npc_{npc_id}"
-        if strict_static_instance_skip and (flags & NSPN_FLAG_INSTANCE):
+        if strict_static_instance_skip and (flags & NPC_SPAWN_FLAG_INSTANCE):
             add_missing(
                 buckets, "npc", "instance_filtered_static_spawn",
-                npc_id, name, x, y, plane, "NSPN_FLAG_INSTANCE",
+                npc_id, name, x, y, plane, "NPC_SPAWN_FLAG_INSTANCE",
             )
             missing += 1
         elif npc_def is None:
@@ -489,7 +478,11 @@ def write_row_report(
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--npc-defs", type=Path, default=ROOT / "data/defs/npc_defs.bin")
-    ap.add_argument("--npc-spawns", type=Path, default=ROOT / "data/spawns/world.npc-spawns.bin")
+    ap.add_argument(
+        "--npc-spawns",
+        type=Path,
+        default=ROOT / "data/spawns/world.npc-spawns.indexed.bin",
+    )
     ap.add_argument("--npc-models", type=Path, default=ROOT / "data/models/npcs.models")
     ap.add_argument("--object-defs", type=Path, default=ROOT / "data/defs/object_defs.bin")
     ap.add_argument("--object-placements", type=Path, default=ROOT / "data/defs/object_placements.bin")
@@ -497,7 +490,7 @@ def main() -> int:
     ap.add_argument(
         "--strict-static-instance-skip",
         action="store_true",
-        help="count NSPN_FLAG_INSTANCE rows as missing under conservative static loading",
+        help="count instance-flagged rows as missing under conservative static loading",
     )
     ap.add_argument("--report", type=Path, default=ROOT / "tools/reports/missing_world_content.txt")
     ap.add_argument("--regions-report", type=Path, default=ROOT / "tools/reports/missing_world_content_regions.tsv")
