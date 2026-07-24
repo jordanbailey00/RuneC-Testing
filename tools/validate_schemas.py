@@ -28,7 +28,7 @@ BINARY_SCHEMAS: dict[str, tuple[str, int, tuple[int, ...]]] = {
     "npc_defs": ("NDEF", 4, (1, 2, 3, 4)),
     "object_behaviors": ("OBHV", 2, (1, 2)),
     "object_defs": ("ODEF", 2, (1, 2)),
-    "object_placements": ("OPLC", 2, (1, 2)),
+    "object_placements": ("OPLI", 1, (1,)),
     "object_transports": ("OTRP", 1, (1,)),
     "player_actions": ("PACT", 1, (1,)),
     "prayers": ("PRAY", 1, (1,)),

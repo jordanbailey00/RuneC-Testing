@@ -11,7 +11,8 @@
 #include "../rc-viewer/object_action_visuals.h"
 
 #define ODEF_PATH RC_TEST_SOURCE_DIR "/data/defs/object_defs.bin"
-#define OPLC_PATH RC_TEST_SOURCE_DIR "/data/defs/object_placements.bin"
+#define OPLI_PATH \
+    RC_TEST_SOURCE_DIR "/data/regions/world.object-placements.indexed.bin"
 #define OBHV_PATH RC_TEST_SOURCE_DIR "/data/defs/object_behaviors.bin"
 #define OTRP_PATH RC_TEST_SOURCE_DIR "/data/defs/object_transports.bin"
 #define GNOD_PATH RC_TEST_SOURCE_DIR "/data/defs/gathering_nodes.bin"
@@ -47,43 +48,10 @@ static int object_at(int obj_id, int x, int y, int plane,
     return 0;
 }
 
-static void pair_delta(int rotation, int *dx, int *dy) {
-    int r = rotation & 3;
-    *dx = 0;
-    *dy = 0;
-    if (r == 0) *dy = 1;
-    else if (r == 1) *dx = 1;
-    else if (r == 2) *dy = -1;
-    else *dx = -1;
-}
-
 static int find_dynamic_pair(RcObjectPlacement *left,
                              RcObjectPlacement *right) {
-    for (int i = 0; i < g_rc_object_placement_count; i++) {
-        RcObjectPlacement a = g_rc_object_placements[i];
-        const RcObjectBehavior *ab = rc_object_behavior_get((int)a.obj_id);
-        if (!ab || !(ab->flags & RC_OBJ_BEHAVIOR_PAIR_LEFT)
-                || ab->next_loc_stage < 0)
-            continue;
-        int dx, dy;
-        pair_delta(a.rotation, &dx, &dy);
-        RcObjectPlacement rows[16];
-        int n = rc_object_placements_at(a.x + dx, a.y + dy, a.plane,
-                                        rows, 16);
-        for (int j = 0; j < n; j++) {
-            const RcObjectBehavior *bb =
-                rc_object_behavior_get((int)rows[j].obj_id);
-            if (bb && (bb->flags & RC_OBJ_BEHAVIOR_PAIR_RIGHT)
-                    && bb->next_loc_stage >= 0
-                    && rows[j].type == a.type
-                    && (rows[j].rotation & 3) == (a.rotation & 3)) {
-                *left = a;
-                *right = rows[j];
-                return 1;
-            }
-        }
-    }
-    return 0;
+    return object_at(1561, 1246, 3697, 0, left)
+        && object_at(1562, 1246, 3698, 0, right);
 }
 
 static RcObjectState *find_state(RcWorld *world, int obj_id, int x, int y,
@@ -140,8 +108,30 @@ int main(void) {
     const RuneCObjectActionVisualRecord *ladder_visual =
         runec_object_action_visual_find(&object_visuals, 42207);
     assert(ladder_visual && ladder_visual->climb_anim == 828);
-    assert(rc_load_object_placements(OPLC_PATH) > 4700000);
+    assert(rc_load_object_placements(OPLI_PATH) > 4700000);
     assert(rc_load_object_transports(OTRP_PATH) > 29000);
+    assert(rc_object_placements_set_cache_limit(0) == -1);
+    assert(rc_object_placements_set_cache_limit(32) == 1);
+    RcObjectPlacementLoadStats placement_stats;
+    assert(rc_object_placements_prefetch_rect(
+        1, 1, 0, 0, &placement_stats) == -1);
+    assert(rc_object_placements_prefetch_rect(
+        3072, 3264, 3391, 3583, &placement_stats) > 0);
+    assert(placement_stats.pages_loaded == placement_stats.pages_requested);
+    assert(placement_stats.pages_resident == placement_stats.pages_loaded);
+    assert(rc_object_placements_prefetch_rect(
+        3072, 3264, 3391, 3583, &placement_stats) == 0);
+    assert(placement_stats.pages_loaded == 0);
+    assert(placement_stats.pages_resident > 0);
+    assert(rc_object_placements_prefetch_rect(
+        -128, -128, -1, -1, &placement_stats) == 0);
+    assert(placement_stats.pages_requested == 0);
+    assert(rc_object_placements_set_cache_limit(2) == 1);
+    assert(rc_object_placements_prefetch_rect(
+        3072, 3328, 3263, 3519, &placement_stats) > 2);
+    assert(placement_stats.pages_loaded == placement_stats.pages_requested);
+    assert(placement_stats.pages_resident == 2);
+    assert(rc_object_placements_set_cache_limit(64) == 1);
 
     const RcObjectDef *tree = rc_object_def_get(1276);
     const RcObjectDef *bank = rc_object_def_get(10355);
@@ -210,7 +200,7 @@ int main(void) {
     RcWorldConfig cfg = rc_preset_base_only();
     cfg.subsystems = RC_SUB_OBJECTS;
     cfg.object_defs_path = ODEF_PATH;
-    cfg.object_placements_path = OPLC_PATH;
+    cfg.object_placements_path = OPLI_PATH;
     cfg.object_behaviors_path = OBHV_PATH;
     cfg.object_transports_path = OTRP_PATH;
     RcWorld *world = rc_world_create_config(&cfg);
@@ -223,10 +213,12 @@ int main(void) {
     rc_player_interact_object(world, 1276, 4);
     assert(world->player.interact_option == 0);
     rc_world_destroy(world);
+    assert(has_object_at(1276, 1239, 3672, 0));
 
     RcWorldConfig door_cfg = rc_preset_base_only();
     door_cfg.subsystems = RC_SUB_OBJECTS;
     door_cfg.object_defs_path = ODEF_PATH;
+    door_cfg.object_placements_path = OPLI_PATH;
     door_cfg.object_behaviors_path = OBHV_PATH;
     RcWorld *door = rc_world_create_config(&door_cfg);
     assert(door != NULL);
@@ -276,15 +268,15 @@ int main(void) {
     assert(active_state.active_y == active_state.y);
     rc_world_destroy(door);
 
-    RcObjectPlacement gate_left, gate_right;
-    assert(find_dynamic_pair(&gate_left, &gate_right));
     RcWorldConfig gate_cfg = rc_preset_base_only();
     gate_cfg.subsystems = RC_SUB_OBJECTS;
     gate_cfg.object_defs_path = ODEF_PATH;
-    gate_cfg.object_placements_path = OPLC_PATH;
+    gate_cfg.object_placements_path = OPLI_PATH;
     gate_cfg.object_behaviors_path = OBHV_PATH;
     RcWorld *gate = rc_world_create_config(&gate_cfg);
     assert(gate != NULL);
+    RcObjectPlacement gate_left, gate_right;
+    assert(find_dynamic_pair(&gate_left, &gate_right));
     gate->player.x = gate_left.x;
     gate->player.y = gate_left.y;
     gate->player.plane = gate_left.plane;
@@ -364,7 +356,7 @@ int main(void) {
     RcWorldConfig door_collision_cfg = rc_preset_base_only();
     door_collision_cfg.subsystems = RC_SUB_OBJECTS;
     door_collision_cfg.object_defs_path = ODEF_PATH;
-    door_collision_cfg.object_placements_path = OPLC_PATH;
+    door_collision_cfg.object_placements_path = OPLI_PATH;
     door_collision_cfg.object_behaviors_path = OBHV_PATH;
     RcWorld *door_collision = rc_world_create_config(&door_collision_cfg);
     assert(door_collision != NULL);
@@ -402,7 +394,7 @@ int main(void) {
     RcWorldConfig route_cfg = rc_preset_base_only();
     route_cfg.subsystems = RC_SUB_OBJECTS;
     route_cfg.object_defs_path = ODEF_PATH;
-    route_cfg.object_placements_path = OPLC_PATH;
+    route_cfg.object_placements_path = OPLI_PATH;
     route_cfg.object_behaviors_path = OBHV_PATH;
     RcWorld *route = rc_world_create_config(&route_cfg);
     assert(route != NULL);
@@ -477,6 +469,7 @@ int main(void) {
     RcWorldConfig skill_cfg = rc_preset_base_only();
     skill_cfg.subsystems = RC_SUB_OBJECTS | RC_SUB_SKILLS;
     skill_cfg.object_defs_path = ODEF_PATH;
+    skill_cfg.object_placements_path = OPLI_PATH;
     skill_cfg.object_behaviors_path = OBHV_PATH;
     skill_cfg.gathering_nodes_path = GNOD_PATH;
     RcWorld *skill = rc_world_create_config(&skill_cfg);
@@ -498,7 +491,7 @@ int main(void) {
     RcWorldConfig travel_cfg = rc_preset_base_only();
     travel_cfg.subsystems = RC_SUB_OBJECTS | RC_SUB_TRAVERSAL;
     travel_cfg.object_defs_path = ODEF_PATH;
-    travel_cfg.object_placements_path = OPLC_PATH;
+    travel_cfg.object_placements_path = OPLI_PATH;
     travel_cfg.object_behaviors_path = OBHV_PATH;
     travel_cfg.object_transports_path = OTRP_PATH;
     travel_cfg.traversal_edges_path = RC_TEST_SOURCE_DIR "/data/defs/traversal_edges.bin";
@@ -789,7 +782,7 @@ int main(void) {
     shortcut_cfg.subsystems = RC_SUB_OBJECTS | RC_SUB_TRAVERSAL
                             | RC_SUB_SKILLS;
     shortcut_cfg.object_defs_path = ODEF_PATH;
-    shortcut_cfg.object_placements_path = OPLC_PATH;
+    shortcut_cfg.object_placements_path = OPLI_PATH;
     shortcut_cfg.object_behaviors_path = OBHV_PATH;
     shortcut_cfg.object_transports_path = OTRP_PATH;
     shortcut_cfg.traversal_edges_path =

@@ -19,7 +19,7 @@ int main(void) {
     rc_world_streaming_config_sanitize(&backend);
     assert(backend.active_radius_regions == 4);
     assert(backend.preload_radius_regions == 4);
-    assert(backend.max_cached_regions == 10);
+    assert(backend.max_cached_regions == 81);
     rc_world_streaming_config_sanitize(NULL);
 
     backend.active_radius_regions = -1;

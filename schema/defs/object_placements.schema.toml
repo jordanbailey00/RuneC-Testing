@@ -1,18 +1,26 @@
 id = "object_placements"
 format = "binary"
-path = "data/defs/object_placements.bin"
-magic_label = "OPLC"
-magic_u32 = "0x434C504F"
-current_version = 2
-accepted_versions = [1, 2]
+path = "data/regions/world.object-placements.indexed.bin"
+magic_label = "OPLI"
+magic_u32 = "0x494C504F"
+current_version = 1
+accepted_versions = [1]
 endianness = "little"
-header = ["u32 magic", "u32 version", "u32 count", "u32 region_count"]
+header = [
+  "u32 magic",
+  "u32 version",
+  "u32 row_count",
+  "u32 record_size",
+  "u32 occupied_mapsquares",
+  "u32 plane_counts[4]",
+  "65536 x {u32 first_row, u32 row_count}",
+]
 producer = "tools/export_object_placements.py"
 consumers = ["rc-core/objects.c"]
 source_dataset = "b237 cache map location groups decoded by RuneC cache tools"
 row_fields = [
   "u32 obj_id",
-  "u64 placement_key (v2+)",
+  "u64 placement_key",
   "u16 x",
   "u16 y",
   "u16 mapsquare",
@@ -21,4 +29,4 @@ row_fields = [
   "u8 rotation",
   "u8 flags",
 ]
-compatibility = "Loader accepts versions 1 and 2."
+compatibility = "Version 1 is a mapsquare-indexed replacement for retired OPLC v2."

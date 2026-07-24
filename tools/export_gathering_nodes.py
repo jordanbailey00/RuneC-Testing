@@ -6,9 +6,11 @@ import struct
 from collections import Counter
 from pathlib import Path
 
+from object_placement_index import iter_object_placements
+
 ROOT = Path(__file__).resolve().parents[1]
 OBHV = ROOT / "data/defs/object_behaviors.bin"
-OPLC = ROOT / "data/defs/object_placements.bin"
+OPLI = ROOT / "data/regions/world.object-placements.indexed.bin"
 OUT = ROOT / "data/defs/gathering_nodes.bin"
 REPORT = ROOT / "tools/reports/gathering_nodes.txt"
 
@@ -49,21 +51,9 @@ def read_behaviors() -> dict[int, tuple[int, int, int]]:
 
 def build_rows() -> list[tuple[int, int, int, int, int, int, int, int, int, int]]:
     resources = read_behaviors()
-    data = OPLC.read_bytes()
-    magic, version, count, _region_count = struct.unpack_from("<IIII", data, 0)
-    if magic != 0x434C504F or version not in (1, 2):
-        raise SystemExit("bad object_placements.bin")
-    pos = 16
     rows = []
-    for _ in range(count):
-        obj_id = struct.unpack_from("<I", data, pos)[0]
-        pos += 4
-        if version >= 2:
-            pos += 8
-        x, y, mapsquare = struct.unpack_from("<HHH", data, pos)
-        plane, typ, rotation, place_flags = struct.unpack_from(
-            "<BBBB", data, pos + 6)
-        pos += 10
+    for (obj_id, _key, x, y, mapsquare, plane, typ, rotation,
+         place_flags) in iter_object_placements(OPLI):
         behavior = resources.get(obj_id)
         if not behavior:
             continue
@@ -96,7 +86,7 @@ def main() -> int:
         "status: READY_WITH_ACCEPTED_SIMPLIFICATIONS",
         f"output binary: data/defs/gathering_nodes.bin ({OUT.stat().st_size} bytes)",
         f"source object behaviors: {OBHV.relative_to(ROOT)}",
-        f"source object placements: {OPLC.relative_to(ROOT)}",
+        f"source object placements: {OPLI.relative_to(ROOT)}",
         f"nodes: {len(rows)}",
         "",
         "by skill:",

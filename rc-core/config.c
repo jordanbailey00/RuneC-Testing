@@ -32,7 +32,7 @@
 #define DEFAULT_ACT_MECH    "data/defs/activity_mechanics.bin"
 #define DEFAULT_ACT_STATES  "data/defs/activity_states.bin"
 #define DEFAULT_OBJ_DEFS    "data/defs/object_defs.bin"
-#define DEFAULT_OBJ_PLACES  "data/defs/object_placements.bin"
+#define DEFAULT_OBJ_PLACES  "data/regions/world.object-placements.indexed.bin"
 #define DEFAULT_OBJ_BEH     "data/defs/object_behaviors.bin"
 #define DEFAULT_OBJ_TRANS   "data/defs/object_transports.bin"
 #define DEFAULT_COLLISION   "data/defs/collision_tiles.bin"
@@ -60,6 +60,10 @@ void rc_world_streaming_config_sanitize(RcWorldStreamingConfig *config) {
         config->preload_radius_regions = config->active_radius_regions;
     if (config->max_cached_regions <= 0)
         config->max_cached_regions = defaults.max_cached_regions;
+    int64_t side = (int64_t)config->active_radius_regions * 2 + 1;
+    int64_t active_regions = side >= 256 ? 65536 : side * side;
+    if (config->max_cached_regions < active_regions)
+        config->max_cached_regions = (int)active_regions;
 }
 
 RcWorldConfig rc_preset_full_game(void) {

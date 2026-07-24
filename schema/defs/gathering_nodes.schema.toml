@@ -7,9 +7,9 @@ current_version = 1
 accepted_versions = [1]
 endianness = "little"
 header = ["u32 magic", "u32 version", "u32 count"]
-producer = "tools/export_gathering_nodes.py"
+producer = "tools/export_runtime_snapshots.py"
 consumers = ["rc-core/skills.c"]
-source_dataset = "data/defs/object_behaviors.bin and data/defs/object_placements.bin"
+source_dataset = "content/runtime_snapshots/data/defs/gathering_nodes.bin"
 row_fields = [
   "u32 obj_id",
   "u16 x",

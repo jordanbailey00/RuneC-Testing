@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Emit full-world object placement rows from the local b237 cache.
-
-Output: data/defs/object_placements.bin ('OPLC' v2).
-Rows are gameplay placements, not render geometry.
-"""
+"""Emit mapsquare-indexed object placements from the local b237 cache."""
 from __future__ import annotations
 
 import argparse
@@ -15,6 +11,14 @@ from collections import Counter
 from pathlib import Path
 
 from source_paths import CACHE_DIR, display_path, require_cache_dir
+from object_placement_index import (
+    HEADER,
+    INDEX_ENTRY,
+    OBJECT_PLACEMENT_INDEX_MAGIC,
+    OBJECT_PLACEMENT_INDEX_VERSION,
+    OBJECT_PLACEMENT_MAPSQUARE_COUNT,
+    RECORD,
+)
 
 PIPELINE = Path(__file__).resolve().parent / "cache_pipeline"
 sys.path.insert(0, str(PIPELINE))
@@ -28,12 +32,11 @@ from rc_cache import (  # noqa: E402
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "data/defs/object_placements.bin"
+OUT = ROOT / "data/regions/world.object-placements.indexed.bin"
+LEGACY_OUT = ROOT / "data/defs/object_placements.bin"
 REPORT = ROOT / "tools/reports/object_placements.txt"
 ODEF = ROOT / "data/defs/object_defs.bin"
 
-OPLC_MAGIC = 0x434C504F  # OPLC
-OPLC_VERSION = 2
 ODEF_MAGIC = 0x4645444F
 
 
@@ -138,10 +141,11 @@ def write_rows(store: RcCacheStore, map_regions: dict[int, MapRegionFiles]):
     linked_below_adjusted = 0
     linked_below_skipped = 0
     row_count = 0
+    page_counts = [0] * OBJECT_PLACEMENT_MAPSQUARE_COUNT
     duplicate_counts: Counter[tuple[int, int, int, int, int, int, int, int]] = Counter()
 
     with OUT.open("wb") as f:
-        f.write(struct.pack("<IIII", OPLC_MAGIC, OPLC_VERSION, 0, 0))
+        f.seek(HEADER.size + INDEX_ENTRY.size * OBJECT_PLACEMENT_MAPSQUARE_COUNT)
         for mapsquare, region in sorted(map_regions.items()):
             regions_scanned += 1
             if not region.has_locations:
@@ -200,8 +204,7 @@ def write_rows(store: RcCacheStore, map_regions: dict[int, MapRegionFiles]):
                 duplicate_ordinal = duplicate_counts[key_tuple]
                 duplicate_counts[key_tuple] += 1
                 key = placement_key((*key_tuple, duplicate_ordinal))
-                f.write(struct.pack(
-                    "<IQHHHBBBB",
+                f.write(RECORD.pack(
                     placement.object_id & 0xFFFFFFFF,
                     key,
                     placement.world_x & 0xFFFF,
@@ -213,13 +216,25 @@ def write_rows(store: RcCacheStore, map_regions: dict[int, MapRegionFiles]):
                     0,
                 ))
                 row_count += 1
+                page_counts[mapsquare] += 1
                 type_counts[placement.shape] += 1
                 plane_counts[key_tuple[4]] += 1
                 object_counts[placement.object_id] += 1
             if row_count != before:
                 regions_with_rows += 1
-        f.seek(8)
-        f.write(struct.pack("<II", row_count, regions_with_rows))
+        f.seek(0)
+        f.write(HEADER.pack(
+            OBJECT_PLACEMENT_INDEX_MAGIC,
+            OBJECT_PLACEMENT_INDEX_VERSION,
+            row_count,
+            RECORD.size,
+            regions_with_rows,
+            *(plane_counts[plane] for plane in range(4)),
+        ))
+        first_row = 0
+        for count in page_counts:
+            f.write(INDEX_ENTRY.pack(first_row, count))
+            first_row += count
 
     return {
         "row_count": row_count,
@@ -252,7 +267,7 @@ def write_report(
         "Object placement gameplay index",
         "",
         "status: READY_WITH_ACCEPTED_SIMPLIFICATIONS",
-        f"output binary: data/defs/object_placements.bin ({OUT.stat().st_size} bytes)",
+        f"output binary: data/regions/world.object-placements.indexed.bin ({OUT.stat().st_size} bytes)",
         f"cache source: {display_path(cache_dir)}",
         "OpenRS2 layout reference: https://archive.openrs2.org/api",
         f"elapsed_ms: {elapsed_ms:.2f}",
@@ -285,6 +300,7 @@ def write_report(
     lines.extend([
         "",
         "accepted simplifications:",
+        "  - one indexed global asset stores a fixed mapsquare directory for bounded runtime range reads",
         "  - rows store placement identity only, not mesh vertices or atlas data",
         "  - planes are gameplay/collision planes after LINK_BELOW lowering, not raw cache planes",
         "  - initial object state rules are runtime-owned; placement rows remain immutable source anchors",
@@ -310,6 +326,8 @@ def main() -> int:
     map_regions = find_all_map_region_files(store)
     names = object_names(ODEF)
     stats = write_rows(store, map_regions)
+    if LEGACY_OUT.is_file():
+        LEGACY_OUT.unlink()
     elapsed_ms = (time.perf_counter() - start) * 1000.0
     write_report(stats, names, elapsed_ms, cache_dir)
     print(REPORT.read_text())

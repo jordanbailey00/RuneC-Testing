@@ -11,7 +11,8 @@
 #include "spells.h"
 
 #define ODEF_PATH RC_TEST_SOURCE_DIR "/data/defs/object_defs.bin"
-#define OPLC_PATH RC_TEST_SOURCE_DIR "/data/defs/object_placements.bin"
+#define OPLI_PATH \
+    RC_TEST_SOURCE_DIR "/data/regions/world.object-placements.indexed.bin"
 #define OBHV_PATH RC_TEST_SOURCE_DIR "/data/defs/object_behaviors.bin"
 #define OTRP_PATH RC_TEST_SOURCE_DIR "/data/defs/object_transports.bin"
 #define TRAV_PATH RC_TEST_SOURCE_DIR "/data/defs/traversal_edges.bin"
@@ -52,7 +53,7 @@ static RcWorld *make_world(uint32_t seed) {
     cfg.subsystems = RC_SUB_OBJECTS | RC_SUB_TRAVERSAL | RC_SUB_REGIONS
                    | RC_SUB_COMBAT | RC_SUB_INVENTORY;
     cfg.object_defs_path = ODEF_PATH;
-    cfg.object_placements_path = OPLC_PATH;
+    cfg.object_placements_path = OPLI_PATH;
     cfg.object_behaviors_path = OBHV_PATH;
     cfg.object_transports_path = OTRP_PATH;
     cfg.traversal_edges_path = TRAV_PATH;

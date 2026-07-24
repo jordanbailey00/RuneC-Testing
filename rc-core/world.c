@@ -267,7 +267,8 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
     if (flags == 0) {
         flags = RC_ACTIVE_AREA_LOAD_COLLISION
               | RC_ACTIVE_AREA_LOAD_NPCS
-              | RC_ACTIVE_AREA_CLEAR_NPCS;
+              | RC_ACTIVE_AREA_CLEAR_NPCS
+              | RC_ACTIVE_AREA_LOAD_OBJECT_PLACEMENTS;
     }
 
     int min_x = request->origin_x;
@@ -287,6 +288,21 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
         if (collision_regions < 0)
             return -1;
         pages_loaded += collision_regions;
+    }
+
+    RcObjectPlacementLoadStats object_placement_stats;
+    memset(&object_placement_stats, 0, sizeof(object_placement_stats));
+    if (flags & RC_ACTIVE_AREA_LOAD_OBJECT_PLACEMENTS) {
+        if (rc_object_placements_set_cache_limit(
+                world->streaming.max_cached_regions) < 0) {
+            return -1;
+        }
+        double page_load_started_ms = monotonic_ms();
+        int object_pages = rc_object_placements_prefetch_rect(
+            min_x, min_y, max_x, max_y, &object_placement_stats);
+        page_load_ms += monotonic_ms() - page_load_started_ms;
+        if (object_pages < 0) return -1;
+        pages_loaded += object_placement_stats.pages_loaded;
     }
 
     if (flags & RC_ACTIVE_AREA_CLEAR_NPCS)
@@ -360,6 +376,7 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
         stats->collision_regions = collision_regions;
         stats->spawned_npcs = spawned;
         stats->spawned_ground_items = spawned_ground_items;
+        stats->object_placement_stats = object_placement_stats;
         stats->npc_stats = npc_stats;
         stats->ground_item_stats = ground_item_stats;
         stats->active_area = world->active_area;

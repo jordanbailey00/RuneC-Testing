@@ -210,7 +210,8 @@ int main(void) {
     assert(objects->placement_count == stats->object_placement_count);
     assert(objects->transport_count == stats->object_transport_count);
     assert(objects->param_count == stats->object_param_count);
-    assert(objects->placements != NULL);
+    assert(objects->placements == NULL);
+    assert(objects->placement_store != NULL);
     assert(objects->transports != NULL);
     assert(objects->params != NULL);
     const RcObjectDef *tree = rc_object_def_get(1276);
@@ -221,8 +222,6 @@ int main(void) {
     const RcObjectPlacement *placements =
         rc_object_region_placements(4921, &placement_count);
     assert(placements != NULL && placement_count > 0);
-    assert(placements >= objects->placements
-           && placements < objects->placements + objects->placement_count);
     const RcObjectTransport *transport =
         rc_object_transport_find(16683, 2465, 3495, 0, 0);
     assert(transport != NULL);

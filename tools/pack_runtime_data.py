@@ -21,6 +21,10 @@ import tomllib
 from typing import Iterable
 import zlib
 
+from object_placement_index import (
+    iter_object_placements,
+    read_header as read_object_placement_header,
+)
 from spawn_index import (
     GROUND_ITEM_INDEX_MAGIC,
     NPC_SPAWN_INDEX_MAGIC,
@@ -51,6 +55,7 @@ MAPSQUARE_SHARED_FILES = (
     "mapsquare.materials.atlas",
     "mapsquare.materials.tanim",
 )
+OBJECT_PLACEMENT_INDEX_FILE = "world.object-placements.indexed.bin"
 MAPSQUARE_ASSET_RE = re.compile(
     r"^(?P<x>\d{1,3})_(?P<y>\d{1,3})\.p(?P<plane>[0-3])\."
     r"(?P<kind>terrain|objects|oanim|object_anim\.models)$"
@@ -95,7 +100,7 @@ REQUIRED_LOGICAL_PATHS = (
     "defs/activity_mechanics.bin",
     "defs/activity_states.bin",
     "defs/object_defs.bin",
-    "defs/object_placements.bin",
+    "regions/world.object-placements.indexed.bin",
     "defs/object_behaviors.bin",
     "defs/object_transports.bin",
     "defs/collision_tiles.bin",
@@ -279,6 +284,7 @@ def is_region_runtime_file(path: Path) -> bool:
     name = path.name
     return (
         name in MAPSQUARE_SHARED_FILES
+        or name == OBJECT_PLACEMENT_INDEX_FILE
         or MAPSQUARE_ASSET_RE.fullmatch(name) is not None
     )
 
@@ -818,6 +824,7 @@ def build_manifest(
     max_pack_bytes: int,
     mapsquare_visuals: dict[str, int | bool | str],
     spawn_index: dict[str, int],
+    object_placement_index: dict[str, int],
 ) -> dict:
     source_lock_path = Path("data-sources/sources.lock")
     content_catalog_path = Path("content/catalog.toml")
@@ -862,6 +869,7 @@ def build_manifest(
         "optional_logical_paths": list(OPTIONAL_LOGICAL_PATHS),
         "mapsquare_visuals": mapsquare_visuals,
         "spawn_index": spawn_index,
+        "object_placement_index": object_placement_index,
         "loose_asset_checksums": loose_asset_checksums(assets),
         "target_max_pack_bytes": max_pack_bytes,
         "packs": packs,
@@ -971,6 +979,23 @@ def validate_spawn_runtime_assets(data_root: Path) -> dict[str, int]:
     }
 
 
+def validate_object_placement_runtime_asset(data_root: Path) -> dict[str, int]:
+    path = data_root / "regions/world.object-placements.indexed.bin"
+    try:
+        header = read_object_placement_header(path)
+        row_count = sum(1 for _ in iter_object_placements(path))
+    except (OSError, ValueError) as exc:
+        raise SystemExit(
+            f"invalid indexed object placement runtime data: {exc}"
+        ) from exc
+    if row_count != header[2]:
+        raise SystemExit("indexed object placement row count mismatch")
+    return {
+        "rows": row_count,
+        "mapsquares": int(header[4]),
+    }
+
+
 def main() -> int:
     args = parse_args()
     version = version_slug(args.version)
@@ -993,6 +1018,7 @@ def main() -> int:
         expected_catalog_regions=EXPECTED_B237_MAPSQUARE_REGIONS,
     )
     spawn_index = validate_spawn_runtime_assets(data_root)
+    object_placement_index = validate_object_placement_runtime_asset(data_root)
     specs = build_specs(data_root)
     validate_required_specs(specs)
     chunks_by_spec = {
@@ -1014,6 +1040,11 @@ def main() -> int:
             f"{spawn_index['npc_mapsquares']} mapsquares, "
             f"ground_items={spawn_index['ground_item_rows']} in "
             f"{spawn_index['ground_item_mapsquares']} mapsquares"
+        )
+        print(
+            "indexed object placements: "
+            f"rows={object_placement_index['rows']} in "
+            f"{object_placement_index['mapsquares']} mapsquares"
         )
         return 0
 
@@ -1063,6 +1094,7 @@ def main() -> int:
         max_pack_bytes=args.max_pack_bytes,
         mapsquare_visuals=mapsquare_visuals,
         spawn_index=spawn_index,
+        object_placement_index=object_placement_index,
     )
     tmp_manifest = manifest_path.with_name(f"{manifest_path.name}.tmp")
     with tmp_manifest.open("w", encoding="utf-8") as f:

@@ -17,6 +17,7 @@ enum {
     RC_ACTIVE_AREA_INCLUDE_INSTANCE_NPCS = 1u << 3,
     RC_ACTIVE_AREA_LOAD_STATIC_GROUND_ITEMS = 1u << 4,
     RC_ACTIVE_AREA_CLEAR_STATIC_GROUND_ITEMS = 1u << 5,
+    RC_ACTIVE_AREA_LOAD_OBJECT_PLACEMENTS = 1u << 6,
 };
 
 typedef struct {
@@ -32,6 +33,7 @@ typedef struct {
     int collision_regions;
     int spawned_npcs;
     int spawned_ground_items;
+    RcObjectPlacementLoadStats object_placement_stats;
     RcNpcSpawnLoadStats npc_stats;
     RcGroundItemSpawnLoadStats ground_item_stats;
     RcActiveArea active_area;

@@ -2309,7 +2309,8 @@ static int activate_core_area_bounds(ViewerState *v, int origin_x,
                | RC_ACTIVE_AREA_CLEAR_NPCS
                | RC_ACTIVE_AREA_INCLUDE_INSTANCE_NPCS
                | RC_ACTIVE_AREA_LOAD_STATIC_GROUND_ITEMS
-               | RC_ACTIVE_AREA_CLEAR_STATIC_GROUND_ITEMS,
+               | RC_ACTIVE_AREA_CLEAR_STATIC_GROUND_ITEMS
+               | RC_ACTIVE_AREA_LOAD_OBJECT_PLACEMENTS,
         .npc_spawns_path = env_path("RUNEC_NPC_SPAWNS",
             "data/spawns/world.npc-spawns.indexed.bin"),
         .ground_item_spawns_path = env_path(
@@ -2326,6 +2327,8 @@ static int activate_core_area_bounds(ViewerState *v, int origin_x,
                 " planes=[%d,%d,%d,%d]"
                 " ground_item_pages=%d ground_item_rows=%d/%d"
                 " matched=%d spawned=%d"
+                " object_pages=%u/%u object_rows=%u/%u"
+                " object_resident=%u/%u"
                 " backend_pages=%d page_load_ms=%.2f area_load_ms=%.2f\n",
                 stats.active_area.origin_x, stats.active_area.origin_y,
                 stats.active_area.width, stats.active_area.height,
@@ -2341,6 +2344,12 @@ static int activate_core_area_bounds(ViewerState *v, int origin_x,
                 stats.ground_item_stats.total_rows,
                 stats.ground_item_stats.matched_filter,
                 stats.ground_item_stats.spawned,
+                stats.object_placement_stats.pages_loaded,
+                stats.object_placement_stats.pages_requested,
+                stats.object_placement_stats.rows_loaded,
+                stats.object_placement_stats.total_rows,
+                stats.object_placement_stats.pages_resident,
+                stats.object_placement_stats.rows_resident,
                 stats.streaming.backend_pages_loaded,
                 stats.streaming.backend_page_load_ms,
                 stats.streaming.active_area_load_ms);
@@ -8206,7 +8215,7 @@ int main(int argc, char **argv) {
     cfg.object_defs_path = env_path("RUNEC_OBJECT_DEFS",
         "data/defs/object_defs.bin");
     cfg.object_placements_path = env_path("RUNEC_OBJECT_PLACEMENTS",
-        "data/defs/object_placements.bin");
+        "data/regions/world.object-placements.indexed.bin");
     cfg.object_behaviors_path = env_path("RUNEC_OBJECT_BEHAVIORS",
         "data/defs/object_behaviors.bin");
     cfg.object_transports_path = env_path("RUNEC_OBJECT_TRANSPORTS",

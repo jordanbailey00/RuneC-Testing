@@ -336,7 +336,7 @@ DEF_REBUILD_SPECS = (
     ),
     RuntimeOutputSpec(
         dataset="object_defs_placements_collision",
-        logical_paths=("defs/object_defs.bin", "defs/object_placements.bin", "defs/collision_tiles.bin"),
+        logical_paths=("defs/object_defs.bin", "regions/world.object-placements.indexed.bin", "defs/collision_tiles.bin"),
         rebuild_inputs=B237_CACHE_INPUT,
         commands=(
             py_cmd("tools/export_object_defs.py", "--cache", "{b237_cache}"),

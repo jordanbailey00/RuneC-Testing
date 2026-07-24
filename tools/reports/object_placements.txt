@@ -1,10 +1,10 @@
 Object placement gameplay index
 
 status: READY_WITH_ACCEPTED_SIMPLIFICATIONS
-output binary: data/defs/object_placements.bin (104897688 bytes)
+output binary: data/regions/world.object-placements.indexed.bin (105421996 bytes)
 cache source: data/source/b237-openrs2-2528/cache
 OpenRS2 layout reference: https://archive.openrs2.org/api
-elapsed_ms: 31563.75
+elapsed_ms: 25037.93
 
 counts:
   placements:              4768076
@@ -93,6 +93,7 @@ top placed objects:
     16897  60376
 
 accepted simplifications:
+  - one indexed global asset stores a fixed mapsquare directory for bounded runtime range reads
   - rows store placement identity only, not mesh vertices or atlas data
   - planes are gameplay/collision planes after LINK_BELOW lowering, not raw cache planes
   - initial object state rules are runtime-owned; placement rows remain immutable source anchors

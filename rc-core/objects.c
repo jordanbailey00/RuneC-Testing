@@ -1,21 +1,50 @@
 #include "objects.h"
 #include "io.h"
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define ODEF_MAGIC 0x4645444Fu
-#define OPLC_MAGIC 0x434C504Fu
+#define OPLI_MAGIC 0x494C504Fu
 #define OBHV_MAGIC 0x5648424Fu
 #define OTRP_MAGIC 0x5052544Fu
 #define OBJ_VERSION 1u
-#define OPLC_VERSION_MIN 1u
-#define OPLC_VERSION_MAX 2u
+#define OPLI_VERSION 1u
 #define ODEF_VERSION_MIN 1u
 #define ODEF_VERSION_MAX 2u
 #define OBHV_VERSION_MIN 1u
 #define OBHV_VERSION_MAX 2u
+
+enum {
+    OPLI_HEADER_U32S = 9,
+    OPLI_HEADER_BYTES = OPLI_HEADER_U32S * 4,
+    OPLI_INDEX_ENTRY_BYTES = 8,
+    OPLI_RECORD_BYTES = 22,
+};
+
+typedef struct {
+    RcObjectPlacement *rows;
+    uint32_t count;
+    uint64_t last_used;
+    uint16_t mapsquare;
+    uint8_t loaded;
+} RcObjectPlacementPage;
+
+struct RcObjectPlacementStore {
+    char *path;
+    RcObjectRange *index;
+    RcObjectPlacementPage *pages;
+    uint32_t *cache_slots;
+    uint32_t cache_capacity;
+    uint32_t total_rows;
+    uint32_t occupied_pages;
+    uint32_t source_plane_counts[4];
+    uint32_t resident_pages;
+    uint32_t resident_rows;
+    uint64_t use_clock;
+};
 
 RcObjectDef g_rc_object_defs[RC_MAX_OBJECT_ID];
 RcObjectBehavior g_rc_object_behaviors[RC_MAX_OBJECT_ID];
@@ -43,6 +72,69 @@ static int g_active_object_behavior_count = 0;
 static int g_active_object_placement_count = 0;
 static int g_active_object_transport_count = 0;
 static int g_active_object_param_count = 0;
+static const RcObjectData *g_active_object_data = NULL;
+static RcObjectPlacementStore *g_global_placement_store = NULL;
+
+static uint16_t read_u16_le(const unsigned char *p) {
+    return (uint16_t)((uint16_t)p[0] | (uint16_t)((uint16_t)p[1] << 8));
+}
+
+static uint32_t read_u32_le(const unsigned char *p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8)
+         | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+static uint64_t read_u64_le(const unsigned char *p) {
+    return (uint64_t)read_u32_le(p)
+         | ((uint64_t)read_u32_le(p + 4) << 32);
+}
+
+static char *copy_string(const char *s) {
+    size_t size = strlen(s) + 1;
+    char *copy = malloc(size);
+    if (copy) memcpy(copy, s, size);
+    return copy;
+}
+
+static void object_placement_store_free(RcObjectPlacementStore *store) {
+    if (!store) return;
+    if (store->pages) {
+        for (uint32_t i = 0; i < store->cache_capacity; i++)
+            free(store->pages[i].rows);
+    }
+    free(store->pages);
+    free(store->cache_slots);
+    free(store->index);
+    free(store->path);
+    free(store);
+}
+
+static RcObjectPlacementStore *object_placement_store_clone(
+    const RcObjectPlacementStore *source) {
+    if (!source) return NULL;
+    RcObjectPlacementStore *store = calloc(1, sizeof(*store));
+    if (!store) return NULL;
+    store->path = copy_string(source->path);
+    store->index = malloc((size_t)RC_MAX_OBJECT_ID * sizeof(*store->index));
+    store->cache_capacity = source->cache_capacity;
+    store->pages = calloc(store->cache_capacity, sizeof(*store->pages));
+    store->cache_slots = malloc(
+        (size_t)RC_MAX_OBJECT_ID * sizeof(*store->cache_slots));
+    if (!store->path || !store->index || !store->pages
+            || !store->cache_slots) {
+        object_placement_store_free(store);
+        return NULL;
+    }
+    memset(store->cache_slots, 0xff,
+           (size_t)RC_MAX_OBJECT_ID * sizeof(*store->cache_slots));
+    memcpy(store->index, source->index,
+           (size_t)RC_MAX_OBJECT_ID * sizeof(*store->index));
+    store->total_rows = source->total_rows;
+    store->occupied_pages = source->occupied_pages;
+    memcpy(store->source_plane_counts, source->source_plane_counts,
+           sizeof(store->source_plane_counts));
+    return store;
+}
 
 static void reset_object_range_index(RcObjectRange *index) {
     if (!index) return;
@@ -57,6 +149,7 @@ void rc_object_data_init(RcObjectData *data) {
     memset(data->defs, 0, sizeof(data->defs));
     memset(data->behaviors, 0, sizeof(data->behaviors));
     data->placements = NULL;
+    data->placement_store = NULL;
     data->transports = NULL;
     data->params = NULL;
     data->def_count = 0;
@@ -71,12 +164,14 @@ void rc_object_data_init(RcObjectData *data) {
 void rc_object_data_free(RcObjectData *data) {
     if (!data) return;
     free(data->placements);
+    object_placement_store_free(data->placement_store);
     free(data->transports);
     free(data->params);
     rc_object_data_init(data);
 }
 
 void rc_objects_use_data(const RcObjectData *data) {
+    g_active_object_data = data;
     if (!data) {
         g_active_object_defs = g_rc_object_defs;
         g_active_object_behaviors = g_rc_object_behaviors;
@@ -111,6 +206,7 @@ void rc_objects_reset_data_if_active(const RcObjectData *data) {
     if (g_active_object_defs == data->defs
             || g_active_object_behaviors == data->behaviors
             || g_active_object_placements == data->placements
+            || g_active_object_data == data
             || g_active_object_transports == data->transports
             || g_active_object_params == data->params) {
         rc_objects_use_data(NULL);
@@ -188,32 +284,6 @@ static int append_object_param_into(RcObjectParam **params, int *count,
     };
     (*count)++;
     return 1;
-}
-
-static uint64_t fnv1a_u64(uint64_t hash, const void *data, size_t len) {
-    const unsigned char *p = (const unsigned char *)data;
-    for (size_t i = 0; i < len; i++) {
-        hash ^= (uint64_t)p[i];
-        hash *= 1099511628211ull;
-    }
-    return hash;
-}
-
-static uint64_t computed_placement_key(uint32_t obj_id, uint16_t x, uint16_t y,
-                                       uint16_t mapsquare, uint8_t plane,
-                                       uint8_t type, uint8_t rotation,
-                                       uint8_t flags, uint32_t ordinal) {
-    uint64_t h = 1469598103934665603ull;
-    h = fnv1a_u64(h, &obj_id, sizeof(obj_id));
-    h = fnv1a_u64(h, &x, sizeof(x));
-    h = fnv1a_u64(h, &y, sizeof(y));
-    h = fnv1a_u64(h, &mapsquare, sizeof(mapsquare));
-    h = fnv1a_u64(h, &plane, sizeof(plane));
-    h = fnv1a_u64(h, &type, sizeof(type));
-    h = fnv1a_u64(h, &rotation, sizeof(rotation));
-    h = fnv1a_u64(h, &flags, sizeof(flags));
-    h = fnv1a_u64(h, &ordinal, sizeof(ordinal));
-    return h ? h : 1ull;
 }
 
 int rc_load_object_defs_into(const char *path, RcObjectData *data) {
@@ -426,74 +496,218 @@ int rc_load_object_behaviors_into(const char *path, RcObjectData *data) {
     return loaded;
 }
 
+static RcObjectPlacementStore *object_placement_store_load(const char *path) {
+    if (!path || !path[0]) return NULL;
+    RcAssetReader *reader = rc_asset_reader_open(path);
+    if (!reader) return NULL;
+
+    unsigned char raw_header[OPLI_HEADER_BYTES];
+    uint32_t header[OPLI_HEADER_U32S];
+    if (!rc_asset_reader_read_at(reader, 0, raw_header, sizeof(raw_header))) {
+        rc_asset_reader_close(reader);
+        return NULL;
+    }
+    for (int i = 0; i < OPLI_HEADER_U32S; i++)
+        header[i] = read_u32_le(raw_header + i * 4);
+    uint64_t records_offset = OPLI_HEADER_BYTES
+        + (uint64_t)RC_MAX_OBJECT_ID * OPLI_INDEX_ENTRY_BYTES;
+    uint64_t records_size = (uint64_t)header[2] * header[3];
+    if (header[0] != OPLI_MAGIC || header[1] != OPLI_VERSION
+            || header[3] != OPLI_RECORD_BYTES
+            || header[2] > INT_MAX
+            || header[4] > RC_MAX_OBJECT_ID
+            || (uint64_t)header[5] + header[6] + header[7] + header[8]
+                   != header[2]
+            || records_size > SIZE_MAX
+            || rc_asset_reader_size(reader) != records_offset + records_size) {
+        rc_asset_reader_close(reader);
+        return NULL;
+    }
+
+    RcObjectPlacementStore *store = calloc(1, sizeof(*store));
+    unsigned char *raw_index = malloc(
+        (size_t)RC_MAX_OBJECT_ID * OPLI_INDEX_ENTRY_BYTES);
+    if (!store || !raw_index) {
+        free(raw_index);
+        object_placement_store_free(store);
+        rc_asset_reader_close(reader);
+        return NULL;
+    }
+    store->path = copy_string(path);
+    store->index = malloc((size_t)RC_MAX_OBJECT_ID * sizeof(*store->index));
+    store->cache_capacity = RC_OBJECT_PLACEMENT_DEFAULT_CACHE_PAGES;
+    store->pages = calloc(store->cache_capacity, sizeof(*store->pages));
+    store->cache_slots = malloc(
+        (size_t)RC_MAX_OBJECT_ID * sizeof(*store->cache_slots));
+    if (!store->path || !store->index || !store->pages
+            || !store->cache_slots
+            || !rc_asset_reader_read_at(
+                reader, OPLI_HEADER_BYTES, raw_index,
+                (size_t)RC_MAX_OBJECT_ID * OPLI_INDEX_ENTRY_BYTES)) {
+        free(raw_index);
+        object_placement_store_free(store);
+        rc_asset_reader_close(reader);
+        return NULL;
+    }
+    memset(store->cache_slots, 0xff,
+           (size_t)RC_MAX_OBJECT_ID * sizeof(*store->cache_slots));
+
+    uint32_t expected_first = 0;
+    uint32_t occupied_pages = 0;
+    for (uint32_t i = 0; i < RC_MAX_OBJECT_ID; i++) {
+        const unsigned char *raw = raw_index
+            + (size_t)i * OPLI_INDEX_ENTRY_BYTES;
+        RcObjectRange page = {
+            .first = read_u32_le(raw),
+            .count = read_u32_le(raw + 4),
+        };
+        if (page.first != expected_first
+                || page.count > header[2] - expected_first) {
+            free(raw_index);
+            object_placement_store_free(store);
+            rc_asset_reader_close(reader);
+            return NULL;
+        }
+        store->index[i] = page;
+        expected_first += page.count;
+        occupied_pages += page.count > 0;
+    }
+    free(raw_index);
+    rc_asset_reader_close(reader);
+    if (expected_first != header[2] || occupied_pages != header[4]) {
+        object_placement_store_free(store);
+        return NULL;
+    }
+    store->total_rows = header[2];
+    store->occupied_pages = header[4];
+    memcpy(store->source_plane_counts, &header[5],
+           sizeof(store->source_plane_counts));
+    return store;
+}
+
+static int parse_placement_page(const unsigned char *raw, uint32_t count,
+                                uint16_t mapsquare,
+                                RcObjectPlacement *rows) {
+    for (uint32_t i = 0; i < count; i++) {
+        const unsigned char *src = raw + (size_t)i * OPLI_RECORD_BYTES;
+        RcObjectPlacement row = {
+            .obj_id = read_u32_le(src),
+            .key = read_u64_le(src + 4),
+            .x = read_u16_le(src + 12),
+            .y = read_u16_le(src + 14),
+            .mapsquare = read_u16_le(src + 16),
+            .plane = src[18],
+            .type = src[19],
+            .rotation = src[20],
+            .flags = src[21],
+        };
+        uint16_t coordinate_mapsquare = (uint16_t)(
+            ((row.x >> 6) << 8) | (row.y >> 6));
+        if (row.key == 0 || row.x >= 16384 || row.y >= 16384
+                || row.mapsquare != mapsquare
+                || coordinate_mapsquare != mapsquare || row.plane >= 4
+                || row.type >= 64 || row.rotation >= 4) {
+            return 0;
+        }
+        rows[i] = row;
+    }
+    return 1;
+}
+
+static RcObjectPlacementPage *cached_placement_page(
+    RcObjectPlacementStore *store, uint16_t mapsquare) {
+    uint32_t slot = store->cache_slots[mapsquare];
+    if (slot >= store->cache_capacity) return NULL;
+    RcObjectPlacementPage *page = &store->pages[slot];
+    return page->loaded && page->mapsquare == mapsquare ? page : NULL;
+}
+
+static RcObjectPlacementPage *placement_cache_slot(
+    RcObjectPlacementStore *store) {
+    RcObjectPlacementPage *oldest = &store->pages[0];
+    for (uint32_t i = 0; i < store->cache_capacity; i++) {
+        RcObjectPlacementPage *page = &store->pages[i];
+        if (!page->loaded) return page;
+        if (page->last_used < oldest->last_used) oldest = page;
+    }
+    return oldest;
+}
+
+static int object_placement_page_get(RcObjectPlacementStore *store,
+                                     RcAssetReader *reader,
+                                     uint16_t mapsquare,
+                                     RcObjectPlacementPage **out,
+                                     int *loaded) {
+    if (out) *out = NULL;
+    if (loaded) *loaded = 0;
+    if (!store) return 0;
+    RcObjectRange source = store->index[mapsquare];
+    if (source.count == 0) return 1;
+
+    RcObjectPlacementPage *page = cached_placement_page(store, mapsquare);
+    if (page) {
+        page->last_used = ++store->use_clock;
+        if (out) *out = page;
+        return 1;
+    }
+
+    int close_reader = 0;
+    if (!reader) {
+        reader = rc_asset_reader_open(store->path);
+        close_reader = 1;
+    }
+    if (!reader) return 0;
+    size_t raw_size = (size_t)source.count * OPLI_RECORD_BYTES;
+    unsigned char *raw = malloc(raw_size);
+    RcObjectPlacement *rows = malloc(
+        (size_t)source.count * sizeof(*rows));
+    uint64_t records_offset = OPLI_HEADER_BYTES
+        + (uint64_t)RC_MAX_OBJECT_ID * OPLI_INDEX_ENTRY_BYTES;
+    int ok = raw && rows
+        && rc_asset_reader_read_at(
+            reader, records_offset + (uint64_t)source.first * OPLI_RECORD_BYTES,
+            raw, raw_size)
+        && parse_placement_page(raw, source.count, mapsquare, rows);
+    free(raw);
+    if (close_reader) rc_asset_reader_close(reader);
+    if (!ok) {
+        free(rows);
+        return 0;
+    }
+
+    page = placement_cache_slot(store);
+    if (page->loaded) {
+        store->cache_slots[page->mapsquare] = UINT32_MAX;
+        store->resident_rows -= page->count;
+        free(page->rows);
+    } else {
+        store->resident_pages++;
+    }
+    *page = (RcObjectPlacementPage){
+        .rows = rows,
+        .count = source.count,
+        .last_used = ++store->use_clock,
+        .mapsquare = mapsquare,
+        .loaded = 1,
+    };
+    store->cache_slots[mapsquare] = (uint32_t)(page - store->pages);
+    store->resident_rows += source.count;
+    if (out) *out = page;
+    if (loaded) *loaded = 1;
+    return 1;
+}
+
 int rc_load_object_placements_into(const char *path, RcObjectData *data) {
     if (!path || !data) return -1;
-    FILE *f = rc_asset_fopen(path, "rb");
-    if (!f) return -1;
-    uint32_t version, count, region_count;
-    if (!read_header_version(f, path, OPLC_MAGIC, OPLC_VERSION_MIN,
-                             OPLC_VERSION_MAX, &version, &count)
-            || !rc_read_exact(f, &region_count, sizeof(region_count), 1,
-                              path, "region count")) {
-        rc_asset_close(f);
-        return -1;
-    }
-    (void)region_count;
-    RcObjectPlacement *rows = malloc((size_t)count * sizeof(*rows));
-    if (!rows) {
-        rc_asset_close(f);
-        return -1;
-    }
-    reset_object_range_index(data->region_index);
-    for (uint32_t i = 0; i < count; i++) {
-        RcObjectPlacement *row = &rows[i];
-        if (!rc_read_exact(f, &row->obj_id, sizeof(row->obj_id), 1, path,
-                           "object id")) {
-            free(rows);
-            rc_asset_close(f);
-            return -1;
-        }
-        if (version >= 2) {
-            if (!rc_read_exact(f, &row->key, sizeof(row->key), 1, path,
-                               "placement key")) {
-                free(rows);
-                rc_asset_close(f);
-                return -1;
-            }
-        } else {
-            row->key = 0;
-        }
-        if (!rc_read_exact(f, &row->x, sizeof(row->x), 1, path, "x")
-                || !rc_read_exact(f, &row->y, sizeof(row->y), 1, path, "y")
-                || !rc_read_exact(f, &row->mapsquare, sizeof(row->mapsquare),
-                                  1, path, "mapsquare")
-                || !rc_read_exact(f, &row->plane, sizeof(row->plane), 1,
-                                  path, "plane")
-                || !rc_read_exact(f, &row->type, sizeof(row->type), 1,
-                                  path, "type")
-                || !rc_read_exact(f, &row->rotation, sizeof(row->rotation),
-                                  1, path, "rotation")
-                || !rc_read_exact(f, &row->flags, sizeof(row->flags), 1,
-                                  path, "flags")) {
-            free(rows);
-            rc_asset_close(f);
-            return -1;
-        }
-        if (row->key == 0) {
-            row->key = computed_placement_key(row->obj_id, row->x, row->y,
-                                              row->mapsquare, row->plane,
-                                              row->type, row->rotation,
-                                              row->flags, i);
-        }
-        RcObjectRange *idx = &data->region_index[row->mapsquare];
-        if (idx->first == UINT32_MAX) idx->first = i;
-        idx->count++;
-    }
-    rc_asset_close(f);
+    RcObjectPlacementStore *store = object_placement_store_load(path);
+    if (!store) return -1;
     free(data->placements);
-    data->placements = rows;
-    data->placement_count = (int)count;
-    return (int)count;
+    object_placement_store_free(data->placement_store);
+    data->placements = NULL;
+    data->placement_store = store;
+    data->placement_count = (int)store->total_rows;
+    reset_object_range_index(data->region_index);
+    return data->placement_count;
 }
 
 int rc_load_object_transports_into(const char *path, RcObjectData *data) {
@@ -563,7 +777,10 @@ int rc_object_data_import_globals(RcObjectData *data) {
     data->def_count = g_rc_object_def_count;
     data->behavior_count = g_rc_object_behavior_count;
     data->param_count = g_rc_object_param_count;
-    data->placement_count = g_rc_object_placement_count;
+    data->placement_count = g_rc_object_placements
+        ? g_rc_object_placement_count
+        : g_global_placement_store
+            ? (int)g_global_placement_store->total_rows : 0;
     data->transport_count = g_rc_object_transport_count;
     memcpy(data->region_index, g_region_index, sizeof(data->region_index));
     memcpy(data->transport_index, g_transport_index,
@@ -576,13 +793,16 @@ int rc_object_data_import_globals(RcObjectData *data) {
         memcpy(data->params, g_rc_object_params,
                (size_t)data->param_count * sizeof(*data->params));
     }
-    if (data->placement_count > 0) {
-        if (!g_rc_object_placements) return 0;
+    if (data->placement_count > 0 && g_rc_object_placements) {
         data->placements =
             malloc((size_t)data->placement_count * sizeof(*data->placements));
         if (!data->placements) return 0;
         memcpy(data->placements, g_rc_object_placements,
                (size_t)data->placement_count * sizeof(*data->placements));
+    } else if (data->placement_count > 0 && g_global_placement_store) {
+        data->placement_store =
+            object_placement_store_clone(g_global_placement_store);
+        if (!data->placement_store) return 0;
     }
     if (data->transport_count > 0) {
         if (!g_rc_object_transports) return 0;
@@ -623,6 +843,20 @@ static int mirror_object_behaviors_to_globals(const RcObjectData *data) {
 
 static int mirror_object_placements_to_globals(const RcObjectData *data) {
     if (!data) return 0;
+    if (data->placement_store) {
+        RcObjectPlacementStore *store =
+            object_placement_store_clone(data->placement_store);
+        if (!store) return 0;
+        free(g_rc_object_placements);
+        object_placement_store_free(g_global_placement_store);
+        g_rc_object_placements = NULL;
+        g_global_placement_store = store;
+        g_rc_object_placement_count = data->placement_count;
+        reset_object_range_index(g_region_index);
+        return 1;
+    }
+    if (data->placement_count > 0 && !data->placements)
+        return g_global_placement_store != NULL;
     RcObjectPlacement *rows = NULL;
     if (data->placement_count > 0) {
         if (!data->placements) return 0;
@@ -632,7 +866,9 @@ static int mirror_object_placements_to_globals(const RcObjectData *data) {
                (size_t)data->placement_count * sizeof(*rows));
     }
     free(g_rc_object_placements);
+    object_placement_store_free(g_global_placement_store);
     g_rc_object_placements = rows;
+    g_global_placement_store = NULL;
     g_rc_object_placement_count = data->placement_count;
     memcpy(g_region_index, data->region_index, sizeof(g_region_index));
     return 1;
@@ -689,15 +925,16 @@ int rc_load_object_behaviors(const char *path) {
 }
 
 int rc_load_object_placements(const char *path) {
-    RcObjectData *data = calloc(1, sizeof(*data));
-    if (!data) return -1;
-    rc_object_data_init(data);
-    int loaded = rc_load_object_placements_into(path, data);
-    if (loaded >= 0 && !mirror_object_placements_to_globals(data)) loaded = -1;
-    rc_object_data_free(data);
-    free(data);
-    if (loaded >= 0) rc_objects_use_data(NULL);
-    return loaded;
+    RcObjectPlacementStore *store = object_placement_store_load(path);
+    if (!store) return -1;
+    free(g_rc_object_placements);
+    object_placement_store_free(g_global_placement_store);
+    g_rc_object_placements = NULL;
+    g_global_placement_store = store;
+    g_rc_object_placement_count = (int)store->total_rows;
+    reset_object_range_index(g_region_index);
+    rc_objects_use_data(NULL);
+    return g_rc_object_placement_count;
 }
 
 int rc_load_object_transports(const char *path) {
@@ -771,8 +1008,46 @@ const RcObjectBehavior *rc_object_behavior_get(int obj_id) {
     return NULL;
 }
 
+static RcObjectPlacementStore *active_placement_store(void) {
+    if (g_active_object_data && g_active_object_data->placement_store)
+        return g_active_object_data->placement_store;
+    return g_global_placement_store;
+}
+
+int rc_object_placements_set_cache_limit(int max_pages) {
+    RcObjectPlacementStore *store = active_placement_store();
+    if (!store) return 0;
+    if (max_pages <= 0) return -1;
+    if (max_pages > RC_MAX_OBJECT_ID) max_pages = RC_MAX_OBJECT_ID;
+    if ((uint32_t)max_pages == store->cache_capacity) return 0;
+    RcObjectPlacementPage *pages = calloc(
+        (size_t)max_pages, sizeof(*pages));
+    if (!pages) return -1;
+    for (uint32_t i = 0; i < store->cache_capacity; i++)
+        free(store->pages[i].rows);
+    free(store->pages);
+    store->pages = pages;
+    memset(store->cache_slots, 0xff,
+           (size_t)RC_MAX_OBJECT_ID * sizeof(*store->cache_slots));
+    store->cache_capacity = (uint32_t)max_pages;
+    store->resident_pages = 0;
+    store->resident_rows = 0;
+    store->use_clock = 0;
+    return 1;
+}
+
 const RcObjectPlacement *rc_object_region_placements(uint16_t mapsquare,
                                                      int *count) {
+    RcObjectPlacementStore *store = active_placement_store();
+    if (store) {
+        RcObjectPlacementPage *page = NULL;
+        if (!object_placement_page_get(store, NULL, mapsquare, &page, NULL)) {
+            if (count) *count = 0;
+            return NULL;
+        }
+        if (count) *count = page ? (int)page->count : 0;
+        return page ? page->rows : NULL;
+    }
     const RcObjectRange *index = g_active_region_index ? g_active_region_index
                                                        : g_region_index;
     const RcObjectPlacement *placements = g_active_object_placements
@@ -785,17 +1060,101 @@ const RcObjectPlacement *rc_object_region_placements(uint16_t mapsquare,
 }
 
 int rc_object_placement_count(void) {
-    return g_active_object_placements ? g_active_object_placement_count
-                                      : g_rc_object_placement_count;
+    if (g_active_object_data) return g_active_object_data->placement_count;
+    if (g_global_placement_store)
+        return (int)g_global_placement_store->total_rows;
+    return g_rc_object_placements ? g_rc_object_placement_count : 0;
 }
 
 int rc_object_has_placements(void) {
     return rc_object_placement_count() > 0;
 }
 
+static int placement_mapsquare_bounds(int min_x, int min_y,
+                                      int max_x, int max_y,
+                                      int *min_rx, int *min_ry,
+                                      int *max_rx, int *max_ry) {
+    if (min_x > max_x || min_y > max_y) return -1;
+    if (max_x < 0 || max_y < 0 || min_x >= 16384 || min_y >= 16384)
+        return 0;
+    if (min_x < 0) min_x = 0;
+    if (min_y < 0) min_y = 0;
+    if (max_x >= 16384) max_x = 16383;
+    if (max_y >= 16384) max_y = 16383;
+    *min_rx = min_x >> 6;
+    *min_ry = min_y >> 6;
+    *max_rx = max_x >> 6;
+    *max_ry = max_y >> 6;
+    return 1;
+}
+
+int rc_object_placements_prefetch_rect(int min_x, int min_y,
+                                       int max_x, int max_y,
+                                       RcObjectPlacementLoadStats *stats) {
+    if (stats) memset(stats, 0, sizeof(*stats));
+    RcObjectPlacementStore *store = active_placement_store();
+    if (!store) return 0;
+    if (stats) {
+        stats->total_rows = store->total_rows;
+        stats->occupied_pages = store->occupied_pages;
+    }
+
+    int min_rx, min_ry, max_rx, max_ry;
+    int bounds = placement_mapsquare_bounds(
+        min_x, min_y, max_x, max_y, &min_rx, &min_ry, &max_rx, &max_ry);
+    if (bounds < 0) return -1;
+    if (bounds == 0) {
+        if (stats) {
+            stats->pages_resident = store->resident_pages;
+            stats->rows_resident = store->resident_rows;
+        }
+        return 0;
+    }
+
+    uint32_t missing_pages = 0;
+    for (int rx = min_rx; rx <= max_rx; rx++) {
+        for (int ry = min_ry; ry <= max_ry; ry++) {
+            uint16_t mapsquare = (uint16_t)((rx << 8) | ry);
+            if (store->index[mapsquare].count == 0) continue;
+            if (stats) stats->pages_requested++;
+            if (!cached_placement_page(store, mapsquare)) missing_pages++;
+        }
+    }
+
+    RcAssetReader *reader = missing_pages
+        ? rc_asset_reader_open(store->path) : NULL;
+    if (missing_pages && !reader) return -1;
+    int result = 0;
+    for (int rx = min_rx; rx <= max_rx && result >= 0; rx++) {
+        for (int ry = min_ry; ry <= max_ry; ry++) {
+            uint16_t mapsquare = (uint16_t)((rx << 8) | ry);
+            if (store->index[mapsquare].count == 0) continue;
+            RcObjectPlacementPage *page = NULL;
+            int loaded = 0;
+            if (!object_placement_page_get(store, reader, mapsquare,
+                                           &page, &loaded)) {
+                result = -1;
+                break;
+            }
+            if (loaded && stats) {
+                stats->pages_loaded++;
+                stats->rows_loaded += page->count;
+            }
+        }
+    }
+    if (reader) rc_asset_reader_close(reader);
+    if (stats) {
+        stats->pages_resident = store->resident_pages;
+        stats->rows_resident = store->resident_rows;
+    }
+    return result < 0 ? -1 : (int)(stats ? stats->pages_loaded
+                                         : missing_pages);
+}
+
 int rc_object_placements_at(int x, int y, int plane,
                             RcObjectPlacement *out, int max_out) {
-    if (x < 0 || y < 0 || plane < 0 || plane >= 4 || max_out <= 0) return 0;
+    if (x < 0 || y < 0 || plane < 0 || plane >= 4
+            || !out || max_out <= 0) return 0;
     uint16_t ms = (uint16_t)(((x >> 6) << 8) | (y >> 6));
     int count = 0;
     const RcObjectPlacement *rows = rc_object_region_placements(ms, &count);

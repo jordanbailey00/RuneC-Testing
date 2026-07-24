@@ -8,9 +8,10 @@
 #define RC_TEST_SOURCE_DIR "."
 #endif
 
-#define OPLC_MAGIC 0x434c504fu
-#define OPLC_VERSION_MIN 1u
-#define OPLC_VERSION_MAX 2u
+#define OPLI_MAGIC 0x494c504fu
+#define OPLI_VERSION 1u
+#define OPLI_RECORD_SIZE 22u
+#define MAPSQUARE_COUNT 65536u
 
 static uint8_t read_u8(FILE *f) {
     int c = fgetc(f);
@@ -37,18 +38,37 @@ static uint64_t read_u64(FILE *f) {
 
 int main(void) {
     char path[512];
-    snprintf(path, sizeof(path), "%s/data/defs/object_placements.bin",
+    snprintf(path, sizeof(path),
+             "%s/data/regions/world.object-placements.indexed.bin",
              RC_TEST_SOURCE_DIR);
     FILE *f = rc_asset_fopen(path, "rb");
     if (!f) abort();
 
-    if (read_u32(f) != OPLC_MAGIC) abort();
+    if (read_u32(f) != OPLI_MAGIC) abort();
     uint32_t version = read_u32(f);
-    if (version < OPLC_VERSION_MIN || version > OPLC_VERSION_MAX) abort();
+    if (version != OPLI_VERSION) abort();
     uint32_t count = read_u32(f);
+    if (read_u32(f) != OPLI_RECORD_SIZE) abort();
     uint32_t region_count = read_u32(f);
+    uint32_t expected_plane_counts[4];
+    for (int plane = 0; plane < 4; plane++)
+        expected_plane_counts[plane] = read_u32(f);
     if (count < 4700000u) abort();
     if (region_count < 2400u) abort();
+
+    static uint32_t page_counts[MAPSQUARE_COUNT];
+    uint32_t expected_first = 0;
+    uint32_t occupied_pages = 0;
+    for (uint32_t mapsquare = 0; mapsquare < MAPSQUARE_COUNT; mapsquare++) {
+        uint32_t first = read_u32(f);
+        uint32_t page_count = read_u32(f);
+        if (first != expected_first || page_count > count - expected_first)
+            abort();
+        page_counts[mapsquare] = page_count;
+        expected_first += page_count;
+        occupied_pages += page_count > 0;
+    }
+    if (expected_first != count || occupied_pages != region_count) abort();
 
     uint32_t plane_counts[4] = {0};
     uint32_t type_counts[64] = {0};
@@ -57,37 +77,43 @@ int main(void) {
     uint8_t seen_ids[70000] = {0};
     uint32_t unique_ids = 0;
 
-    for (uint32_t i = 0; i < count; i++) {
-        uint32_t obj_id = read_u32(f);
-        uint64_t placement_key = version >= 2u ? read_u64(f) : 0u;
-        uint16_t x = read_u16(f);
-        uint16_t y = read_u16(f);
-        uint16_t mapsquare = read_u16(f);
-        uint8_t plane = read_u8(f);
-        uint8_t type = read_u8(f);
-        uint8_t rotation = read_u8(f);
-        (void)read_u8(f);
+    for (uint32_t mapsquare = 0; mapsquare < MAPSQUARE_COUNT; mapsquare++) {
+        for (uint32_t i = 0; i < page_counts[mapsquare]; i++) {
+            uint32_t obj_id = read_u32(f);
+            uint64_t placement_key = read_u64(f);
+            uint16_t x = read_u16(f);
+            uint16_t y = read_u16(f);
+            uint16_t stored_mapsquare = read_u16(f);
+            uint8_t plane = read_u8(f);
+            uint8_t type = read_u8(f);
+            uint8_t rotation = read_u8(f);
+            (void)read_u8(f);
 
-        if (x == 0 || y == 0 || mapsquare == 0) abort();
-        if (version >= 2u && placement_key == 0u) abort();
-        if (plane > 3 || type > 63 || rotation > 3) abort();
-        plane_counts[plane]++;
-        type_counts[type]++;
+            if (placement_key == 0u || stored_mapsquare != mapsquare) abort();
+            if ((((x >> 6) << 8) | (y >> 6)) != mapsquare) abort();
+            if (plane > 3 || type > 63 || rotation > 3) abort();
+            plane_counts[plane]++;
+            type_counts[type]++;
 
-        if (obj_id < sizeof(seen_ids) && !seen_ids[obj_id]) {
-            seen_ids[obj_id] = 1;
-            unique_ids++;
-        }
-        if (obj_id == 1276u) tree_count++;
-        if (obj_id == 10355u) bank_count++;
-        if (obj_id == 1535u) door_count++;
-        if (obj_id == 42207u) ladder_count++;
-        if (obj_id == 24427u && x == 1758u && y == 4959u) {
-            if (plane == 0u) museum_stair_scene0++;
-            if (plane == 1u) museum_stair_raw_plane1++;
+            if (obj_id < sizeof(seen_ids) && !seen_ids[obj_id]) {
+                seen_ids[obj_id] = 1;
+                unique_ids++;
+            }
+            if (obj_id == 1276u) tree_count++;
+            if (obj_id == 10355u) bank_count++;
+            if (obj_id == 1535u) door_count++;
+            if (obj_id == 42207u) ladder_count++;
+            if (obj_id == 24427u && x == 1758u && y == 4959u) {
+                if (plane == 0u) museum_stair_scene0++;
+                if (plane == 1u) museum_stair_raw_plane1++;
+            }
         }
     }
+    if (fgetc(f) != EOF) abort();
     rc_asset_close(f);
+
+    for (int plane = 0; plane < 4; plane++)
+        if (plane_counts[plane] != expected_plane_counts[plane]) abort();
 
     if (unique_ids < 39000u) abort();
     if (plane_counts[0] < 3200000u) abort();

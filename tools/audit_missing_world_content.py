@@ -17,6 +17,9 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from object_placement_index import (
+    iter_object_placements as iter_indexed_object_placements,
+)
 from spawn_index import read_npc_spawns
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,7 +28,6 @@ PIPELINE = ROOT / "tools/cache_pipeline"
 NDEF_MAGIC = 0x4E444546
 NPC_SPAWN_FLAG_INSTANCE = 0x01
 ODEF_MAGIC = 0x4645444F
-OPLC_MAGIC = 0x434C504F
 MDL2_MAGIC = 0x4D444C32
 MDL3_MAGIC = 0x4D444C33
 OANM_MAGIC = 0x4D4E414F
@@ -169,29 +171,6 @@ def parse_object_defs(path: Path) -> dict[int, ObjectDef]:
             transforms=transforms,
         )
     return out
-
-
-def iter_object_placements(path: Path):
-    with path.open("rb") as f:
-        magic, version, count, _region_count = struct.unpack(
-            "<IIII", read_exact(f, 16, path)
-        )
-        if magic != OPLC_MAGIC or version not in (1, 2):
-            raise ValueError(f"{path}: unsupported OPLC header")
-        for i in range(count):
-            obj_id = struct.unpack("<I", read_exact(f, 4, path))[0]
-            if version >= 2:
-                key = struct.unpack("<Q", read_exact(f, 8, path))[0]
-            else:
-                key = i
-            x = struct.unpack("<H", read_exact(f, 2, path))[0]
-            y = struct.unpack("<H", read_exact(f, 2, path))[0]
-            mapsquare = struct.unpack("<H", read_exact(f, 2, path))[0]
-            plane = struct.unpack("<B", read_exact(f, 1, path))[0]
-            obj_type = struct.unpack("<B", read_exact(f, 1, path))[0]
-            rotation = struct.unpack("<B", read_exact(f, 1, path))[0]
-            flags = struct.unpack("<B", read_exact(f, 1, path))[0]
-            yield obj_id, key, x, y, mapsquare, plane, obj_type, rotation, flags
 
 
 def add_missing(
@@ -353,7 +332,7 @@ def audit_objects(
     rows = 0
     missing = 0
     for obj_id, _key, x, y, _mapsquare, plane, obj_type, rotation, _flags in \
-            iter_object_placements(object_placements_path):
+            iter_indexed_object_placements(object_placements_path):
         rows += 1
         cause = object_missing_cause(
             obj_id, obj_type, object_defs, loc_defs, model_key_for_type,
@@ -485,7 +464,11 @@ def main() -> int:
     )
     ap.add_argument("--npc-models", type=Path, default=ROOT / "data/models/npcs.models")
     ap.add_argument("--object-defs", type=Path, default=ROOT / "data/defs/object_defs.bin")
-    ap.add_argument("--object-placements", type=Path, default=ROOT / "data/defs/object_placements.bin")
+    ap.add_argument(
+        "--object-placements",
+        type=Path,
+        default=ROOT / "data/regions/world.object-placements.indexed.bin",
+    )
     ap.add_argument("--cache", type=Path, default=None)
     ap.add_argument(
         "--strict-static-instance-skip",

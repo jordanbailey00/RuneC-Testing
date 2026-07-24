@@ -82,7 +82,7 @@ typedef struct {
     const char *activity_mechanics_path; // RC_SUB_ENCOUNTER: activity_mechanics.bin
     const char *activity_states_path; // RC_SUB_ENCOUNTER: activity_states.bin
     const char *object_defs_path;     // RC_SUB_OBJECTS: object_defs.bin
-    const char *object_placements_path; // RC_SUB_OBJECTS: object_placements.bin
+    const char *object_placements_path; // RC_SUB_OBJECTS: indexed placements
     const char *object_behaviors_path; // RC_SUB_OBJECTS: object_behaviors.bin
     const char *object_transports_path; // RC_SUB_OBJECTS: object_transports.bin
     const char *collision_tiles_path; // RC_SUB_REGIONS: collision_tiles.bin

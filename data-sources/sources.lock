@@ -56,7 +56,7 @@ id = "schemas"
 status = "required"
 kind = "tracked_tree"
 path = "schema"
-sha256 = "263fccd68b5b6bed1380aa8d91436573e4cce63b978de8b085238224c08e1f05"
+sha256 = "54c7bc2097b6cfc118ca79b160dd941515612b5ab773fb03f940a715dccfcf47"
 file_count = 35
 description = "Tracked Runtime binary schemas and pack format documentation."
 

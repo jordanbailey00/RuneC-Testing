@@ -6,6 +6,9 @@
 #define RC_MAX_OBJECT_ID 65536
 #define RC_OBJECT_ACTIONS 5
 #define RC_OBJECT_MAX_TRANSFORMS 8
+#define RC_OBJECT_PLACEMENT_DEFAULT_CACHE_PAGES 64
+
+typedef struct RcObjectPlacementStore RcObjectPlacementStore;
 
 enum {
     RC_OBJ_BEHAVIOR_DOOR      = 1u << 0,
@@ -88,9 +91,20 @@ typedef struct {
 } RcObjectRange;
 
 typedef struct {
+    uint32_t total_rows;
+    uint32_t occupied_pages;
+    uint32_t pages_requested;
+    uint32_t pages_loaded;
+    uint32_t rows_loaded;
+    uint32_t pages_resident;
+    uint32_t rows_resident;
+} RcObjectPlacementLoadStats;
+
+typedef struct {
     RcObjectDef defs[RC_MAX_OBJECT_ID];
     RcObjectBehavior behaviors[RC_MAX_OBJECT_ID];
     RcObjectPlacement *placements;
+    RcObjectPlacementStore *placement_store;
     RcObjectTransport *transports;
     RcObjectParam *params;
     RcObjectRange region_index[RC_MAX_OBJECT_ID];
@@ -137,6 +151,10 @@ int rc_object_placement_count(void);
 int rc_object_has_placements(void);
 int rc_object_placements_at(int x, int y, int plane,
                             RcObjectPlacement *out, int max_out);
+int rc_object_placements_prefetch_rect(int min_x, int min_y,
+                                       int max_x, int max_y,
+                                       RcObjectPlacementLoadStats *stats);
+int rc_object_placements_set_cache_limit(int max_pages);
 const RcObjectTransport *rc_object_transport_find(int obj_id, int x, int y,
                                                   int plane, int option);
 
