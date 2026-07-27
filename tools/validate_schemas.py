@@ -16,7 +16,7 @@ BINARY_SCHEMAS: dict[str, tuple[str, int, tuple[int, ...]]] = {
     "activity_spawns": ("ASPN", 1, (1,)),
     "activity_states": ("ASTA", 1, (1,)),
     "area_flags": ("AFLG", 1, (1,)),
-    "collision_tiles": ("CTIL", 1, (1,)),
+    "collision_tiles": ("CTPI", 1, (1,)),
     "dialogue": ("DLGX", 1, (1,)),
     "drops": ("DROP", 1, (1,)),
     "encounters": ("ENCT", 12, tuple(range(1, 13))),

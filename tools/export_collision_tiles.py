@@ -2,7 +2,6 @@
 """Emit full-world sparse collision tiles from the local b237 cache."""
 from __future__ import annotations
 
-import struct
 import sys
 import argparse
 from collections import Counter
@@ -20,22 +19,28 @@ from export_collision_map_modern import (  # noqa: E402
 )
 from rc_cache import RcCacheStore, find_all_map_region_files, read_map_region_file  # noqa: E402
 
+from collision_tile_index import (  # noqa: E402
+    COLLISION_TILE_INDEX_MAGIC,
+    COLLISION_TILE_INDEX_VERSION,
+    COLLISION_TILE_MAPSQUARE_COUNT,
+    HEADER,
+    INDEX_ENTRY,
+    RECORD,
+)
+
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "data/defs/collision_tiles.bin"
+OUT = ROOT / "data/regions/world.collision-tiles.indexed.bin"
 REPORT = ROOT / "tools/reports/collision_tiles.txt"
 
-CTIL_MAGIC = 0x4C495443  # CTIL
-CTIL_VERSION = 1
 
-
-def nonzero_rows(mapsquare: int, flags: list[list[list[int]]]) -> list[tuple[int, int, int, int, int]]:
-    rows: list[tuple[int, int, int, int, int]] = []
+def nonzero_rows(flags: list[list[list[int]]]) -> list[tuple[int, int, int, int]]:
+    rows: list[tuple[int, int, int, int]] = []
     for plane in range(4):
         for lx in range(64):
             for ly in range(64):
                 value = flags[plane][lx][ly]
                 if value:
-                    rows.append((mapsquare, lx, ly, plane, value))
+                    rows.append((lx, ly, plane, value))
     return rows
 
 
@@ -51,9 +56,9 @@ def main() -> int:
     store = RcCacheStore(cache_dir)
     obj_defs = decode_modern_obj_defs_rc(store)
     map_regions = find_all_map_region_files(store)
-    rows: list[tuple[int, int, int, int, int]] = []
     plane_counts: Counter[int] = Counter()
     region_count = 0
+    row_count = 0
     error_count = 0
     collision_objects = 0
 
@@ -61,50 +66,78 @@ def main() -> int:
     if args.limit_regions > 0:
         targets = targets[:args.limit_regions]
 
-    for ms, region in targets:
-        terrain = None
-        loc = None
-        try:
-            if region.has_terrain:
-                terrain = read_map_region_file(
-                    store, region.region_x, region.region_y, "terrain"
-                )
-            if region.has_locations:
-                loc = read_map_region_file(
-                    store, region.region_x, region.region_y, "locations"
-                )
-        except Exception:
-            error_count += 1
-            continue
-        if terrain is None and loc is None:
-            error_count += 1
-            continue
-        flags = new_collision_flags()
-        down_heights: set[tuple[int, int, int]] = set()
-        if terrain:
-            try:
-                flags, down_heights = parse_terrain(terrain)
-            except Exception:
-                error_count += 1
-                flags = new_collision_flags()
-                down_heights = set()
-        if loc:
-            try:
-                collision_objects += parse_objects_modern(loc, flags, down_heights, obj_defs)
-            except Exception:
-                error_count += 1
-        rrows = nonzero_rows(ms, flags)
-        if rrows:
-            region_count += 1
-            for row in rrows:
-                plane_counts[row[3]] += 1
-            rows.extend(rrows)
-
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    with args.output.open("wb") as f:
-        f.write(struct.pack("<IIII", CTIL_MAGIC, CTIL_VERSION, len(rows), region_count))
-        for ms, lx, ly, plane, flags in rows:
-            f.write(struct.pack("<HBBBBI", ms, lx, ly, plane, 0, flags & 0xFFFFFFFF))
+    tmp_output = args.output.with_name(args.output.name + ".tmp")
+    tmp_output.unlink(missing_ok=True)
+    page_counts = [0] * COLLISION_TILE_MAPSQUARE_COUNT
+    try:
+        with tmp_output.open("w+b") as output:
+            output.write(
+                b"\0" * (
+                    HEADER.size
+                    + COLLISION_TILE_MAPSQUARE_COUNT * INDEX_ENTRY.size
+                )
+            )
+            for ms, region in targets:
+                terrain = None
+                loc = None
+                try:
+                    if region.has_terrain:
+                        terrain = read_map_region_file(
+                            store, region.region_x, region.region_y, "terrain"
+                        )
+                    if region.has_locations:
+                        loc = read_map_region_file(
+                            store, region.region_x, region.region_y, "locations"
+                        )
+                except Exception:
+                    error_count += 1
+                    continue
+                if terrain is None and loc is None:
+                    error_count += 1
+                    continue
+                flags = new_collision_flags()
+                down_heights: set[tuple[int, int, int]] = set()
+                if terrain:
+                    try:
+                        flags, down_heights = parse_terrain(terrain)
+                    except Exception:
+                        error_count += 1
+                        flags = new_collision_flags()
+                        down_heights = set()
+                if loc:
+                    try:
+                        collision_objects += parse_objects_modern(
+                            loc, flags, down_heights, obj_defs
+                        )
+                    except Exception:
+                        error_count += 1
+                region_rows = nonzero_rows(flags)
+                page_counts[ms] = len(region_rows)
+                if region_rows:
+                    region_count += 1
+                for lx, ly, plane, value in region_rows:
+                    plane_counts[plane] += 1
+                    output.write(RECORD.pack(lx, ly, plane, 0, value & 0xFFFFFFFF))
+                row_count += len(region_rows)
+
+            output.seek(0)
+            output.write(HEADER.pack(
+                COLLISION_TILE_INDEX_MAGIC,
+                COLLISION_TILE_INDEX_VERSION,
+                row_count,
+                RECORD.size,
+                region_count,
+                *(plane_counts[plane] for plane in range(4)),
+            ))
+            first = 0
+            for count in page_counts:
+                output.write(INDEX_ENTRY.pack(first, count))
+                first += count
+        tmp_output.replace(args.output)
+    except BaseException:
+        tmp_output.unlink(missing_ok=True)
+        raise
 
     lines = [
         "Collision tile catalog",
@@ -116,7 +149,7 @@ def main() -> int:
         f"cache map groups: {len(map_regions)}",
         f"exported map groups: {len(targets)}",
         f"regions with collision: {region_count}",
-        f"non-zero collision tiles: {len(rows)}",
+        f"non-zero collision tiles: {row_count}",
         f"collision-marked objects: {collision_objects}",
         f"region parse/read errors: {error_count}",
         "",
@@ -127,7 +160,8 @@ def main() -> int:
     lines.extend([
         "",
         "accepted simplifications:",
-        "  - sparse rows store non-zero collision flags only; runtime expands them to shared dense lookup",
+        "  - sparse rows store non-zero collision flags only; runtime expands active mapsquare pages to dense lookup",
+        "  - a fixed mapsquare directory supports bounded loose/pack range reads without full-file extraction",
         "  - area semantics such as wilderness/multi/safe-zone are a separate area-flag dataset",
     ])
     args.report.parent.mkdir(parents=True, exist_ok=True)

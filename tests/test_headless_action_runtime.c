@@ -16,7 +16,8 @@
 #define OBHV_PATH RC_TEST_SOURCE_DIR "/data/defs/object_behaviors.bin"
 #define OTRP_PATH RC_TEST_SOURCE_DIR "/data/defs/object_transports.bin"
 #define TRAV_PATH RC_TEST_SOURCE_DIR "/data/defs/traversal_edges.bin"
-#define CTIL_PATH RC_TEST_SOURCE_DIR "/data/defs/collision_tiles.bin"
+#define CTPI_PATH \
+    RC_TEST_SOURCE_DIR "/data/regions/world.collision-tiles.indexed.bin"
 
 enum {
     TEST_NPC_ID = 990123,
@@ -57,7 +58,7 @@ static RcWorld *make_world(uint32_t seed) {
     cfg.object_behaviors_path = OBHV_PATH;
     cfg.object_transports_path = OTRP_PATH;
     cfg.traversal_edges_path = TRAV_PATH;
-    cfg.collision_tiles_path = CTIL_PATH;
+    cfg.collision_tiles_path = CTPI_PATH;
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world != NULL);
     return world;

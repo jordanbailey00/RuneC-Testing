@@ -15,7 +15,8 @@
 #define RC_TEST_SOURCE_DIR "."
 #endif
 
-#define CTIL_PATH RC_TEST_SOURCE_DIR "/data/defs/collision_tiles.bin"
+#define CTPI_PATH \
+    RC_TEST_SOURCE_DIR "/data/regions/world.collision-tiles.indexed.bin"
 #define ODEF_PATH RC_TEST_SOURCE_DIR "/data/defs/object_defs.bin"
 #define OPLI_PATH \
     RC_TEST_SOURCE_DIR "/data/regions/world.object-placements.indexed.bin"
@@ -161,7 +162,7 @@ static RcWorld *make_region_world(uint32_t seed) {
     RcWorldConfig cfg = rc_preset_base_only();
     cfg.seed = seed;
     cfg.subsystems = RC_SUB_REGIONS;
-    cfg.collision_tiles_path = CTIL_PATH;
+    cfg.collision_tiles_path = CTPI_PATH;
     cfg.area_flags_path = NULL;
     RcWorld *world = rc_world_create_config(&cfg);
     if (!world) {
@@ -229,7 +230,7 @@ static RcWorld *make_object_world(uint32_t seed) {
     cfg.object_behaviors_path = OBHV_PATH;
     cfg.object_transports_path = OTRP_PATH;
     cfg.traversal_edges_path = TRAV_PATH;
-    cfg.collision_tiles_path = CTIL_PATH;
+    cfg.collision_tiles_path = CTPI_PATH;
     cfg.area_flags_path = NULL;
     RcWorld *world = rc_world_create_config(&cfg);
     if (!world) {
@@ -381,7 +382,7 @@ static RcWorld *make_mixed_agent_world(uint32_t seed, int *npc_uid_out) {
     cfg.object_behaviors_path = OBHV_PATH;
     cfg.object_transports_path = OTRP_PATH;
     cfg.traversal_edges_path = TRAV_PATH;
-    cfg.collision_tiles_path = CTIL_PATH;
+    cfg.collision_tiles_path = CTPI_PATH;
     cfg.area_flags_path = NULL;
     RcWorld *world = rc_world_create_config(&cfg);
     if (!world) {
@@ -478,7 +479,7 @@ static RcWorld *make_spawn_world(uint32_t seed) {
     cfg.subsystems = RC_SUB_COMBAT | RC_SUB_REGIONS;
     cfg.npc_defs_path = NPC_PATH;
     cfg.spawns_path = SPAWN_PATH;
-    cfg.collision_tiles_path = CTIL_PATH;
+    cfg.collision_tiles_path = CTPI_PATH;
     RcWorld *world = rc_world_create_config(&cfg);
     if (!world) {
         fprintf(stderr, "failed to create spawn benchmark world\n");

@@ -135,25 +135,24 @@ rc_world_activate_area(world, &req, NULL);
 
 Every preset carries the same initial streaming policy: an active radius of
 two regions, a preload radius of three regions, and a 64-region cache limit.
-PR 6 spawn paging and PR 7 object-placement paging consume the cache limit;
-collision paging remains assigned to PR 8.
+Spawn, object-placement, and collision paging all consume that cache limit.
 
-`rc_world_activate_area` populates `RcWorld.map` from `collision_tiles.bin`
-and prefetches mapsquare-indexed NPC, static ground-item, and object-placement
-pages. Only records in mapsquares intersecting the requested area are read;
-spawn records are restored to source order before spawning so indexing does
-not change NPC UID or ground-item merge order. Object definitions, behaviors,
-and transports stay global while spatial placements live in a bounded LRU.
-The viewer and headless agents use the same API before issuing gameplay
-actions. Scenario/dev validation code that needs a guaranteed target uses
-`rc_world_ensure_npc_near`; presentation frontends should not resolve NPC
-definitions or mutate `world->npcs` directly.
+`rc_world_activate_area` populates `RcWorld.map` and prefetches mapsquare-
+indexed collision, NPC, static ground-item, and object-placement pages. Only
+records in mapsquares intersecting the requested area are read. Spawn records
+are restored to source order before spawning so indexing does not change NPC
+UID or ground-item merge order. Object definitions, behaviors, and transports
+stay global while spatial instances live in bounded LRUs. The viewer and
+headless agents use the same API before issuing gameplay actions. Scenario/dev
+validation code that needs a guaranteed target uses `rc_world_ensure_npc_near`;
+presentation frontends should not resolve NPC definitions or mutate
+`world->npcs` directly.
 
 `rc_world_get_streaming_telemetry` returns the latest collision/spatial-page
 and full active-area timings, loaded page count, active NPC count, and active
 ground-item count. Spawn and object-placement stats expose indexed pages and
-rows read, plus resident object pages/rows. Measurement is confined to area
-activation and does not add work to the tick path.
+rows read, plus resident collision and object pages/rows. Measurement is
+confined to area activation and does not add work to the tick path.
 
 The NSPI/GSPI v1 files use a fixed 65,536-entry mapsquare directory. Each
 entry stores the first record and count for `(region_x << 8) | region_y`.
@@ -165,6 +164,14 @@ The OPLI v1 object-placement file uses the same fixed mapsquare directory.
 Placement records remain in source order. `rc-core/objects.c` range-reads pages
 on demand and retains at most `max_cached_regions` pages; interaction lookup
 uses a direct mapsquare-to-cache-slot table.
+
+The CTPI v1 collision file is
+`data/regions/world.collision-tiles.indexed.bin`. It uses a fixed 65,536-entry
+mapsquare directory followed by sparse collision records. `rc-core/collision.c`
+range-reads requested mapsquares, expands each resident page to the existing
+dense four-plane query layout, and retains at most `max_cached_regions` pages.
+Collision queries therefore remain constant-time without loading the complete
+world table.
 
 `RcAssetReader` provides bounded reads over loose files and stored pack
 entries. Indexed spatial files are packed without compression so the pack
@@ -391,12 +398,12 @@ Each subsystem owns its binary(s):
 | shops | `shops.bin` |
 | storage | object behavior data + per-world bank state |
 | traversal | `traversal_edges.bin` |
-| regions | `collision_tiles.bin`, `area_flags.bin` |
+| regions | `world.collision-tiles.indexed.bin`, `area_flags.bin` |
 | skills | `recipes.bin`, `skill_drops.bin`, `gathering_nodes.bin` |
 | combat / slayer / encounter | `regular_npc_mechanics.bin` |
 | encounter | `encounters.bin` (ENCT v12), `activity_schemas.bin`, `activity_spawns.bin`, `activity_mechanics.bin`, `activity_states.bin`, curated encounter TOMLs |
 | slayer | `slayer.bin` |
-| active area | mapsquare-indexed world NPC/static ground-item spawns and object placements via `rc_world_activate_area`; lower-level NPC rect/near loaders remain available for tools/tests |
+| active area | mapsquare-indexed collision, world NPC/static ground-item spawns, and object placements via `rc_world_activate_area`; lower-level NPC rect/near loaders remain available for tools/tests |
 | (audio → rc-viewer) | `music.bin` |
 
 If a subsystem is disabled in the config, its binaries are never

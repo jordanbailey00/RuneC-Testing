@@ -35,7 +35,7 @@
 #define DEFAULT_OBJ_PLACES  "data/regions/world.object-placements.indexed.bin"
 #define DEFAULT_OBJ_BEH     "data/defs/object_behaviors.bin"
 #define DEFAULT_OBJ_TRANS   "data/defs/object_transports.bin"
-#define DEFAULT_COLLISION   "data/defs/collision_tiles.bin"
+#define DEFAULT_COLLISION   "data/regions/world.collision-tiles.indexed.bin"
 #define DEFAULT_AREA_FLAGS  "data/defs/area_flags.bin"
 #define DEFAULT_TRAVERSAL   "data/defs/traversal_edges.bin"
 #define DEFAULT_ENCOUNTERS  "content/encounters"

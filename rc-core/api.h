@@ -33,6 +33,7 @@ typedef struct {
     int collision_regions;
     int spawned_npcs;
     int spawned_ground_items;
+    RcCollisionLoadStats collision_stats;
     RcObjectPlacementLoadStats object_placement_stats;
     RcNpcSpawnLoadStats npc_stats;
     RcGroundItemSpawnLoadStats ground_item_stats;

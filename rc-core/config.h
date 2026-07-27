@@ -85,7 +85,7 @@ typedef struct {
     const char *object_placements_path; // RC_SUB_OBJECTS: indexed placements
     const char *object_behaviors_path; // RC_SUB_OBJECTS: object_behaviors.bin
     const char *object_transports_path; // RC_SUB_OBJECTS: object_transports.bin
-    const char *collision_tiles_path; // RC_SUB_REGIONS: collision_tiles.bin
+    const char *collision_tiles_path; // RC_SUB_REGIONS: indexed collision
     const char *area_flags_path;     // RC_SUB_REGIONS: area_flags.bin
     const char *traversal_edges_path; // RC_SUB_TRAVERSAL: traversal_edges.bin
     const char *encounters_dir;      // RC_SUB_ENCOUNTER: TOML dir (pass 2)

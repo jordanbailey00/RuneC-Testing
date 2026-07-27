@@ -1,7 +1,7 @@
 Collision tile catalog
 
 status: READY_WITH_ACCEPTED_SIMPLIFICATIONS
-output binary: data/defs/collision_tiles.bin (63106646 bytes)
+output binary: data/regions/world.collision-tiles.indexed.bin (51009628 bytes)
 source cache: data/source/b237-openrs2-2528/cache
 source object defs: b237 cache index 2 group 6
 cache map groups: 2870
@@ -18,5 +18,6 @@ by plane:
   plane 3: 383280
 
 accepted simplifications:
-  - sparse rows store non-zero collision flags only; runtime expands them to shared dense lookup
+  - sparse rows store non-zero collision flags only; runtime expands active mapsquare pages to dense lookup
+  - a fixed mapsquare directory supports bounded loose/pack range reads without full-file extraction
   - area semantics such as wilderness/multi/safe-zone are a separate area-flag dataset

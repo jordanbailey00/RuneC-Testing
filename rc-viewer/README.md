@@ -105,7 +105,7 @@ presentation responsibilities.
   - `data/regions/mapsquare.materials.atlas`
   - `data/regions/mapsquare.materials.tanim`
   - `data/regions/mapsquare.catalog`
-  - `data/defs/collision_tiles.bin`
+  - `data/regions/world.collision-tiles.indexed.bin`
   - `data/defs/npc_defs.bin`
   - `data/spawns/world.npc-spawns.indexed.bin`
   - `data/spawns/world.ground-items.indexed.bin`
@@ -117,6 +117,7 @@ presentation responsibilities.
   and compatibility datasets can be selected with environment overrides:
   - `RUNEC_TERRAIN`, `RUNEC_OBJECTS`, `RUNEC_CMAP`
   - `RUNEC_OBJECT_PLACEMENTS` (defaults to the indexed world placement file)
+  - `RUNEC_COLLISION_TILES` (defaults to the indexed world collision file)
   - `RUNEC_NPC_DEFS`, `RUNEC_NPC_SPAWNS`, `RUNEC_NPC_MODELS`
   - `RUNEC_NPC_ANIMS`, `RUNEC_PLAYER_MODELS`,
     `RUNEC_PLAYER_ANIMS`, `RUNEC_FALLBACK_ANIMS`

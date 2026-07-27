@@ -21,6 +21,10 @@ import tomllib
 from typing import Iterable
 import zlib
 
+from collision_tile_index import (
+    iter_collision_tiles,
+    read_header as read_collision_tile_header,
+)
 from object_placement_index import (
     iter_object_placements,
     read_header as read_object_placement_header,
@@ -56,6 +60,7 @@ MAPSQUARE_SHARED_FILES = (
     "mapsquare.materials.tanim",
 )
 OBJECT_PLACEMENT_INDEX_FILE = "world.object-placements.indexed.bin"
+COLLISION_TILE_INDEX_FILE = "world.collision-tiles.indexed.bin"
 MAPSQUARE_ASSET_RE = re.compile(
     r"^(?P<x>\d{1,3})_(?P<y>\d{1,3})\.p(?P<plane>[0-3])\."
     r"(?P<kind>terrain|objects|oanim|object_anim\.models)$"
@@ -103,7 +108,7 @@ REQUIRED_LOGICAL_PATHS = (
     "regions/world.object-placements.indexed.bin",
     "defs/object_behaviors.bin",
     "defs/object_transports.bin",
-    "defs/collision_tiles.bin",
+    "regions/world.collision-tiles.indexed.bin",
     "defs/area_flags.bin",
     "defs/traversal_edges.bin",
     "defs/encounters.bin",
@@ -285,6 +290,7 @@ def is_region_runtime_file(path: Path) -> bool:
     return (
         name in MAPSQUARE_SHARED_FILES
         or name == OBJECT_PLACEMENT_INDEX_FILE
+        or name == COLLISION_TILE_INDEX_FILE
         or MAPSQUARE_ASSET_RE.fullmatch(name) is not None
     )
 
@@ -459,7 +465,9 @@ def build_specs(data_root: Path) -> tuple[PackSpec, ...]:
         (
             p
             for p in defs_root.glob("*")
-            if p.suffix in {".bin", ".tsv"} and p.is_file()
+            if p.suffix in {".bin", ".tsv"}
+            and p.name != "collision_tiles.bin"
+            and p.is_file()
         ),
     )
 
@@ -996,6 +1004,23 @@ def validate_object_placement_runtime_asset(data_root: Path) -> dict[str, int]:
     }
 
 
+def validate_collision_runtime_asset(data_root: Path) -> dict[str, int]:
+    path = data_root / f"regions/{COLLISION_TILE_INDEX_FILE}"
+    try:
+        header = read_collision_tile_header(path)
+        row_count = sum(1 for _ in iter_collision_tiles(path))
+    except (OSError, ValueError) as exc:
+        raise SystemExit(
+            f"invalid indexed collision runtime data: {exc}"
+        ) from exc
+    if row_count != header[2]:
+        raise SystemExit("indexed collision row count mismatch")
+    return {
+        "rows": row_count,
+        "mapsquares": int(header[4]),
+    }
+
+
 def main() -> int:
     args = parse_args()
     version = version_slug(args.version)
@@ -1019,6 +1044,7 @@ def main() -> int:
     )
     spawn_index = validate_spawn_runtime_assets(data_root)
     object_placement_index = validate_object_placement_runtime_asset(data_root)
+    collision_index = validate_collision_runtime_asset(data_root)
     specs = build_specs(data_root)
     validate_required_specs(specs)
     chunks_by_spec = {
@@ -1045,6 +1071,11 @@ def main() -> int:
             "indexed object placements: "
             f"rows={object_placement_index['rows']} in "
             f"{object_placement_index['mapsquares']} mapsquares"
+        )
+        print(
+            "indexed collision: "
+            f"rows={collision_index['rows']} in "
+            f"{collision_index['mapsquares']} mapsquares"
         )
         return 0
 

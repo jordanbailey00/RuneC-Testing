@@ -277,17 +277,22 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
     int max_y = request->origin_y + request->height - 1;
 
     int collision_regions = world->map.region_count;
+    RcCollisionLoadStats collision_stats;
+    memset(&collision_stats, 0, sizeof(collision_stats));
     int pages_loaded = 0;
     double page_load_ms = 0.0;
     if (flags & RC_ACTIVE_AREA_LOAD_COLLISION) {
+        if (rc_collision_set_cache_limit(
+                world->streaming.max_cached_regions) < 0) {
+            return -1;
+        }
         double page_load_started_ms = monotonic_ms();
-        collision_regions = rc_collision_populate_map_rect(&world->map,
-                                                           min_x, min_y,
-                                                           max_x, max_y);
+        collision_regions = rc_collision_populate_map_rect_stats(
+            &world->map, min_x, min_y, max_x, max_y, &collision_stats);
         page_load_ms = monotonic_ms() - page_load_started_ms;
         if (collision_regions < 0)
             return -1;
-        pages_loaded += collision_regions;
+        pages_loaded += (int)collision_stats.pages_loaded;
     }
 
     RcObjectPlacementLoadStats object_placement_stats;
@@ -374,6 +379,7 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
 
     if (stats) {
         stats->collision_regions = collision_regions;
+        stats->collision_stats = collision_stats;
         stats->spawned_npcs = spawned;
         stats->spawned_ground_items = spawned_ground_items;
         stats->object_placement_stats = object_placement_stats;

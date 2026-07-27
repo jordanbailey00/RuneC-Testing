@@ -231,15 +231,11 @@ int main(void) {
     const RcCollisionData *collision = rc_game_data_collision_data(full_data);
     assert(collision != NULL);
     assert(collision->region_count == stats->collision_region_count);
-    assert(collision->regions != NULL);
+    assert(collision->store != NULL);
     int found = 0;
     uint32_t blocked = rc_collision_flags_at(3072, 3395, 0, &found);
-    uint16_t collision_ms = (uint16_t)(((3072 >> 6) << 8) | (3395 >> 6));
-    int collision_idx = collision->index[collision_ms];
     assert(found == 1);
-    assert(collision_idx >= 0 && collision_idx < collision->region_count);
-    assert(blocked ==
-           collision->regions[collision_idx].flags[0][3072 & 63][3395 & 63]);
+    assert(blocked & COL_BLOCK_WALK);
 
     const RcAreaFlagData *area = rc_game_data_area_flag_data(full_data);
     assert(area != NULL);

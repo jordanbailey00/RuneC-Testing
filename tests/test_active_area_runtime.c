@@ -11,7 +11,8 @@
 #define NPC_PATH RC_TEST_SOURCE_DIR "/data/defs/npc_defs.bin"
 #define SPAWN_PATH \
     RC_TEST_SOURCE_DIR "/data/spawns/world.npc-spawns.indexed.bin"
-#define CTIL_PATH RC_TEST_SOURCE_DIR "/data/defs/collision_tiles.bin"
+#define CTPI_PATH \
+    RC_TEST_SOURCE_DIR "/data/regions/world.collision-tiles.indexed.bin"
 #define OPLI_PATH \
     RC_TEST_SOURCE_DIR "/data/regions/world.object-placements.indexed.bin"
 #define STATIC_GROUND_ITEM_TEST_PATH "/tmp/runec_static_ground_items_test.bin"
@@ -98,7 +99,7 @@ int main(void) {
                    | RC_SUB_OBJECTS;
     cfg.npc_defs_path = NPC_PATH;
     cfg.spawns_path = SPAWN_PATH;
-    cfg.collision_tiles_path = CTIL_PATH;
+    cfg.collision_tiles_path = CTPI_PATH;
     cfg.object_placements_path = OPLI_PATH;
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world != NULL);
@@ -138,6 +139,15 @@ int main(void) {
     assert(rc_world_activate_area(world, &req, &stats) == 1);
     assert(stats.collision_regions > 0);
     assert(stats.collision_regions <= RC_MAX_REGIONS);
+    assert(stats.collision_stats.total_rows == 6310663);
+    assert(stats.collision_stats.occupied_pages == 2331);
+    assert(stats.collision_stats.pages_requested
+           == (uint32_t)stats.collision_regions);
+    assert(stats.collision_stats.pages_loaded
+           == stats.collision_stats.pages_requested);
+    assert(stats.collision_stats.rows_loaded > 0);
+    assert(stats.collision_stats.pages_resident
+           == stats.collision_stats.pages_loaded);
     assert(stats.npc_stats.total_rows == 24110);
     assert(stats.npc_stats.matched_filter == 840);
     assert(stats.spawned_npcs == 837);
@@ -155,7 +165,8 @@ int main(void) {
     assert(stats.object_placement_stats.pages_resident
            == stats.object_placement_stats.pages_loaded);
     assert(stats.streaming.backend_pages_loaded
-           == stats.collision_regions + stats.npc_stats.pages_loaded
+           == (int)stats.collision_stats.pages_loaded
+            + stats.npc_stats.pages_loaded
             + (int)stats.object_placement_stats.pages_loaded);
     assert(stats.streaming.active_npcs == 837);
     assert(stats.streaming.active_ground_items == 0);
@@ -206,6 +217,9 @@ int main(void) {
     assert(stats.object_placement_stats.pages_requested > 0);
     assert(stats.object_placement_stats.pages_loaded == 0);
     assert(stats.object_placement_stats.rows_loaded == 0);
+    assert(stats.collision_stats.pages_requested > 0);
+    assert(stats.collision_stats.pages_loaded == 0);
+    assert(stats.collision_stats.rows_loaded == 0);
 
     RcActiveAreaRequest collision_only = req;
     collision_only.origin_x = 3200;
