@@ -23,6 +23,8 @@ int rc_spawn_index_read(const char *path, uint32_t expected_magic,
                         int min_x, int min_y, int max_x, int max_y,
                         RcSpawnIndexSlice *out);
 int rc_spawn_index_sort_source_order(RcSpawnIndexSlice *slice);
+uint64_t rc_spawn_index_record_key(const char *path, uint32_t source_order,
+                                   uint32_t ordinal);
 void rc_spawn_index_slice_free(RcSpawnIndexSlice *slice);
 
 #endif

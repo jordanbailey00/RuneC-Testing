@@ -29,6 +29,7 @@
 #include "shops.h"
 #include "traversal.h"
 #include "varbits.h"
+#include "world_state.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -211,6 +212,7 @@ RcWorld *rc_world_create(uint32_t seed) {
 
 void rc_world_destroy(RcWorld *world) {
     if (!world) return;
+    rc_world_state_destroy(world);
     rc_game_data_release(world->game_data);
     free(world);
 }
@@ -235,7 +237,10 @@ static int valid_active_area_request(const RcActiveAreaRequest *request) {
 }
 
 static void clear_active_npcs(RcWorld *world) {
-    memset(world->npcs, 0, sizeof(world->npcs));
+    if (world->npc_count > 0) {
+        memset(world->npcs, 0,
+               (size_t)world->npc_count * sizeof(world->npcs[0]));
+    }
     world->npc_count = 0;
 }
 
@@ -310,10 +315,22 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
         pages_loaded += object_placement_stats.pages_loaded;
     }
 
-    if (flags & RC_ACTIVE_AREA_CLEAR_NPCS)
+    int saved_npc_states = 0;
+    int restored_npc_states = 0;
+    int saved_ground_items = 0;
+    int restored_ground_items = 0;
+    if (flags & RC_ACTIVE_AREA_CLEAR_NPCS) {
+        saved_npc_states = rc_world_state_save_npcs(world);
+        if (saved_npc_states < 0) return -1;
         clear_active_npcs(world);
-    if (flags & RC_ACTIVE_AREA_CLEAR_STATIC_GROUND_ITEMS)
+    }
+    if (flags & RC_ACTIVE_AREA_CLEAR_STATIC_GROUND_ITEMS) {
+        saved_ground_items = rc_world_state_save_ground_items(
+            world, min_x, min_y, max_x, max_y,
+            request->min_plane, request->max_plane);
+        if (saved_ground_items < 0) return -1;
         rc_clear_static_ground_items(world);
+    }
 
     RcNpcSpawnLoadStats npc_stats;
     memset(&npc_stats, 0, sizeof(npc_stats));
@@ -335,6 +352,8 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
                 return -1;
             pages_loaded += npc_stats.pages_loaded;
         }
+        restored_npc_states = rc_world_state_restore_npcs(world);
+        if (restored_npc_states < 0) return -1;
     }
 
     RcGroundItemSpawnLoadStats ground_item_stats;
@@ -352,6 +371,10 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
                 return -1;
             pages_loaded += ground_item_stats.pages_loaded;
         }
+        restored_ground_items = rc_world_state_restore_ground_items(
+            world, min_x, min_y, max_x, max_y,
+            request->min_plane, request->max_plane);
+        if (restored_ground_items < 0) return -1;
     }
 
     uint32_t generation = world->active_area.generation + 1;
@@ -376,6 +399,12 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
     telemetry->backend_pages_loaded = pages_loaded;
     telemetry->active_npcs = active_npc_count(world);
     telemetry->active_ground_items = active_ground_item_count(world);
+    telemetry->dormant_npc_states = world->dormant_npc_count;
+    telemetry->dormant_ground_items = world->dormant_ground_item_count;
+    telemetry->saved_npc_states = saved_npc_states;
+    telemetry->restored_npc_states = restored_npc_states;
+    telemetry->saved_ground_items = saved_ground_items;
+    telemetry->restored_ground_items = restored_ground_items;
 
     if (stats) {
         stats->collision_regions = collision_regions;
@@ -407,6 +436,8 @@ int rc_world_get_streaming_telemetry(const RcWorld *world,
     *out = world->streaming_telemetry;
     out->active_npcs = active_npc_count(world);
     out->active_ground_items = active_ground_item_count(world);
+    out->dormant_npc_states = world->dormant_npc_count;
+    out->dormant_ground_items = world->dormant_ground_item_count;
     return 1;
 }
 

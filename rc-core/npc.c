@@ -350,7 +350,8 @@ static int load_npc_spawns_filtered(RcWorld *world, const char *path,
     for (uint32_t i = 0; i < slice.record_count; i++) {
         const unsigned char *record = slice.records
             + (size_t)i * slice.record_size;
-        const unsigned char *p = record + 4;
+        const unsigned char *p = record;
+        uint32_t source_order = spawn_read_u32(&p);
         uint32_t nid = spawn_read_u32(&p);
         int32_t x = (int32_t)spawn_read_u32(&p);
         int32_t y = (int32_t)spawn_read_u32(&p);
@@ -385,6 +386,8 @@ static int load_npc_spawns_filtered(RcWorld *world, const char *path,
         }
         int spawned_idx = rc_npc_spawn(world, def_idx, x, y, plane);
         if (spawned_idx >= 0) {
+            world->npcs[spawned_idx].spawn_key =
+                rc_spawn_index_record_key(path, source_order, 0);
             if (wander_range > 0)
                 world->npcs[spawned_idx].spawn_wander_range = wander_range;
             if (stats) {
@@ -484,6 +487,8 @@ int rc_npc_spawn(RcWorld *world, int def_idx, int world_x, int world_y, int plan
     npc->plane = plane;
     npc->spawn_x = world_x;
     npc->spawn_y = world_y;
+    npc->spawn_plane = plane;
+    npc->spawn_hp = def->hitpoints;
     npc->prev_x = world_x;
     npc->prev_y = world_y;
     npc->current_hp = def->hitpoints;
@@ -535,9 +540,10 @@ void rc_npc_tick(RcWorld *world, RcNpc *npc) {
         } else {
             npc->x = npc->spawn_x;
             npc->y = npc->spawn_y;
+            npc->plane = npc->spawn_plane;
             npc->prev_x = npc->x;
             npc->prev_y = npc->y;
-            npc->current_hp = def->hitpoints;
+            npc->current_hp = npc->spawn_hp;
             npc->is_dead = false;
             npc->target_uid = -1;
             rc_combat_init_npc_state(npc);

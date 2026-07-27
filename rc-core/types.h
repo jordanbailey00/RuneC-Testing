@@ -588,8 +588,10 @@ typedef struct {
 typedef struct {
     int def_id;             // index into definitions table
     int uid;
+    uint64_t spawn_key;     // stable indexed-spawn identity; 0 = dynamic
     int x, y, plane;
-    int spawn_x, spawn_y;
+    int spawn_x, spawn_y, spawn_plane;
+    int spawn_hp;
     int current_hp;
     int attack_timer;
     int death_timer;
@@ -630,8 +632,10 @@ enum {
 typedef struct {
     int uid;
     int version;
+    uint64_t spawn_key;     // stable indexed-spawn identity; 0 = dynamic
     int item_id;
     int quantity;
+    int spawn_quantity;
     int x, y, plane;
     int owner_uid;
     int original_owner_uid;
@@ -678,11 +682,19 @@ typedef struct {
     int backend_pages_loaded;
     int active_npcs;
     int active_ground_items;
+    int dormant_npc_states;
+    int dormant_ground_items;
+    int saved_npc_states;
+    int restored_npc_states;
+    int saved_ground_items;
+    int restored_ground_items;
 } RcWorldStreamingTelemetry;
 
 struct RcWorld;
 struct RcGameData;
 struct RcSpellDef;
+struct RcDormantNpcState;
+struct RcDormantGroundItemState;
 
 typedef struct {
     int (*apply_player_damage)(const struct RcWorld *world,
@@ -730,6 +742,12 @@ typedef struct RcWorld {
     RcGroundItem ground_items[RC_MAX_GROUND_ITEMS];
     int ground_item_count;
     int next_ground_item_uid;
+    struct RcDormantNpcState *dormant_npcs;
+    int dormant_npc_count;
+    int dormant_npc_capacity;
+    struct RcDormantGroundItemState *dormant_ground_items;
+    int dormant_ground_item_count;
+    int dormant_ground_item_capacity;
     RcObjectState object_states[RC_MAX_OBJECT_STATES];
     int object_state_count;
     RcEncounterEffect encounter_effects[RC_ENC_MAX_EFFECTS];

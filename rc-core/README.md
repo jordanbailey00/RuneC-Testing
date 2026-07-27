@@ -148,11 +148,29 @@ validation code that needs a guaranteed target uses `rc_world_ensure_npc_near`;
 presentation frontends should not resolve NPC definitions or mutate
 `world->npcs` directly.
 
+Indexed NPC and static-ground-item records also carry stable identities derived
+from their source path and source ordinal. Before an active-area replacement,
+`rc-core` stores compact overrides only for changed indexed NPCs, picked-up or
+otherwise changed static ground items, and dynamic ground items leaving the
+active area. The source pages recreate unchanged static state; matching
+overrides are applied after the destination pages load. Dormant HP, death and
+respawn timers, poison, attack state, ownership, reveal timers, and despawn
+timers do not advance because dormant records are not part of `rc_world_tick`.
+Transient combat targets and pending hits are intentionally cleared when an NPC
+is restored across an area boundary.
+
+The generic dormant NPC store owns indexed world spawns. NPCs created by an
+encounter or script have no indexed spawn identity and remain owned by that
+subsystem's lifecycle. Dynamic ground items do have generic dormant ownership
+and are restored by UID when their area becomes active again.
+
 `rc_world_get_streaming_telemetry` returns the latest collision/spatial-page
 and full active-area timings, loaded page count, active NPC count, and active
-ground-item count. Spawn and object-placement stats expose indexed pages and
-rows read, plus resident collision and object pages/rows. Measurement is
-confined to area activation and does not add work to the tick path.
+ground-item count. It also reports resident dormant NPC/ground-item counts and
+the number saved/restored by the latest activation. Spawn and object-placement
+stats expose indexed pages and rows read, plus resident collision and object
+pages/rows. Measurement is confined to area activation and does not add work
+to the tick path.
 
 The NSPI/GSPI v1 files use a fixed 65,536-entry mapsquare directory. Each
 entry stores the first record and count for `(region_x << 8) | region_y`.

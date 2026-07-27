@@ -267,8 +267,10 @@ int main(void) {
     assert(active_ground_items(world, 1) == 1);
     assert(world->ground_items[0].active);
     assert(world->ground_items[0].static_spawn);
+    assert(world->ground_items[0].spawn_key != 0);
     assert(world->ground_items[0].item_id == 995);
     assert(world->ground_items[0].quantity == 150);
+    assert(world->ground_items[0].spawn_quantity == 150);
 
     assert(rc_ground_item_spawn(world, 995, 1, 3213, 3428, 0,
                                 RC_GROUND_OWNER_NONE));

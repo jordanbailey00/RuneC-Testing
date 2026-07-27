@@ -203,6 +203,27 @@ int rc_spawn_index_sort_source_order(RcSpawnIndexSlice *slice) {
     return 1;
 }
 
+uint64_t rc_spawn_index_record_key(const char *path, uint32_t source_order,
+                                   uint32_t ordinal) {
+    if (!path || !path[0]) return 0;
+    uint64_t hash = UINT64_C(1469598103934665603);
+    for (const unsigned char *p = (const unsigned char *)path; *p; p++) {
+        hash ^= *p;
+        hash *= UINT64_C(1099511628211);
+    }
+    hash ^= 0xffu;
+    hash *= UINT64_C(1099511628211);
+    for (int shift = 0; shift < 32; shift += 8) {
+        hash ^= (source_order >> shift) & 0xffu;
+        hash *= UINT64_C(1099511628211);
+    }
+    for (int shift = 0; shift < 32; shift += 8) {
+        hash ^= (ordinal >> shift) & 0xffu;
+        hash *= UINT64_C(1099511628211);
+    }
+    return hash ? hash : 1;
+}
+
 void rc_spawn_index_slice_free(RcSpawnIndexSlice *slice) {
     if (!slice) return;
     free(slice->records);

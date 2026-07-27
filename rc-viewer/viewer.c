@@ -2331,6 +2331,8 @@ static int activate_core_area_bounds(ViewerState *v, int origin_x,
                 " matched=%d spawned=%d"
                 " object_pages=%u/%u object_rows=%u/%u"
                 " object_resident=%u/%u"
+                " dormant_npcs=%d saved/restored=%d/%d"
+                " dormant_ground_items=%d saved/restored=%d/%d"
                 " backend_pages=%d page_load_ms=%.2f area_load_ms=%.2f\n",
                 stats.active_area.origin_x, stats.active_area.origin_y,
                 stats.active_area.width, stats.active_area.height,
@@ -2359,6 +2361,12 @@ static int activate_core_area_bounds(ViewerState *v, int origin_x,
                 stats.object_placement_stats.total_rows,
                 stats.object_placement_stats.pages_resident,
                 stats.object_placement_stats.rows_resident,
+                stats.streaming.dormant_npc_states,
+                stats.streaming.saved_npc_states,
+                stats.streaming.restored_npc_states,
+                stats.streaming.dormant_ground_items,
+                stats.streaming.saved_ground_items,
+                stats.streaming.restored_ground_items,
                 stats.streaming.backend_pages_loaded,
                 stats.streaming.backend_page_load_ms,
                 stats.streaming.active_area_load_ms);
