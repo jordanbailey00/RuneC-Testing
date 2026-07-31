@@ -221,3 +221,66 @@ int viewer_streaming_mapsquare_path(char *out, size_t capacity,
                      region_x, region_y, plane, suffix);
     return n > 0 && (size_t)n < capacity;
 }
+
+size_t viewer_streaming_upload_budget_bytes(
+    const ViewerStreamingConfig *config) {
+    if (!config || config->upload_budget_mb_per_frame <= 0)
+        return 0;
+    size_t mb = (size_t)config->upload_budget_mb_per_frame;
+    if (mb > SIZE_MAX / (1024u * 1024u))
+        return SIZE_MAX;
+    return mb * 1024u * 1024u;
+}
+
+int viewer_streaming_upload_budget_admit(size_t used_bytes,
+                                         size_t upload_bytes,
+                                         size_t budget_bytes) {
+    if (upload_bytes == 0)
+        return 1;
+    if (budget_bytes == 0 || used_bytes > budget_bytes)
+        return 0;
+    if (upload_bytes <= budget_bytes - used_bytes)
+        return 1;
+    // An indivisible mesh larger than the budget is admitted alone.
+    return used_bytes == 0;
+}
+
+void viewer_streaming_player_transition_begin(
+    ViewerStreamingPlayerTransition *transition,
+    int source_x, int source_y, int source_plane,
+    int destination_x, int destination_y, int destination_plane) {
+    if (!transition)
+        return;
+    *transition = (ViewerStreamingPlayerTransition){
+        .active = 1,
+        .source_x = source_x,
+        .source_y = source_y,
+        .source_plane = source_plane,
+        .destination_x = destination_x,
+        .destination_y = destination_y,
+        .destination_plane = destination_plane,
+    };
+}
+
+int viewer_streaming_player_transition_source(
+    const ViewerStreamingPlayerTransition *transition,
+    int *x, int *y, int *plane) {
+    if (!transition || !transition->active || !x || !y || !plane)
+        return 0;
+    *x = transition->source_x;
+    *y = transition->source_y;
+    *plane = transition->source_plane;
+    return 1;
+}
+
+int viewer_streaming_player_transition_commit(
+    ViewerStreamingPlayerTransition *transition,
+    int *x, int *y, int *plane) {
+    if (!transition || !transition->active || !x || !y || !plane)
+        return 0;
+    *x = transition->destination_x;
+    *y = transition->destination_y;
+    *plane = transition->destination_plane;
+    memset(transition, 0, sizeof(*transition));
+    return 1;
+}

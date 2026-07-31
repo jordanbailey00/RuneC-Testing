@@ -8,6 +8,7 @@
 #include "../rc-core/objects.h"
 #include "../rc-core/pathfinding.h"
 #include "../rc-core/npc.h"
+#include "../rc-core/spawn_index.h"
 #include "../rc-core/spells.h"
 #include "../rc-core/storage.h"
 #include "../rc-content/content.h"
@@ -28,6 +29,7 @@
 #include "combat_visuals.h"
 #include "dev_validation.h"
 #include "streaming.h"
+#include "streaming_async.h"
 #include <math.h>
 #include <errno.h>
 #include <stddef.h>
@@ -72,6 +74,8 @@
 #define OBJECT_PICK_TILE_RADIUS 1
 #define DEFAULT_B237_CACHE_ROOT "data"
 #define DEFAULT_B237_CACHE_PATH DEFAULT_B237_CACHE_ROOT "/source/b237-openrs2-2528/cache"
+#define VIEWER_NPC_SPAWN_INDEX_MAGIC 0x4950534Eu
+#define VIEWER_NPC_SPAWN_RECORD_SIZE 20u
 
 typedef struct {
     ObjectMesh *mesh;
@@ -91,6 +95,77 @@ typedef struct {
     AnimModelState **object_anim_states;
     int object_anim_state_count;
 } ViewerMapsquareChunk;
+
+typedef enum {
+    VIEWER_ASYNC_MAPSQUARE_CHUNK = 1,
+    VIEWER_ASYNC_MATERIAL_PAGE,
+    VIEWER_ASYNC_NPC_MODELS,
+} ViewerAsyncMapsquareKind;
+
+typedef struct {
+    ViewerAsyncMapsquareKind kind;
+    int region_x;
+    int region_y;
+    int plane;
+    char terrain_path[1024];
+    char objects_path[1024];
+    char models_path[1024];
+    char material_path[1024];
+    char npc_spawns_path[1024];
+    int min_x, min_y, max_x, max_y;
+    uint32_t extra_model_ids[RUNEC_UI_DEV_TRANSPORT_MAX + 1];
+    int extra_model_id_count;
+} ViewerAsyncMapsquareRequest;
+
+typedef struct {
+    ViewerAsyncMapsquareKind kind;
+    ViewerMapsquareChunk chunk;
+    ObjectMesh *materials;
+    ModelSet *npc_models;
+    size_t terrain_upload_bytes;
+    size_t object_upload_bytes;
+    size_t model_upload_bytes;
+} ViewerAsyncMapsquarePayload;
+
+typedef struct {
+    ViewerMapsquareChunk chunk;
+    size_t terrain_upload_bytes;
+    size_t object_upload_bytes;
+    size_t model_upload_bytes;
+    int model_upload_cursor;
+    int upload_stage;
+} ViewerPendingMapsquareChunk;
+
+typedef struct {
+    int active;
+    int failed;
+    uint64_t generation;
+    int center_x;
+    int center_y;
+    int plane;
+    int activate_backend;
+    int plan_count;
+    int visible_count;
+    int loaded_count;
+    int expected_results;
+    int received_results;
+    int staged_count;
+    double started_ms;
+    char reason[32];
+    ViewerMapsquareCoord plan[VIEWER_STREAMING_CHUNK_CAPACITY];
+    ViewerMapsquareCoord visible_plan[VIEWER_STREAMING_CHUNK_CAPACITY];
+    ViewerPendingMapsquareChunk
+        staged[VIEWER_STREAMING_CHUNK_CAPACITY];
+    ObjectMesh *materials;
+    ModelSet *npc_models;
+    size_t npc_model_upload_bytes;
+    int npc_model_upload_cursor;
+    int needs_npc_models;
+    int npc_models_ready;
+    uint64_t process_frames;
+    double main_thread_work_max_ms;
+    ViewerStreamingPlayerTransition player_transition;
+} ViewerPendingMapsquareLoad;
 
 typedef enum {
     VIEWER_SCENE_MODE_AUTO = 0,
@@ -317,6 +392,8 @@ typedef struct {
     ViewerStreamingTelemetry telemetry;
     double pending_cpu_decode_ms;
     double pending_gpu_upload_ms;
+    size_t frame_gpu_upload_bytes;
+    size_t peak_gpu_upload_bytes;
     int telemetry_overlay;
     int scene_plane_override;
     int scene_auto_export;
@@ -334,6 +411,10 @@ typedef struct {
     int mapsquare_chunk_count;
     ViewerMapsquareCatalog mapsquare_catalog;
     ObjectMesh *mapsquare_materials;
+    ViewerAsyncLoader mapsquare_loader;
+    ViewerPendingMapsquareLoad mapsquare_load;
+    uint64_t mapsquare_load_generation;
+    const RuneCDevTransport *pending_dev_transport;
     int mapsquare_streaming_active;
     int mapsquare_center_region_x;
     int mapsquare_center_region_y;
@@ -356,6 +437,8 @@ static void load_object_anim_models_for_plane(ViewerState *v,
 static void reset_model_entry_to_base_pose(ModelEntry *entry);
 static void ensure_active_scene_plane(ViewerState *v, int plane);
 static void reset_viewer_context(ViewerState *v);
+static void viewer_finish_dev_transport(ViewerState *v,
+                                        const RuneCDevTransport *d);
 static void handle_player_scene_transition(ViewerState *v, int old_x,
                                            int old_y, int old_plane);
 static int viewer_mapsquare_cache_allowed(void);
@@ -386,9 +469,12 @@ static int viewer_mapsquare_asset_path(const ViewerState *v, char *out,
                                        const char *suffix);
 static int viewer_mapsquare_material_path(const ViewerState *v, char *out,
                                           size_t capacity);
-static int viewer_activate_mapsquare_window(ViewerState *v, int center_x,
-                                            int center_y, int plane,
-                                            int activate_backend);
+static int viewer_request_mapsquare_window(ViewerState *v, int center_x,
+                                           int center_y, int plane,
+                                           int activate_backend,
+                                           const char *reason);
+static int viewer_process_mapsquare_loading(ViewerState *v);
+static void viewer_cancel_mapsquare_loading(ViewerState *v);
 static int viewer_mapsquare_plane_loaded(const ViewerState *v, int plane);
 static TerrainMesh *viewer_mapsquare_terrain_at(const ViewerState *v,
                                                 int plane, int world_x,
@@ -1024,6 +1110,23 @@ static void viewer_refresh_streaming_telemetry(ViewerState *v,
     telemetry->terrain_chunks_gpu = 0;
     telemetry->object_chunks_cpu = 0;
     telemetry->object_chunks_gpu = 0;
+    telemetry->async_jobs_pending = v->mapsquare_load.active
+        ? viewer_async_loader_pending(
+            &v->mapsquare_loader, v->mapsquare_load.generation) : 0;
+    telemetry->cpu_chunks_staged = 0;
+    for (int i = 0; i < v->mapsquare_load.staged_count; i++) {
+        telemetry->cpu_chunks_staged +=
+            v->mapsquare_load.staged[i].upload_stage < 3;
+    }
+    telemetry->gpu_upload_bytes_frame = v->frame_gpu_upload_bytes;
+    telemetry->gpu_upload_bytes_peak = v->peak_gpu_upload_bytes;
+    telemetry->gpu_upload_budget_bytes =
+        viewer_streaming_upload_budget_bytes(&v->streaming);
+    if (v->mapsquare_load.active) {
+        telemetry->async_frames = v->mapsquare_load.process_frames;
+        telemetry->main_thread_streaming_work_max_ms =
+            v->mapsquare_load.main_thread_work_max_ms;
+    }
     telemetry->terrain_vertices_resident = 0;
     telemetry->object_vertices_resident = 0;
 
@@ -1182,7 +1285,10 @@ static void viewer_log_streaming_telemetry(ViewerState *v,
     fprintf(stderr,
             "streaming telemetry [%s]: startup_ms=%.2f load_ms=%.2f "
             "cpu_decode_ms=%.2f gpu_upload_ms=%.2f terrain_chunks=%d/%d "
-            "object_chunks=%d/%d vertices=%llu/%llu texture_mb=%.2f "
+            "object_chunks=%d/%d async_pending=%d cpu_staged=%d "
+            "upload_frame_mb=%.2f peak_mb=%.2f budget_mb=%.2f "
+            "async_frames=%llu main_work_max_ms=%.2f "
+            "vertices=%llu/%llu texture_mb=%.2f "
             "model_mb=%.2f active_npcs=%d active_ground_items=%d "
             "backend_pages=%d backend_page_ms=%.2f "
             "backend_area_ms=%.2f draw_calls_est=%d\n",
@@ -1190,6 +1296,12 @@ static void viewer_log_streaming_telemetry(ViewerState *v,
             t->scene_or_chunk_load_ms, t->cpu_decode_ms, t->gpu_upload_ms,
             t->terrain_chunks_cpu, t->terrain_chunks_gpu,
             t->object_chunks_cpu, t->object_chunks_gpu,
+            t->async_jobs_pending, t->cpu_chunks_staged,
+            (double)t->gpu_upload_bytes_frame / (1024.0 * 1024.0),
+            (double)t->gpu_upload_bytes_peak / (1024.0 * 1024.0),
+            (double)t->gpu_upload_budget_bytes / (1024.0 * 1024.0),
+            (unsigned long long)t->async_frames,
+            t->main_thread_streaming_work_max_ms,
             (unsigned long long)t->terrain_vertices_resident,
             (unsigned long long)t->object_vertices_resident,
             t->texture_cache_mb, t->model_cache_mb, t->active_npcs,
@@ -1202,6 +1314,8 @@ static double viewer_begin_streaming_load(ViewerState *v) {
     if (v) {
         v->pending_cpu_decode_ms = 0.0;
         v->pending_gpu_upload_ms = 0.0;
+        v->frame_gpu_upload_bytes = 0;
+        v->peak_gpu_upload_bytes = 0;
     }
     return viewer_streaming_now_ms();
 }
@@ -2449,12 +2563,11 @@ static int reload_scene_around_player(ViewerState *v, int center_x,
     int mapsquare_ready = viewer_prepare_mapsquare_window(
         v, center_x, center_y, required_plane);
     if (mapsquare_ready > 0) {
-        if (viewer_activate_mapsquare_window(
-                v, center_x, center_y, required_plane, 1)) {
-            viewer_finish_streaming_load(v, load_started_ms,
-                                         "mapsquare-window", 1);
-            return 1;
-        }
+        int requested = viewer_request_mapsquare_window(
+            v, center_x, center_y, required_plane, 1,
+            "mapsquare-window");
+        if (requested > 0)
+            return requested;
         fprintf(stderr,
                 "viewer mapsquare: complete destination %d,%d plane %d "
                 "failed to load; keeping the current scene\n",
@@ -2666,8 +2779,21 @@ static int load_startup_scene(ViewerState *v, ViewerSceneMode mode,
     int mapsquare_ready = viewer_prepare_mapsquare_window(
         v, g_player_start_x, g_player_start_y, v->world->player.plane);
     if (mapsquare_ready > 0) {
-        loaded = viewer_activate_mapsquare_window(
-            v, g_player_start_x, g_player_start_y, v->world->player.plane, 1);
+        loaded = viewer_request_mapsquare_window(
+            v, g_player_start_x, g_player_start_y,
+            v->world->player.plane, 1, "startup-scene");
+        while (loaded == 2 && !WindowShouldClose()) {
+            int processed = viewer_process_mapsquare_loading(v);
+            if (processed != 0)
+                loaded = processed > 0;
+            if (loaded == 2) {
+                BeginDrawing();
+                ClearBackground((Color){40, 45, 55, 255});
+                EndDrawing();
+            }
+        }
+        if (loaded == 2)
+            loaded = 0;
         if (!loaded) {
             fprintf(stderr,
                     "viewer mapsquare: complete startup window failed to "
@@ -2685,7 +2811,7 @@ static int load_startup_scene(ViewerState *v, ViewerSceneMode mode,
     } else if (!loaded) {
         loaded = load_fixed_startup_scene(v, fixed_terrain, fixed_objects);
     }
-    if (loaded)
+    if (loaded && mapsquare_ready <= 0)
         viewer_finish_streaming_load(v, load_started_ms, "startup-scene", 1);
     return loaded;
 }
@@ -2735,16 +2861,14 @@ static void ensure_active_scene_plane(ViewerState *v, int plane) {
     if (v->mapsquare_streaming_active) {
         if (viewer_mapsquare_plane_loaded(v, plane))
             return;
-        double load_started_ms = viewer_begin_streaming_load(v);
         RcPlayer *p = &v->world->player;
         int mapsquare_ready = viewer_prepare_mapsquare_window(
             v, p->x, p->y, plane);
-        if (mapsquare_ready > 0
-                && viewer_activate_mapsquare_window(
-                    v, p->x, p->y, plane, 0)) {
-            viewer_finish_streaming_load(v, load_started_ms,
-                                         "mapsquare-plane", 1);
-        } else if (v->scene_plane_override == plane
+        int requested = mapsquare_ready > 0
+            ? viewer_request_mapsquare_window(
+                v, p->x, p->y, plane, 0, "mapsquare-plane")
+            : 0;
+        if (requested <= 0 && v->scene_plane_override == plane
                    && plane != p->plane) {
             v->scene_plane_override = -1;
         }
@@ -2951,7 +3075,9 @@ static void viewer_dev_transport_to(ViewerState *v,
 
     viewer_clear_player_activity(v);
     p->plane = clamp_plane(d->plane);
-    if (!reload_scene_around_player(v, d->target_x, d->target_y)) {
+    int reload_status = reload_scene_around_player(
+        v, d->target_x, d->target_y);
+    if (reload_status <= 0) {
         p->plane = old_plane;
         fprintf(stderr,
                 "dev transport: blocked %s because destination visuals for "
@@ -2959,6 +3085,24 @@ static void viewer_dev_transport_to(ViewerState *v,
                 d->label, d->target_x, d->target_y, d->plane);
         return;
     }
+    if (reload_status == 2) {
+        p->plane = old_plane;
+        v->pending_dev_transport = d;
+        fprintf(stderr,
+                "dev transport: loading %s destination %d,%d,%d\n",
+                d->label, d->target_x, d->target_y, d->plane);
+        return;
+    }
+    v->pending_dev_transport = NULL;
+
+    viewer_finish_dev_transport(v, d);
+}
+
+static void viewer_finish_dev_transport(ViewerState *v,
+                                        const RuneCDevTransport *d) {
+    if (!v || !v->world || !d)
+        return;
+    RcPlayer *p = &v->world->player;
 
     int player_x = d->target_x;
     int player_y = d->target_y;
@@ -2982,12 +3126,8 @@ static void viewer_dev_transport_to(ViewerState *v,
     if (strcmp(d->key, "varrock") == 0)
         runec_dev_validation_spawn_varrock_bank_dummy(v->world);
     int prepared = runec_dev_validation_prepare_encounter(v->world, d);
-    if (prepared > 0)
-        reload_npc_models_for_scene(v);
-    else if (viewer_ensure_focus_npc(v, d))
-        reload_npc_models_for_scene(v);
-    else if (strcmp(d->key, "varrock") == 0)
-        reload_npc_models_for_scene(v);
+    if (prepared <= 0)
+        viewer_ensure_focus_npc(v, d);
     if (prepared <= 0)
         viewer_start_dev_boss_combat(v, d);
     fprintf(stderr, "dev transport: %s -> player %d,%d,%d target %d,%d,%d\n",
@@ -3071,10 +3211,77 @@ static int viewer_tile_in_loaded_scene(int x, int y) {
         && y >= g_world_origin_y && y < g_world_origin_y + g_world_h;
 }
 
+static int viewer_hold_player_scene_transition(ViewerState *v) {
+    if (!v || !v->world)
+        return 0;
+    int x = 0;
+    int y = 0;
+    int plane = 0;
+    if (!viewer_streaming_player_transition_source(
+            &v->mapsquare_load.player_transition, &x, &y, &plane)) {
+        return 0;
+    }
+    RcPlayer *p = &v->world->player;
+    p->x = x;
+    p->y = y;
+    p->prev_x = x;
+    p->prev_y = y;
+    p->plane = plane;
+    v->prev_player_x = (float)x;
+    v->prev_player_y = (float)y;
+    v->tick_frac = 0.0f;
+    v->player_moving = 0;
+    return 1;
+}
+
+static void viewer_defer_player_scene_transition(ViewerState *v, int old_x,
+                                                 int old_y, int old_plane) {
+    RcPlayer *p = &v->world->player;
+    viewer_streaming_player_transition_begin(
+        &v->mapsquare_load.player_transition,
+        old_x, old_y, old_plane, p->x, p->y, p->plane);
+    const ViewerStreamingPlayerTransition *transition =
+        &v->mapsquare_load.player_transition;
+    viewer_hold_player_scene_transition(v);
+    fprintf(stderr,
+            "viewer scene: loading player transition %d,%d,%d -> %d,%d,%d\n",
+            transition->source_x, transition->source_y,
+            transition->source_plane, transition->destination_x,
+            transition->destination_y, transition->destination_plane);
+}
+
+static void viewer_commit_player_scene_transition(ViewerState *v) {
+    if (!v || !v->world)
+        return;
+    RcPlayer *p = &v->world->player;
+    int x = 0;
+    int y = 0;
+    int plane = 0;
+    if (!viewer_streaming_player_transition_commit(
+            &v->mapsquare_load.player_transition, &x, &y, &plane)) {
+        return;
+    }
+    p->x = x;
+    p->y = y;
+    p->prev_x = x;
+    p->prev_y = y;
+    p->plane = plane;
+    v->prev_player_x = (float)x;
+    v->prev_player_y = (float)y;
+    v->tick_frac = 0.0f;
+    v->player_moving = 0;
+    fprintf(stderr, "viewer scene: committed player transition %d,%d,%d\n",
+            x, y, plane);
+}
+
 static void handle_player_scene_transition(ViewerState *v, int old_x,
                                            int old_y, int old_plane) {
     if (!v || !v->world)
         return;
+    if (v->mapsquare_load.active
+            && viewer_hold_player_scene_transition(v)) {
+        return;
+    }
     RcPlayer *p = &v->world->player;
     int large_step = abs(p->x - old_x) > 2 || abs(p->y - old_y) > 2;
     if (old_plane != p->plane || large_step) {
@@ -3100,22 +3307,27 @@ static void handle_player_scene_transition(ViewerState *v, int old_x,
                 && !viewer_mapsquare_plane_loaded(v, p->plane)));
     if (mapsquare_window_changed
             || !viewer_tile_in_loaded_scene(p->x, p->y)) {
-        if (reload_scene_around_player(v, p->x, p->y)) {
+        int reload_status = reload_scene_around_player(v, p->x, p->y);
+        if (reload_status == 1) {
             int display_plane = viewer_scene_plane(v);
             if (v->mapsquare_streaming_active
                     && display_plane != p->plane) {
                 double load_started_ms = viewer_begin_streaming_load(v);
                 int mapsquare_ready = viewer_prepare_mapsquare_window(
                     v, p->x, p->y, display_plane);
-                if (mapsquare_ready > 0
-                        && viewer_activate_mapsquare_window(
-                            v, p->x, p->y, display_plane, 0)) {
-                    viewer_finish_streaming_load(
-                        v, load_started_ms, "mapsquare-plane", 1);
-                } else {
+                int requested = mapsquare_ready > 0
+                    ? viewer_request_mapsquare_window(
+                        v, p->x, p->y, display_plane, 0,
+                        "mapsquare-plane")
+                    : 0;
+                if (requested <= 0) {
                     v->scene_plane_override = -1;
                 }
             }
+            return;
+        }
+        if (reload_status == 2) {
+            viewer_defer_player_scene_transition(v, old_x, old_y, old_plane);
             return;
         }
         int blocked_x = p->x;
@@ -4819,10 +5031,18 @@ static int viewer_mapsquare_missing_asset_path(
                 || !rc_asset_exists(out)) {
             return 1;
         }
-        if (i == 1 && !scene_objects_file_complete(out))
-            return 1;
     }
 
+    if (!v->scene_auto_export)
+        return 0;
+    char objects_path[1024];
+    if (!viewer_mapsquare_asset_path(
+            v, objects_path, sizeof(objects_path), region_x, region_y, plane,
+            ".objects")
+            || !scene_objects_file_complete(objects_path)) {
+        snprintf(out, capacity, "%s", objects_path);
+        return 1;
+    }
     int has_animated_objects = 0;
     if (!scene_oanim_file_complete(out, &has_animated_objects))
         return 1;
@@ -5124,108 +5344,243 @@ static int mapsquare_cache_limit(const ViewerState *v) {
     return limit;
 }
 
-static void unload_mapsquare_objects(ViewerMapsquareChunk *chunk) {
-    if (!chunk)
+static void viewer_async_mapsquare_payload_free(
+    ViewerAsyncMapsquarePayload *payload) {
+    if (!payload)
         return;
-    free_model_anim_states(&chunk->object_anim_states,
-                           &chunk->object_anim_state_count);
-    models_free(chunk->object_anim_models);
-    objects_free(chunk->objects);
-    chunk->object_anim_models = NULL;
-    chunk->objects = NULL;
+    objects_free(payload->materials);
+    models_free(payload->npc_models);
+    free_mapsquare_chunk(&payload->chunk);
+    free(payload);
 }
 
-static int load_mapsquare_objects(ViewerState *v,
-                                  ViewerMapsquareChunk *chunk) {
-    if (!v || !chunk || !v->mapsquare_materials)
-        return 0;
-    char objects_path[1024];
-    if (!viewer_mapsquare_asset_path(
-            v, objects_path, sizeof(objects_path), chunk->region_x,
-            chunk->region_y, chunk->plane, ".objects")
-            || !rc_asset_exists(objects_path)
-            || !scene_objects_file_complete(objects_path))
-        return 0;
-    chunk->objects = objects_load_with_shared_atlas(
-        objects_path, v->mapsquare_materials->atlas_texture);
-    if (!chunk->objects)
-        return 0;
-    objects_offset(chunk->objects, g_world_origin_x, g_world_origin_y);
-    objects_release_cpu_geometry(chunk->objects);
-    if (v->alpha_cutout_shader_static_loaded)
-        objects_set_shader(chunk->objects, v->alpha_cutout_shader_static);
+static void viewer_async_request_destroy(void *opaque, void *user) {
+    (void)user;
+    free(opaque);
+}
 
-    if (chunk->objects->object_anim_count > 0) {
-        char models_path[1024];
-        if (!viewer_mapsquare_asset_path(
-                v, models_path, sizeof(models_path), chunk->region_x,
-                chunk->region_y, chunk->plane, ".object_anim.models")
-                || !rc_asset_exists(models_path)) {
-            fprintf(stderr,
-                    "viewer mapsquare: missing animated-object models for "
-                    "%d,%d plane %d\n",
-                    chunk->region_x, chunk->region_y, chunk->plane);
-            unload_mapsquare_objects(chunk);
-            return 0;
-        }
-        chunk->object_anim_models = models_load_with_shared_atlas(
-            models_path, v->mapsquare_materials->atlas_texture);
-        if (!chunk->object_anim_models) {
-            unload_mapsquare_objects(chunk);
-            return 0;
-        }
-        if (v->alpha_cutout_shader_static_loaded) {
-            models_set_shader(chunk->object_anim_models,
-                              v->alpha_cutout_shader_static);
-        }
-        create_object_anim_states(
-            chunk->objects, chunk->object_anim_models,
-            &chunk->object_anim_states, &chunk->object_anim_state_count);
+static void viewer_async_payload_destroy(void *opaque, void *user) {
+    (void)user;
+    viewer_async_mapsquare_payload_free(opaque);
+}
+
+static ModelSet *viewer_decode_npc_models(
+    const ViewerAsyncMapsquareRequest *request) {
+    RcSpawnIndexSlice slice = {0};
+    if (!request || !rc_spawn_index_read(
+            request->npc_spawns_path, VIEWER_NPC_SPAWN_INDEX_MAGIC,
+            VIEWER_NPC_SPAWN_RECORD_SIZE, 1,
+            request->min_x, request->min_y,
+            request->max_x, request->max_y, &slice)) {
+        rc_spawn_index_slice_free(&slice);
+        return NULL;
     }
-    v->pending_cpu_decode_ms += chunk->objects->cpu_decode_ms;
-    v->pending_gpu_upload_ms += chunk->objects->gpu_upload_ms;
-    return 1;
-}
 
-static int load_mapsquare_chunk(ViewerState *v, int region_x, int region_y,
-                                int plane, ViewerMapsquareChunk *out) {
-    if (!v || !out)
-        return 0;
-    char terrain_path[1024];
-    if (!viewer_mapsquare_asset_path(v, terrain_path, sizeof(terrain_path),
-                                     region_x, region_y, plane, ".terrain")
-            || !rc_asset_exists(terrain_path))
-        return 0;
-    ViewerMapsquareChunk loaded = {
-        .region_x = region_x,
-        .region_y = region_y,
-        .plane = plane,
-    };
-    loaded.terrain = terrain_load(terrain_path);
-    if (!loaded.terrain)
-        return 0;
-    terrain_offset(loaded.terrain, g_world_origin_x, g_world_origin_y);
-    v->pending_cpu_decode_ms += loaded.terrain->cpu_decode_ms;
-    v->pending_gpu_upload_ms += loaded.terrain->gpu_upload_ms;
-    if (!load_mapsquare_objects(v, &loaded)) {
-        free_mapsquare_chunk(&loaded);
-        return 0;
+    size_t capacity = (size_t)slice.record_count
+                    + (size_t)request->extra_model_id_count + 1u;
+    uint32_t *ids = calloc(capacity, sizeof(*ids));
+    if (!ids) {
+        rc_spawn_index_slice_free(&slice);
+        return NULL;
     }
-    *out = loaded;
-    return 1;
+    int count = 0;
+    for (uint32_t i = 0; i < slice.record_count; i++) {
+        const unsigned char *record = slice.records
+            + (size_t)i * slice.record_size;
+        uint32_t npc_id = 0;
+        int32_t x = 0;
+        int32_t y = 0;
+        memcpy(&npc_id, record + 4, sizeof(npc_id));
+        memcpy(&x, record + 8, sizeof(x));
+        memcpy(&y, record + 12, sizeof(y));
+        if (x < request->min_x || x > request->max_x
+                || y < request->min_y || y > request->max_y) {
+            continue;
+        }
+        count = append_unique_model_id(ids, count, npc_id);
+    }
+    for (int i = 0; i < request->extra_model_id_count; i++) {
+        count = append_unique_model_id(
+            ids, count, request->extra_model_ids[i]);
+    }
+    rc_spawn_index_slice_free(&slice);
+    ModelSet *models = models_load_filtered_cpu(
+        request->models_path, ids, count);
+    free(ids);
+    return models;
 }
 
-static int ensure_mapsquare_materials(ViewerState *v) {
+static void *viewer_async_mapsquare_decode(void *opaque,
+                                           size_t *upload_bytes,
+                                           double *decode_ms, void *user) {
+    (void)user;
+    ViewerAsyncMapsquareRequest *request = opaque;
+    double started_ms = viewer_streaming_now_ms();
+    ViewerAsyncMapsquarePayload *payload = calloc(1, sizeof(*payload));
+    if (!request || !payload)
+        goto failed;
+    payload->kind = request->kind;
+    if (request->kind == VIEWER_ASYNC_MATERIAL_PAGE) {
+        payload->materials = objects_load_material_page_cpu(
+            request->material_path);
+        if (!payload->materials)
+            goto failed;
+        *upload_bytes = objects_material_page_upload_bytes(
+            payload->materials);
+    } else if (request->kind == VIEWER_ASYNC_MAPSQUARE_CHUNK) {
+        ViewerMapsquareChunk *chunk = &payload->chunk;
+        chunk->region_x = request->region_x;
+        chunk->region_y = request->region_y;
+        chunk->plane = request->plane;
+        chunk->terrain = terrain_load_cpu(request->terrain_path);
+        chunk->objects = objects_load_cpu_with_shared_atlas(
+            request->objects_path);
+        if (!chunk->terrain || !chunk->objects)
+            goto failed;
+        if (chunk->objects->object_anim_count > 0) {
+            if (!rc_asset_exists(request->models_path)) {
+                fprintf(stderr,
+                        "viewer mapsquare: missing animated-object models "
+                        "for %d,%d plane %d\n",
+                        chunk->region_x, chunk->region_y, chunk->plane);
+                goto failed;
+            }
+            chunk->object_anim_models =
+                models_load_cpu_with_shared_atlas(request->models_path);
+            if (!chunk->object_anim_models)
+                goto failed;
+        }
+        payload->terrain_upload_bytes = terrain_upload_bytes(chunk->terrain);
+        payload->object_upload_bytes = objects_upload_bytes(chunk->objects);
+        payload->model_upload_bytes = models_upload_bytes(
+            chunk->object_anim_models);
+        *upload_bytes = payload->terrain_upload_bytes;
+        if (SIZE_MAX - *upload_bytes < payload->object_upload_bytes)
+            *upload_bytes = SIZE_MAX;
+        else
+            *upload_bytes += payload->object_upload_bytes;
+        if (SIZE_MAX - *upload_bytes < payload->model_upload_bytes)
+            *upload_bytes = SIZE_MAX;
+        else
+            *upload_bytes += payload->model_upload_bytes;
+    } else if (request->kind == VIEWER_ASYNC_NPC_MODELS) {
+        payload->npc_models = viewer_decode_npc_models(request);
+        if (!payload->npc_models)
+            goto failed;
+        payload->model_upload_bytes = models_upload_bytes(
+            payload->npc_models);
+        *upload_bytes = payload->model_upload_bytes;
+    } else {
+        goto failed;
+    }
+    *decode_ms = viewer_streaming_now_ms() - started_ms;
+    return payload;
+
+failed:
+    viewer_async_mapsquare_payload_free(payload);
+    *decode_ms = viewer_streaming_now_ms() - started_ms;
+    return NULL;
+}
+
+static void discard_pending_mapsquare_load(ViewerState *v) {
     if (!v)
-        return 0;
-    if (v->mapsquare_materials)
-        return 1;
-    char path[1024];
-    if (!viewer_mapsquare_material_path(v, path, sizeof(path))
-            || !rc_asset_exists(path))
-        return 0;
-    v->mapsquare_materials = objects_load_material_page(path);
-    return v->mapsquare_materials != NULL;
+        return;
+    ViewerPendingMapsquareLoad *load = &v->mapsquare_load;
+    for (int i = 0; i < load->staged_count; i++)
+        free_mapsquare_chunk(&load->staged[i].chunk);
+    objects_free(load->materials);
+    models_free(load->npc_models);
+    memset(load, 0, sizeof(*load));
+}
+
+static void viewer_cancel_mapsquare_loading(ViewerState *v) {
+    if (!v || !v->mapsquare_loader.initialized)
+        return;
+    uint64_t generation = ++v->mapsquare_load_generation;
+    if (generation == 0)
+        generation = ++v->mapsquare_load_generation;
+    viewer_async_loader_set_generation(&v->mapsquare_loader, generation);
+    discard_pending_mapsquare_load(v);
+    v->pending_dev_transport = NULL;
+}
+
+static uint64_t mapsquare_job_key(int region_x, int region_y, int plane) {
+    return 1u + (uint64_t)(uint32_t)region_x
+        + ((uint64_t)(uint32_t)region_y << 8)
+        + ((uint64_t)(uint32_t)plane << 16);
+}
+
+static int pending_chunk_index(const ViewerPendingMapsquareLoad *load,
+                               int region_x, int region_y, int plane) {
+    for (int i = 0; load && i < load->staged_count; i++) {
+        const ViewerMapsquareChunk *chunk = &load->staged[i].chunk;
+        if (chunk->region_x == region_x && chunk->region_y == region_y
+                && chunk->plane == plane)
+            return i;
+    }
+    return -1;
+}
+
+static ViewerAsyncMapsquareRequest *mapsquare_chunk_request(
+    const ViewerState *v, int region_x, int region_y, int plane) {
+    ViewerAsyncMapsquareRequest *request = calloc(1, sizeof(*request));
+    if (!request)
+        return NULL;
+    request->kind = VIEWER_ASYNC_MAPSQUARE_CHUNK;
+    request->region_x = region_x;
+    request->region_y = region_y;
+    request->plane = plane;
+    if (!viewer_mapsquare_asset_path(
+            v, request->terrain_path, sizeof(request->terrain_path),
+            region_x, region_y, plane, ".terrain")
+            || !viewer_mapsquare_asset_path(
+                v, request->objects_path, sizeof(request->objects_path),
+                region_x, region_y, plane, ".objects")
+            || !viewer_mapsquare_asset_path(
+                v, request->models_path, sizeof(request->models_path),
+                region_x, region_y, plane, ".object_anim.models")) {
+        free(request);
+        return NULL;
+    }
+    return request;
+}
+
+static ViewerAsyncMapsquareRequest *npc_models_request(
+    const ViewerState *v, int center_x, int center_y) {
+    if (!v || !v->world)
+        return NULL;
+    ViewerAsyncMapsquareRequest *request = calloc(1, sizeof(*request));
+    if (!request)
+        return NULL;
+    request->kind = VIEWER_ASYNC_NPC_MODELS;
+    snprintf(request->models_path, sizeof(request->models_path), "%s",
+             env_path("RUNEC_NPC_MODELS", "data/models/npcs.models"));
+    snprintf(request->npc_spawns_path, sizeof(request->npc_spawns_path), "%s",
+             v->world->npc_spawns_path);
+    int origin_x = 0;
+    int origin_y = 0;
+    int width = 0;
+    int height = 0;
+    scene_bounds_for_tile(center_x, center_y,
+                          v->streaming.scene_radius_regions,
+                          &origin_x, &origin_y, &width, &height);
+    request->min_x = origin_x - 8;
+    request->min_y = origin_y - 8;
+    request->max_x = origin_x + width + 7;
+    request->max_y = origin_y + height + 7;
+    request->extra_model_ids[request->extra_model_id_count++] = 2668;
+    int transport_count = 0;
+    const RuneCDevTransport *transports =
+        runec_dev_validation_transports(&transport_count);
+    for (int i = 0; transports && i < transport_count
+            && request->extra_model_id_count
+                < RUNEC_UI_DEV_TRANSPORT_MAX + 1; i++) {
+        if (transports[i].npc_id >= 0) {
+            request->extra_model_ids[request->extra_model_id_count++] =
+                (uint32_t)transports[i].npc_id;
+        }
+    }
+    return request;
 }
 
 static void prune_mapsquare_cache(ViewerState *v,
@@ -5253,31 +5608,76 @@ static void rebase_mapsquare_cache(ViewerState *v, int delta_x, int delta_y) {
     }
 }
 
-static int viewer_activate_mapsquare_window(ViewerState *v, int center_x,
-                                            int center_y, int plane,
-                                            int activate_backend) {
-    if (!v || !v->world || !viewer_mapsquare_cache_allowed())
+static int submit_mapsquare_request(ViewerState *v,
+                                    ViewerAsyncMapsquareRequest *request,
+                                    uint64_t key) {
+    if (!v || !request)
         return 0;
-    plane = clamp_plane(plane);
-    ViewerMapsquareCoord plan[VIEWER_STREAMING_CHUNK_CAPACITY];
-    int plan_count = viewer_streaming_plan_mapsquares(
-        &v->streaming, center_x, center_y, plan,
-        VIEWER_STREAMING_CHUNK_CAPACITY);
-    if (plan_count >= 0)
-        plan_count = viewer_filter_mapsquare_plan(v, plan, plan_count);
-    if (plan_count <= 0
-            || !viewer_mapsquare_window_assets_available(
-                v, center_x, center_y, plane)
-            || !ensure_mapsquare_materials(v)) {
+    if (viewer_async_loader_submit(&v->mapsquare_loader,
+                                   v->mapsquare_load.generation, key,
+                                   request)) {
+        v->mapsquare_load.expected_results++;
+        return 1;
+    }
+    free(request);
+    return 0;
+}
+
+static int viewer_request_mapsquare_window(ViewerState *v, int center_x,
+                                           int center_y, int plane,
+                                           int activate_backend,
+                                           const char *reason) {
+    if (!v || !v->world || !v->mapsquare_loader.initialized
+            || !viewer_mapsquare_cache_allowed()) {
         return 0;
     }
+    plane = clamp_plane(plane);
+    ViewerPendingMapsquareLoad *load = &v->mapsquare_load;
+    if (load->active && load->center_x == center_x
+            && load->center_y == center_y && load->plane == plane
+            && load->activate_backend == activate_backend) {
+        return 2;
+    }
 
-    ViewerMapsquareCoord visible_plan[VIEWER_STREAMING_CHUNK_CAPACITY];
-    int visible_count = viewer_mapsquare_visible_plan(
-        v, center_x, center_y, visible_plan,
+    viewer_cancel_mapsquare_loading(v);
+    load = &v->mapsquare_load;
+    load->active = 1;
+    load->generation = v->mapsquare_load_generation;
+    load->center_x = center_x;
+    load->center_y = center_y;
+    load->plane = plane;
+    load->activate_backend = activate_backend;
+    load->started_ms = viewer_begin_streaming_load(v);
+    snprintf(load->reason, sizeof(load->reason), "%s",
+             reason ? reason : "mapsquare-window");
+
+    load->plan_count = viewer_streaming_plan_mapsquares(
+        &v->streaming, center_x, center_y, load->plan,
         VIEWER_STREAMING_CHUNK_CAPACITY);
-    if (visible_count <= 0)
-        return 0;
+    if (load->plan_count >= 0) {
+        load->plan_count = viewer_filter_mapsquare_plan(
+            v, load->plan, load->plan_count);
+    }
+    load->visible_count = viewer_mapsquare_visible_plan(
+        v, center_x, center_y, load->visible_plan,
+        VIEWER_STREAMING_CHUNK_CAPACITY);
+    if (load->plan_count <= 0 || load->visible_count <= 0
+            || !viewer_mapsquare_window_assets_available(
+                v, center_x, center_y, plane)) {
+        goto failed;
+    }
+
+    if (!v->mapsquare_materials) {
+        ViewerAsyncMapsquareRequest *request = calloc(1, sizeof(*request));
+        if (!request)
+            goto failed;
+        request->kind = VIEWER_ASYNC_MATERIAL_PAGE;
+        if (!viewer_mapsquare_material_path(
+                v, request->material_path, sizeof(request->material_path))
+                || !submit_mapsquare_request(v, request, UINT64_MAX)) {
+            goto failed;
+        }
+    }
 
     int player_plane = clamp_plane(v->world->player.plane);
     int retained_count = 0;
@@ -5285,76 +5685,232 @@ static int viewer_activate_mapsquare_window(ViewerState *v, int center_x,
         ViewerMapsquareChunk *chunk = &v->mapsquare_chunks[i];
         if ((chunk->plane == plane || chunk->plane == player_plane)
                 && viewer_streaming_mapsquare_in_plan(
-                    plan, plan_count, chunk->region_x, chunk->region_y)) {
+                    load->plan, load->plan_count,
+                    chunk->region_x, chunk->region_y)) {
             retained_count++;
         }
     }
-
-    ViewerMapsquareChunk staged[VIEWER_STREAMING_CHUNK_CAPACITY] = {0};
-    int staged_count = 0;
-    int loaded_count = 0;
     int stage_limit = mapsquare_cache_limit(v) - retained_count;
-    if (stage_limit < 0)
-        stage_limit = 0;
-    for (int i = 0; i < plan_count; i++) {
-        int region_x = plan[i].region_x;
-        int region_y = plan[i].region_y;
+    int submitted_chunks = 0;
+    for (int i = 0; i < load->plan_count; i++) {
+        int region_x = load->plan[i].region_x;
+        int region_y = load->plan[i].region_y;
         if (find_mapsquare_chunk(v, region_x, region_y, plane) >= 0) {
-            loaded_count++;
-            continue;
-        }
-        if (!viewer_mapsquare_chunk_available(
-                v, region_x, region_y, plane)) {
+            load->loaded_count++;
             continue;
         }
         int required = viewer_streaming_mapsquare_in_plan(
-            visible_plan, visible_count, region_x, region_y);
-        if (staged_count >= stage_limit
-                || !load_mapsquare_chunk(
-                    v, region_x, region_y, plane, &staged[staged_count])) {
+            load->visible_plan, load->visible_count, region_x, region_y);
+        if (!viewer_mapsquare_chunk_available(
+                v, region_x, region_y, plane)) {
             if (required)
-                goto activation_failed;
+                goto failed;
             continue;
         }
-        staged_count++;
-        loaded_count++;
+        if (submitted_chunks >= stage_limit) {
+            if (required)
+                goto failed;
+            continue;
+        }
+        ViewerAsyncMapsquareRequest *request = mapsquare_chunk_request(
+            v, region_x, region_y, plane);
+        if (!request || !submit_mapsquare_request(
+                v, request, mapsquare_job_key(region_x, region_y, plane))) {
+            if (required)
+                goto failed;
+            continue;
+        }
+        submitted_chunks++;
     }
 
-    for (int i = 0; i < visible_count; i++) {
-        if (find_mapsquare_chunk(
-                v, visible_plan[i].region_x, visible_plan[i].region_y,
-                plane) >= 0) {
-            continue;
+    if (activate_backend) {
+        ViewerAsyncMapsquareRequest *request = npc_models_request(
+            v, center_x, center_y);
+        load->needs_npc_models = 1;
+        if (!request || !submit_mapsquare_request(
+                v, request, UINT64_MAX - 1u)) {
+            goto failed;
         }
-        int staged_found = 0;
-        for (int j = 0; j < staged_count; j++) {
-            if (staged[j].region_x == visible_plan[i].region_x
-                    && staged[j].region_y == visible_plan[i].region_y
-                    && staged[j].plane == plane) {
-                staged_found = 1;
+    }
+
+    if (load->expected_results == 0)
+        return viewer_process_mapsquare_loading(v) > 0 ? 1 : 0;
+    return 2;
+
+failed:
+    fprintf(stderr,
+            "viewer mapsquare: could not queue complete destination "
+            "%d,%d plane %d\n", center_x, center_y, plane);
+    viewer_cancel_mapsquare_loading(v);
+    return 0;
+}
+
+static int pending_window_complete(const ViewerState *v) {
+    const ViewerPendingMapsquareLoad *load = &v->mapsquare_load;
+    if (load->received_results != load->expected_results
+            || (!v->mapsquare_materials && !load->materials)) {
+        return 0;
+    }
+    if (load->needs_npc_models && !load->npc_models_ready)
+        return 0;
+    for (int i = 0; i < load->staged_count; i++) {
+        if (load->staged[i].upload_stage < 3)
+            return 0;
+    }
+    for (int i = 0; i < load->visible_count; i++) {
+        int region_x = load->visible_plan[i].region_x;
+        int region_y = load->visible_plan[i].region_y;
+        if (find_mapsquare_chunk(v, region_x, region_y, load->plane) >= 0)
+            continue;
+        int staged = pending_chunk_index(
+            load, region_x, region_y, load->plane);
+        if (staged < 0 || load->staged[staged].upload_stage < 3)
+            return 0;
+    }
+    return 1;
+}
+
+static int upload_pending_mapsquare_resources(ViewerState *v) {
+    ViewerPendingMapsquareLoad *load = &v->mapsquare_load;
+    size_t budget = viewer_streaming_upload_budget_bytes(&v->streaming);
+    size_t used = 0;
+    v->frame_gpu_upload_bytes = 0;
+
+    if (!v->mapsquare_materials && load->materials) {
+        size_t bytes = objects_material_page_upload_bytes(load->materials);
+        if (!viewer_streaming_upload_budget_admit(used, bytes, budget))
+            return 1;
+        if (!objects_upload_material_page(load->materials))
+            return 0;
+        used += bytes;
+        v->frame_gpu_upload_bytes = used;
+        if (used > v->peak_gpu_upload_bytes)
+            v->peak_gpu_upload_bytes = used;
+        v->pending_gpu_upload_ms += load->materials->gpu_upload_ms;
+        v->mapsquare_materials = load->materials;
+        load->materials = NULL;
+    }
+
+    for (int i = 0; i < load->staged_count; i++) {
+        ViewerPendingMapsquareChunk *pending = &load->staged[i];
+        ViewerMapsquareChunk *chunk = &pending->chunk;
+        if (pending->upload_stage == 0) {
+            size_t bytes = pending->terrain_upload_bytes;
+            if (!viewer_streaming_upload_budget_admit(used, bytes, budget))
                 break;
+            terrain_offset(chunk->terrain, g_world_origin_x,
+                           g_world_origin_y);
+            if (!terrain_upload(chunk->terrain))
+                return 0;
+            used += bytes;
+            v->frame_gpu_upload_bytes = used;
+            if (used > v->peak_gpu_upload_bytes)
+                v->peak_gpu_upload_bytes = used;
+            v->pending_gpu_upload_ms += chunk->terrain->gpu_upload_ms;
+            pending->upload_stage = 1;
+        }
+        if (pending->upload_stage == 1) {
+            size_t bytes = pending->object_upload_bytes;
+            if (!viewer_streaming_upload_budget_admit(used, bytes, budget))
+                break;
+            objects_offset(chunk->objects, g_world_origin_x,
+                           g_world_origin_y);
+            if (!objects_upload_with_shared_atlas(
+                    chunk->objects,
+                    v->mapsquare_materials->atlas_texture)) {
+                return 0;
+            }
+            used += bytes;
+            v->frame_gpu_upload_bytes = used;
+            if (used > v->peak_gpu_upload_bytes)
+                v->peak_gpu_upload_bytes = used;
+            v->pending_gpu_upload_ms += chunk->objects->gpu_upload_ms;
+            objects_release_cpu_geometry(chunk->objects);
+            if (v->alpha_cutout_shader_static_loaded) {
+                objects_set_shader(chunk->objects,
+                                   v->alpha_cutout_shader_static);
+            }
+            pending->upload_stage = 2;
+        }
+        if (pending->upload_stage == 2) {
+            if (chunk->object_anim_models) {
+                size_t uploaded = 0;
+                double gpu_before =
+                    chunk->object_anim_models->gpu_upload_ms;
+                if (!models_upload_budgeted(
+                        chunk->object_anim_models,
+                        v->mapsquare_materials->atlas_texture,
+                        &pending->model_upload_cursor, used, budget,
+                        &uploaded)) {
+                    return 0;
+                }
+                used += uploaded;
+                v->frame_gpu_upload_bytes = used;
+                if (used > v->peak_gpu_upload_bytes)
+                    v->peak_gpu_upload_bytes = used;
+                v->pending_gpu_upload_ms +=
+                    chunk->object_anim_models->gpu_upload_ms - gpu_before;
+                if (pending->model_upload_cursor
+                        < chunk->object_anim_models->count) {
+                    break;
+                }
+                if (v->alpha_cutout_shader_static_loaded) {
+                    models_set_shader(chunk->object_anim_models,
+                                      v->alpha_cutout_shader_static);
+                }
+                create_object_anim_states(
+                    chunk->objects, chunk->object_anim_models,
+                    &chunk->object_anim_states,
+                    &chunk->object_anim_state_count);
+            }
+            pending->upload_stage = 3;
+        }
+    }
+
+    if (load->needs_npc_models && load->npc_models
+            && !load->npc_models_ready) {
+        size_t uploaded = 0;
+        double gpu_before = load->npc_models->gpu_upload_ms;
+        if (!models_upload_budgeted(
+                load->npc_models, (Texture2D){0},
+                &load->npc_model_upload_cursor, used, budget, &uploaded)) {
+            return 0;
+        }
+        used += uploaded;
+        v->frame_gpu_upload_bytes = used;
+        if (used > v->peak_gpu_upload_bytes)
+            v->peak_gpu_upload_bytes = used;
+        v->pending_gpu_upload_ms +=
+            load->npc_models->gpu_upload_ms - gpu_before;
+        if (load->npc_model_upload_cursor >= load->npc_models->count) {
+            load->npc_models_ready = 1;
+            if (v->alpha_cutout_shader_dynamic_loaded) {
+                models_set_shader(load->npc_models,
+                                  v->alpha_cutout_shader_dynamic);
             }
         }
-        if (!staged_found)
-            goto activation_failed;
+    }
+    return 1;
+}
+
+static int commit_pending_mapsquare_window(ViewerState *v) {
+    ViewerPendingMapsquareLoad *load = &v->mapsquare_load;
+    if (load->activate_backend
+            && !activate_core_area_around_tile(
+                v, load->center_x, load->center_y)) {
+        return 0;
     }
 
-    if (activate_backend
-            && !activate_core_area_around_tile(v, center_x, center_y)) {
-        goto activation_failed;
+    prune_mapsquare_cache(v, load->plan, load->plan_count, load->plane);
+    for (int i = 0; i < load->staged_count; i++) {
+        v->mapsquare_chunks[v->mapsquare_chunk_count++] =
+            load->staged[i].chunk;
+        memset(&load->staged[i].chunk, 0,
+               sizeof(load->staged[i].chunk));
     }
 
-    prune_mapsquare_cache(v, plan, plan_count, plane);
-    for (int i = 0; i < staged_count; i++) {
-        v->mapsquare_chunks[v->mapsquare_chunk_count++] = staged[i];
-        memset(&staged[i], 0, sizeof(staged[i]));
-    }
-
-    int origin_x = 0;
-    int origin_y = 0;
-    int world_w = 0;
-    int world_h = 0;
-    scene_bounds_for_tile(center_x, center_y,
+    int origin_x = 0, origin_y = 0, world_w = 0, world_h = 0;
+    scene_bounds_for_tile(load->center_x, load->center_y,
                           v->streaming.scene_radius_regions, &origin_x,
                           &origin_y, &world_w, &world_h);
     rebase_mapsquare_cache(v, origin_x - g_world_origin_x,
@@ -5366,13 +5922,18 @@ static int viewer_activate_mapsquare_window(ViewerState *v, int center_x,
     clear_aggregate_visual_assets(v);
 
     v->mapsquare_streaming_active = 1;
-    int center_region_x = center_x / VIEWER_STREAMING_MAPSQUARE_SIZE;
-    int center_region_y = center_y / VIEWER_STREAMING_MAPSQUARE_SIZE;
+    int center_region_x = load->center_x
+                        / VIEWER_STREAMING_MAPSQUARE_SIZE;
+    int center_region_y = load->center_y
+                        / VIEWER_STREAMING_MAPSQUARE_SIZE;
     v->mapsquare_center_region_x = center_region_x;
     v->mapsquare_center_region_y = center_region_y;
-    if (activate_backend
-            && (v->npc_models || v->npc_anims || v->npc_fallback_anims)) {
-        reload_npc_models_for_scene(v);
+    if (load->npc_models) {
+        free_npc_anim_states(v);
+        models_free(v->npc_models);
+        v->npc_models = load->npc_models;
+        load->npc_models = NULL;
+        create_npc_anim_states(v);
     }
     int object_count = 0;
     for (int i = 0; i < v->mapsquare_chunk_count; i++)
@@ -5382,15 +5943,108 @@ static int viewer_activate_mapsquare_window(ViewerState *v, int center_x,
     fprintf(stderr,
             "viewer mapsquare: center=%d,%d plane=%d terrain=%d/%d "
             "objects=%d resident=%d origin=%d,%d size=%dx%d\n",
-            center_region_x, center_region_y, plane, loaded_count, plan_count,
-            object_count, v->mapsquare_chunk_count, g_world_origin_x,
-            g_world_origin_y, g_world_w, g_world_h);
+            center_region_x, center_region_y, load->plane,
+            load->loaded_count, load->plan_count, object_count,
+            v->mapsquare_chunk_count, g_world_origin_x, g_world_origin_y,
+            g_world_w, g_world_h);
     return 1;
+}
 
-activation_failed:
-    for (int i = 0; i < staged_count; i++)
-        free_mapsquare_chunk(&staged[i]);
-    return 0;
+static void record_mapsquare_main_thread_work(
+    ViewerPendingMapsquareLoad *load, double started_ms) {
+    if (!load)
+        return;
+    double elapsed_ms = viewer_streaming_now_ms() - started_ms;
+    load->process_frames++;
+    if (elapsed_ms > load->main_thread_work_max_ms)
+        load->main_thread_work_max_ms = elapsed_ms;
+}
+
+static int viewer_process_mapsquare_loading(ViewerState *v) {
+    if (!v || !v->mapsquare_load.active)
+        return 0;
+    double main_thread_started_ms = viewer_streaming_now_ms();
+    ViewerPendingMapsquareLoad *load = &v->mapsquare_load;
+    ViewerAsyncResult result;
+    while (viewer_async_loader_poll(&v->mapsquare_loader, &result)) {
+        if (result.generation != load->generation) {
+            viewer_async_loader_release_result(&v->mapsquare_loader, &result);
+            continue;
+        }
+        load->received_results++;
+        v->pending_cpu_decode_ms += result.decode_ms;
+        if (!result.success || !result.payload) {
+            load->failed = 1;
+            viewer_async_loader_release_result(&v->mapsquare_loader, &result);
+            continue;
+        }
+        ViewerAsyncMapsquarePayload *payload = result.payload;
+        result.payload = NULL;
+        if (payload->kind == VIEWER_ASYNC_MATERIAL_PAGE) {
+            if (load->materials)
+                load->failed = 1;
+            else {
+                load->materials = payload->materials;
+                payload->materials = NULL;
+            }
+        } else if (payload->kind == VIEWER_ASYNC_NPC_MODELS) {
+            if (load->npc_models) {
+                load->failed = 1;
+            } else {
+                load->npc_models = payload->npc_models;
+                payload->npc_models = NULL;
+                load->npc_model_upload_bytes = payload->model_upload_bytes;
+            }
+        } else if (payload->kind == VIEWER_ASYNC_MAPSQUARE_CHUNK
+                   && load->staged_count
+                       < VIEWER_STREAMING_CHUNK_CAPACITY) {
+            ViewerPendingMapsquareChunk *pending =
+                &load->staged[load->staged_count++];
+            pending->chunk = payload->chunk;
+            memset(&payload->chunk, 0, sizeof(payload->chunk));
+            pending->terrain_upload_bytes = payload->terrain_upload_bytes;
+            pending->object_upload_bytes = payload->object_upload_bytes;
+            pending->model_upload_bytes = payload->model_upload_bytes;
+            load->loaded_count++;
+        } else {
+            load->failed = 1;
+        }
+        viewer_async_mapsquare_payload_free(payload);
+        viewer_async_loader_release_result(&v->mapsquare_loader, &result);
+    }
+
+    if (!load->failed && !upload_pending_mapsquare_resources(v))
+        load->failed = 1;
+    if (load->failed) {
+        int center_x = load->center_x;
+        int center_y = load->center_y;
+        int plane = load->plane;
+        fprintf(stderr,
+                "viewer mapsquare: asynchronous destination %d,%d plane %d "
+                "failed; keeping the current scene\n",
+                center_x, center_y, plane);
+        record_mapsquare_main_thread_work(load, main_thread_started_ms);
+        viewer_cancel_mapsquare_loading(v);
+        return -1;
+    }
+    if (!pending_window_complete(v)) {
+        record_mapsquare_main_thread_work(load, main_thread_started_ms);
+        return 0;
+    }
+    if (!commit_pending_mapsquare_window(v)) {
+        record_mapsquare_main_thread_work(load, main_thread_started_ms);
+        viewer_cancel_mapsquare_loading(v);
+        return -1;
+    }
+    record_mapsquare_main_thread_work(load, main_thread_started_ms);
+    viewer_finish_streaming_load(v, load->started_ms, load->reason, 1);
+    const RuneCDevTransport *pending_transport = v->pending_dev_transport;
+    v->pending_dev_transport = NULL;
+    viewer_commit_player_scene_transition(v);
+    discard_pending_mapsquare_load(v);
+    if (pending_transport)
+        viewer_finish_dev_transport(v, pending_transport);
+    return 1;
 }
 
 static void animate_item_entry_to_player_frame(ViewerState *v,
@@ -8081,30 +8735,37 @@ static void draw_streaming_telemetry_overlay(ViewerState *v) {
         return;
     viewer_refresh_streaming_telemetry(v, 0);
     const ViewerStreamingTelemetry *t = &v->telemetry;
-    char lines[7][160];
+    char lines[8][160];
     snprintf(lines[0], sizeof(lines[0]),
              "Streaming  startup %.1f ms  last load %.1f ms",
              t->startup_ms, t->scene_or_chunk_load_ms);
     snprintf(lines[1], sizeof(lines[1]),
-             "Decode %.1f ms  upload %.1f ms  loads %llu",
+             "Decode %.1f  upload %.1f  main max %.1f ms",
              t->cpu_decode_ms, t->gpu_upload_ms,
-             (unsigned long long)t->scene_load_count);
+             t->main_thread_streaming_work_max_ms);
     snprintf(lines[2], sizeof(lines[2]),
+             "Async q%d f%llu cpu%d  up %.1f peak %.1f/%.1f MB",
+             t->async_jobs_pending, (unsigned long long)t->async_frames,
+             t->cpu_chunks_staged,
+             (double)t->gpu_upload_bytes_frame / (1024.0 * 1024.0),
+             (double)t->gpu_upload_bytes_peak / (1024.0 * 1024.0),
+             (double)t->gpu_upload_budget_bytes / (1024.0 * 1024.0));
+    snprintf(lines[3], sizeof(lines[3]),
              "Terrain %d/%d  vertices %llu",
              t->terrain_chunks_cpu, t->terrain_chunks_gpu,
              (unsigned long long)t->terrain_vertices_resident);
-    snprintf(lines[3], sizeof(lines[3]),
+    snprintf(lines[4], sizeof(lines[4]),
              "Objects %d/%d  vertices %llu",
              t->object_chunks_cpu, t->object_chunks_gpu,
              (unsigned long long)t->object_vertices_resident);
-    snprintf(lines[4], sizeof(lines[4]),
+    snprintf(lines[5], sizeof(lines[5]),
              "Texture %.1f MB  model %.1f MB",
              t->texture_cache_mb, t->model_cache_mb);
-    snprintf(lines[5], sizeof(lines[5]),
+    snprintf(lines[6], sizeof(lines[6]),
              "NPCs %d  ground items %d  draws ~%d",
              t->active_npcs, t->active_ground_items,
              t->draw_calls_estimate);
-    snprintf(lines[6], sizeof(lines[6]),
+    snprintf(lines[7], sizeof(lines[7]),
              "Backend pages %d  page %.1f ms  area %.1f ms",
              t->backend_pages_loaded, t->backend_page_load_ms,
              t->backend_active_area_load_ms);
@@ -8113,10 +8774,10 @@ static void draw_streaming_telemetry_overlay(ViewerState *v) {
     const int y = 8;
     const int width = 390;
     const int line_height = 15;
-    const int height = 8 + 7 * line_height;
+    const int height = 8 + 8 * line_height;
     DrawRectangle(x, y, width, height, (Color){18, 20, 24, 220});
     DrawRectangleLines(x, y, width, height, (Color){120, 126, 136, 230});
-    for (int i = 0; i < 7; i++)
+    for (int i = 0; i < 8; i++)
         DrawText(lines[i], x + 7, y + 5 + i * line_height, 12, RAYWHITE);
 }
 
@@ -8356,6 +9017,14 @@ int main(int argc, char **argv) {
         fprintf(stderr,
                 "dynamic model shader disabled by RUNEC_DYNAMIC_MODEL_SHADER=0\n");
     }
+    v.mapsquare_load_generation = 1;
+    if (!viewer_async_loader_init(
+            &v.mapsquare_loader, viewer_async_mapsquare_decode,
+            viewer_async_request_destroy, viewer_async_payload_destroy, &v)) {
+        fprintf(stderr, "viewer mapsquare: failed to start async loader\n");
+        exit_status = 1;
+        goto cleanup;
+    }
 
     v.cam_yaw = 0;
     v.cam_pitch = render_settings.camera_pitch;
@@ -8395,7 +9064,8 @@ int main(int argc, char **argv) {
     if (!load_startup_scene(&v, scene_mode, initial_terrain,
                             initial_objects)) {
         fprintf(stderr, "Failed to load initial visual scene\n");
-        return 1;
+        exit_status = 1;
+        goto cleanup;
     }
     if (v.scene_plane_override >= 0)
         ensure_active_scene_plane(&v, v.scene_plane_override);
@@ -8405,18 +9075,24 @@ int main(int argc, char **argv) {
     build_minimap_tiles(&v);
     load_world_map_minimap(&v);
 
-    // Load NPC models (combined body parts per NPC, one model entry per NPC def)
-    uint32_t *npc_model_ids = calloc((size_t)v.world->npc_count, sizeof(uint32_t));
-    int npc_model_id_count = 0;
-    if (npc_model_ids) {
-        npc_model_id_count = collect_spawned_npc_model_ids(
-            &v, npc_model_ids, v.world->npc_count, 0, RC_MAX_PLANES - 1);
+    // Aggregate development scenes retain the synchronous compatibility path.
+    // Mapsquare scenes arrive through the worker and are already GPU-resident.
+    if (!v.npc_models) {
+        uint32_t *npc_model_ids = calloc(
+            (size_t)v.world->npc_count, sizeof(uint32_t));
+        int npc_model_id_count = 0;
+        if (npc_model_ids) {
+            npc_model_id_count = collect_spawned_npc_model_ids(
+                &v, npc_model_ids, v.world->npc_count,
+                0, RC_MAX_PLANES - 1);
+        }
+        uint32_t empty_model_ids[1] = {0};
+        const uint32_t *model_filter = npc_model_ids
+            ? npc_model_ids : empty_model_ids;
+        v.npc_models = models_load_filtered(
+            startup_npc_models_path(&v), model_filter, npc_model_id_count);
+        free(npc_model_ids);
     }
-    uint32_t empty_model_ids[1] = {0};
-    const uint32_t *model_filter = npc_model_ids ? npc_model_ids : empty_model_ids;
-    v.npc_models = models_load_filtered(
-        startup_npc_models_path(&v), model_filter, npc_model_id_count);
-    free(npc_model_ids);
 
     // NPC animations (separate cache — player.anims has combat/player anims,
     // npcs.anims has the subset referenced by our loaded NPC defs). Each
@@ -8547,6 +9223,7 @@ int main(int argc, char **argv) {
         ? viewer_streaming_now_ms() : 0.0;
 
     while (!WindowShouldClose()) {
+        viewer_process_mapsquare_loading(&v);
         RcPlayer *p = &v.world->player;
         runec_ui_sync_status(&v.ui, p->x, p->y, LOCAL_X(p->x), LOCAL_Y(p->y),
                              (uint32_t)v.world->tick, p->running, v.paused);
@@ -8767,6 +9444,8 @@ int main(int argc, char **argv) {
     }
 
 cleanup:
+    viewer_async_loader_destroy(&v.mapsquare_loader);
+    discard_pending_mapsquare_load(&v);
     for (int plane = 0; plane < RC_MAX_PLANES; plane++) {
         terrain_free(v.terrain_planes[plane]);
         objects_free(v.object_planes[plane]);

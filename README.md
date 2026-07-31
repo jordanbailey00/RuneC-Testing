@@ -228,17 +228,22 @@ cache through `tools/cache_pipeline/export_scene_slice.py --output-prefix ...`.
 They and `data/regions/scene_cache/` are excluded from runtime-data packs.
 
 When the complete starting visual window is present, the viewer uses a bounded,
-center-first mapsquare cache. Terrain, static objects, and animated-object
-sidecars remain complete per retained mapsquare; an empty animation sidecar
-does not require an empty model file. The material atlas is bound once as a
-shared page. Moving the window retains overlap and commits only after every
-visible chunk and the backend active area load successfully. Loading is
-synchronous in this first cache version. Normal gameplay reads only installed
-mapsquare assets. A missing catalog, material page, or catalog-listed chunk
-produces an explicit startup/transition error and never launches Python or
-reads the source cache. Maintainers can opt into bounded development generation
-with `RUNEC_SCENE_AUTO_EXPORT=1`; an incomplete or failed split export still
-blocks the transition instead of launching aggregate generation.
+center-first mapsquare cache. A worker performs installed-asset reads, pack
+decompression, binary parsing, and CPU mesh preparation for terrain, static
+objects, animated objects, shared materials, and filtered NPC models. The
+render thread performs budgeted GPU uploads and commits only after every visible
+chunk, required NPC model, and backend active-area load succeed. Moving the
+window retains overlap; cancellation, missing assets, or decode/upload failure
+leaves the prior scene active. Normal gameplay never launches Python or reads
+the source cache. Maintainers can opt into bounded development generation with
+`RUNEC_SCENE_AUTO_EXPORT=1`; an incomplete or failed split export still blocks
+the transition instead of launching aggregate generation.
+Object traversals that cross scene windows carry their resolved destination in
+the pending transaction. The player remains at the source until the destination
+visual window and backend area commit together; cancellation or failure also
+keeps the source coordinates, preventing empty intermediate scenes and
+automatic source-window reloads. Additional route ticks cannot replace or
+restart an already-pending player transition.
 Height sampling also clamps the outer corner of legacy `64x64` terrain files;
 new exports carry the actual neighboring corner values.
 

@@ -38,6 +38,12 @@ typedef struct {
 } ViewerStreamingConfig;
 
 typedef struct {
+    int active;
+    int source_x, source_y, source_plane;
+    int destination_x, destination_y, destination_plane;
+} ViewerStreamingPlayerTransition;
+
+typedef struct {
     uint64_t scene_load_count;
     double startup_ms;
     double scene_or_chunk_load_ms;
@@ -50,6 +56,13 @@ typedef struct {
     int terrain_chunks_gpu;
     int object_chunks_cpu;
     int object_chunks_gpu;
+    int async_jobs_pending;
+    int cpu_chunks_staged;
+    uint64_t gpu_upload_bytes_frame;
+    uint64_t gpu_upload_bytes_peak;
+    uint64_t gpu_upload_budget_bytes;
+    uint64_t async_frames;
+    double main_thread_streaming_work_max_ms;
     uint64_t terrain_vertices_resident;
     uint64_t object_vertices_resident;
     double texture_cache_mb;
@@ -89,5 +102,20 @@ int viewer_streaming_mapsquare_path(char *out, size_t capacity,
                                     const char *directory, int region_x,
                                     int region_y, int plane,
                                     const char *suffix);
+size_t viewer_streaming_upload_budget_bytes(
+    const ViewerStreamingConfig *config);
+int viewer_streaming_upload_budget_admit(size_t used_bytes,
+                                         size_t upload_bytes,
+                                         size_t budget_bytes);
+void viewer_streaming_player_transition_begin(
+    ViewerStreamingPlayerTransition *transition,
+    int source_x, int source_y, int source_plane,
+    int destination_x, int destination_y, int destination_plane);
+int viewer_streaming_player_transition_source(
+    const ViewerStreamingPlayerTransition *transition,
+    int *x, int *y, int *plane);
+int viewer_streaming_player_transition_commit(
+    ViewerStreamingPlayerTransition *transition,
+    int *x, int *y, int *plane);
 
 #endif

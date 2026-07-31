@@ -41,6 +41,48 @@ int main(void) {
     assert(viewer.max_gpu_chunks == 128);
     assert(viewer.max_cpu_chunks == 128);
     assert(viewer.upload_budget_mb_per_frame == 16);
+    size_t upload_budget = viewer_streaming_upload_budget_bytes(&viewer);
+    assert(upload_budget == 16u * 1024u * 1024u);
+    assert(viewer_streaming_upload_budget_admit(0, upload_budget,
+                                                upload_budget));
+    assert(!viewer_streaming_upload_budget_admit(1, upload_budget,
+                                                 upload_budget));
+    assert(viewer_streaming_upload_budget_admit(0, upload_budget + 1,
+                                                upload_budget));
+    assert(viewer_streaming_upload_budget_admit(upload_budget, 0,
+                                                upload_budget));
+    assert(!viewer_streaming_upload_budget_admit(0, 1, 0));
+    assert(viewer_streaming_upload_budget_bytes(NULL) == 0);
+
+    ViewerStreamingPlayerTransition transition = {0};
+    viewer_streaming_player_transition_begin(
+        &transition, 3081, 3421, 0, 1859, 5243, 0);
+    assert(transition.active);
+    assert(transition.source_x == 3081 && transition.source_y == 3421);
+    assert(transition.source_plane == 0);
+    int transition_x = -1;
+    int transition_y = -1;
+    int transition_plane = -1;
+    assert(viewer_streaming_player_transition_source(
+        &transition, &transition_x, &transition_y, &transition_plane));
+    assert(transition_x == 3081 && transition_y == 3421);
+    assert(transition_plane == 0 && transition.active);
+    assert(viewer_streaming_player_transition_commit(
+        &transition, &transition_x, &transition_y, &transition_plane));
+    assert(transition_x == 1859 && transition_y == 5243);
+    assert(transition_plane == 0 && !transition.active);
+    assert(!viewer_streaming_player_transition_commit(
+        &transition, &transition_x, &transition_y, &transition_plane));
+    viewer_streaming_player_transition_begin(
+        &transition, 3081, 3421, 0, 1859, 5243, 0);
+    assert(!viewer_streaming_player_transition_commit(
+        &transition, NULL, &transition_y, &transition_plane));
+    assert(transition.active);
+    assert(!viewer_streaming_player_transition_source(
+        &transition, &transition_x, NULL, &transition_plane));
+    assert(transition.active);
+    viewer_streaming_player_transition_begin(
+        NULL, 3081, 3421, 0, 1859, 5243, 0);
     viewer_streaming_config_sanitize(NULL);
 
     viewer.scene_radius_regions = -1;

@@ -6,6 +6,7 @@
 
 #include "../rc-core/io.h"
 #include "raylib.h"
+#include "streaming.h"
 #include "viewer_logging.h"
 #include <math.h>
 #include <stdint.h>
@@ -43,7 +44,9 @@ typedef struct {
 typedef struct {
     uint32_t model_id;
     Model model;
+    Mesh cpu_mesh;
     int loaded;
+    int uploaded;
     float *rest_verts;
     float *rest_texcoords;
     unsigned char *rest_colors;
@@ -74,9 +77,125 @@ typedef struct {
     int has_textures;
     int owns_atlas_texture;
     int loaded;
+    double cpu_decode_ms;
+    double gpu_upload_ms;
 } ModelSet;
 
 static void models_free(ModelSet *set);
+
+static size_t model_entry_upload_bytes(const ModelEntry *entry) {
+    if (!entry || !entry->loaded || entry->uploaded
+            || entry->cpu_mesh.vertexCount <= 0)
+        return 0;
+    size_t per_vertex = 3u * sizeof(float) + 3u * sizeof(float)
+                      + 4u * sizeof(unsigned char);
+    if (entry->cpu_mesh.texcoords)
+        per_vertex += 2u * sizeof(float);
+    return (size_t)entry->cpu_mesh.vertexCount * per_vertex;
+}
+
+static size_t models_upload_bytes(const ModelSet *set) {
+    size_t total = 0;
+    if (!set)
+        return 0;
+    if (set->has_textures && set->atlas_texture.id <= 0
+            && set->atlas_base_pixels && set->atlas_width > 0
+            && set->atlas_height > 0) {
+        total = (size_t)set->atlas_width * (size_t)set->atlas_height * 4u;
+    }
+    for (int i = 0; i < set->count; i++) {
+        size_t bytes = model_entry_upload_bytes(&set->entries[i]);
+        if (SIZE_MAX - total < bytes)
+            return SIZE_MAX;
+        total += bytes;
+    }
+    return total;
+}
+
+static int models_upload_budgeted(ModelSet *set, Texture2D shared_atlas,
+                                  int *cursor, size_t used_bytes,
+                                  size_t budget_bytes,
+                                  size_t *uploaded_bytes) {
+    if (!set || !set->loaded)
+        return 0;
+    if (uploaded_bytes)
+        *uploaded_bytes = 0;
+    double started_ms = viewer_streaming_now_ms();
+
+    if (shared_atlas.id > 0) {
+        set->atlas_texture = shared_atlas;
+        set->owns_atlas_texture = 0;
+    } else if (set->has_textures && set->atlas_texture.id <= 0
+            && set->atlas_base_pixels && set->atlas_width > 0
+            && set->atlas_height > 0) {
+        size_t bytes = (size_t)set->atlas_width
+                     * (size_t)set->atlas_height * 4u;
+        if (!viewer_streaming_upload_budget_admit(
+                used_bytes, bytes, budget_bytes)) {
+            return 1;
+        }
+        Image image = {
+            .data = set->atlas_base_pixels,
+            .width = set->atlas_width,
+            .height = set->atlas_height,
+            .mipmaps = 1,
+            .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8,
+        };
+        set->atlas_texture = LoadTextureFromImage(image);
+        if (set->atlas_texture.id <= 0)
+            return 0;
+        set->owns_atlas_texture = 1;
+        SetTextureFilter(set->atlas_texture, TEXTURE_FILTER_POINT);
+        used_bytes += bytes;
+        if (uploaded_bytes)
+            *uploaded_bytes += bytes;
+    }
+
+    Texture2D atlas = set->atlas_texture;
+    int i = cursor ? *cursor : 0;
+    if (i < 0)
+        i = 0;
+    for (; i < set->count; i++) {
+        ModelEntry *entry = &set->entries[i];
+        if (!entry->loaded || entry->uploaded)
+            continue;
+        if (entry->cpu_mesh.vertexCount > 0 && !entry->cpu_mesh.vertices)
+            return 0;
+        size_t bytes = model_entry_upload_bytes(entry);
+        if (!viewer_streaming_upload_budget_admit(
+                used_bytes, bytes, budget_bytes)) {
+            break;
+        }
+        UploadMesh(&entry->cpu_mesh, false);
+        entry->model = LoadModelFromMesh(entry->cpu_mesh);
+        entry->cpu_mesh = (Mesh){0};
+        entry->uploaded = entry->model.meshCount > 0;
+        if (!entry->uploaded)
+            return 0;
+        if (set->has_textures && atlas.id > 0) {
+            entry->model.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture =
+                atlas;
+        }
+        used_bytes += bytes;
+        if (uploaded_bytes)
+            *uploaded_bytes += bytes;
+    }
+    if (cursor)
+        *cursor = i;
+    set->gpu_upload_ms += viewer_streaming_now_ms() - started_ms;
+    return 1;
+}
+
+static int models_upload_with_shared_atlas(ModelSet *set,
+                                           Texture2D shared_atlas) {
+    int cursor = 0;
+    size_t uploaded = 0;
+    if (!models_upload_budgeted(set, shared_atlas, &cursor, 0, SIZE_MAX,
+                                &uploaded)) {
+        return 0;
+    }
+    return cursor >= set->count;
+}
 
 static void models_load_texture_anims(ModelSet *set, const char *atlas_path) {
     if (!set || !atlas_path) return;
@@ -308,7 +427,8 @@ static void models_recompute_texture_uvs_from_vertices(ModelEntry *entry,
 
 static ModelSet *models_load_filtered_with_shared_atlas(
     const char *path, const uint32_t *ids, int id_count,
-    Texture2D shared_atlas) {
+    Texture2D shared_atlas, int cpu_only_shared) {
+    double load_started_ms = viewer_streaming_now_ms();
     FILE *f = rc_asset_fopen(path, "rb");
     if (!f) { fprintf(stderr, "models: can't open %s\n", path); return NULL; }
 
@@ -353,7 +473,7 @@ static ModelSet *models_load_filtered_with_shared_atlas(
 
     if (has_tex && shared_atlas.id > 0) {
         set->atlas_texture = shared_atlas;
-    } else if (has_tex) {
+    } else if (has_tex && cpu_only_shared != 1) {
         char atlas_path[1024];
         strncpy(atlas_path, path, sizeof(atlas_path) - 1);
         atlas_path[sizeof(atlas_path) - 1] = '\0';
@@ -371,33 +491,19 @@ static ModelSet *models_load_filtered_with_shared_atlas(
                 unsigned char *pixels = malloc(sz);
                 if (pixels
                         && rc_read_exact(af, pixels, sizeof(unsigned char), sz, atlas_path, "atlas pixels")) {
-                    Image img = {
-                        .data = pixels,
-                        .width = (int)width,
-                        .height = (int)height,
-                        .mipmaps = 1,
-                        .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8,
-                    };
-                    set->atlas_texture = LoadTextureFromImage(img);
-                    if (set->atlas_texture.id > 0) {
-                        set->owns_atlas_texture = 1;
-                        SetTextureFilter(set->atlas_texture, TEXTURE_FILTER_POINT);
-                    }
-                    if (set->atlas_texture.id > 0) {
-                        set->atlas_width = (int)width;
-                        set->atlas_height = (int)height;
-                        set->atlas_base_pixels = malloc(sz);
-                        set->atlas_pixels = malloc(sz);
-                        if (set->atlas_base_pixels && set->atlas_pixels) {
-                            memcpy(set->atlas_base_pixels, pixels, sz);
-                            memcpy(set->atlas_pixels, pixels, sz);
-                            models_load_texture_anims(set, atlas_path);
-                        } else {
-                            free(set->atlas_base_pixels);
-                            free(set->atlas_pixels);
-                            set->atlas_base_pixels = NULL;
-                            set->atlas_pixels = NULL;
-                        }
+                    set->atlas_width = (int)width;
+                    set->atlas_height = (int)height;
+                    set->atlas_base_pixels = malloc(sz);
+                    set->atlas_pixels = malloc(sz);
+                    if (set->atlas_base_pixels && set->atlas_pixels) {
+                        memcpy(set->atlas_base_pixels, pixels, sz);
+                        memcpy(set->atlas_pixels, pixels, sz);
+                        models_load_texture_anims(set, atlas_path);
+                    } else {
+                        free(set->atlas_base_pixels);
+                        free(set->atlas_pixels);
+                        set->atlas_base_pixels = NULL;
+                        set->atlas_pixels = NULL;
                     }
                     fprintf(stderr, "models atlas: %ux%u loaded from %s\n",
                             width, height, atlas_path);
@@ -518,8 +624,6 @@ static ModelSet *models_load_filtered_with_shared_atlas(
                 mesh.normals[(i*3+j)*3] = nx; mesh.normals[(i*3+j)*3+1] = ny; mesh.normals[(i*3+j)*3+2] = nz;
             }
         }
-        UploadMesh(&mesh, false);
-
         // Animation data
         int16_t *bv = malloc(bvc * 3 * sizeof(int16_t));
         if (!bv
@@ -656,12 +760,8 @@ static ModelSet *models_load_filtered_with_shared_atlas(
             }
         }
 
-        Model ray_model = LoadModelFromMesh(mesh);
-        if (has_tex && set->atlas_texture.id > 0)
-            ray_model.materials[0].maps[MATERIAL_MAP_DIFFUSE].texture = set->atlas_texture;
-
         set->entries[m] = (ModelEntry){
-            .model_id = mid, .model = ray_model, .loaded = 1,
+            .model_id = mid, .cpu_mesh = mesh, .loaded = 1,
             .rest_verts = rest_verts,
             .rest_texcoords = texcoords && vc > 0
                 ? malloc((size_t)vc * 2 * sizeof(float)) : NULL,
@@ -683,6 +783,12 @@ static ModelSet *models_load_filtered_with_shared_atlas(
     }
     free(offsets); rc_asset_close(f);
     set->loaded = 1;
+    set->cpu_decode_ms = viewer_streaming_now_ms() - load_started_ms;
+    if (!cpu_only_shared
+            && !models_upload_with_shared_atlas(set, shared_atlas)) {
+        models_free(set);
+        return NULL;
+    }
     fprintf(stderr, "models: loaded %d from %s\n", loaded_count, path);
     return set;
 }
@@ -690,13 +796,25 @@ static ModelSet *models_load_filtered_with_shared_atlas(
 static ModelSet *models_load_filtered(const char *path, const uint32_t *ids,
                                       int id_count) {
     return models_load_filtered_with_shared_atlas(
-        path, ids, id_count, (Texture2D){0});
+        path, ids, id_count, (Texture2D){0}, 0);
 }
 
 static ModelSet *models_load_with_shared_atlas(const char *path,
                                                Texture2D shared_atlas) {
     return models_load_filtered_with_shared_atlas(
-        path, NULL, 0, shared_atlas);
+        path, NULL, 0, shared_atlas, 0);
+}
+
+static ModelSet *models_load_cpu_with_shared_atlas(const char *path) {
+    return models_load_filtered_with_shared_atlas(
+        path, NULL, 0, (Texture2D){0}, 1);
+}
+
+static ModelSet *models_load_filtered_cpu(const char *path,
+                                          const uint32_t *ids,
+                                          int id_count) {
+    return models_load_filtered_with_shared_atlas(
+        path, ids, id_count, (Texture2D){0}, 2);
 }
 
 static ModelSet *models_load(const char *path) {
@@ -707,7 +825,7 @@ static void models_set_shader(ModelSet *set, Shader shader) {
     if (!set || !set->loaded || shader.id <= 0) return;
     for (int i = 0; i < set->count; i++) {
         ModelEntry *entry = &set->entries[i];
-        if (!entry->loaded) continue;
+        if (!entry->loaded || !entry->uploaded) continue;
         for (int m = 0; m < entry->model.materialCount; m++)
             entry->model.materials[m].shader = shader;
     }
@@ -717,10 +835,20 @@ static void models_free(ModelSet *set) {
     if (!set) return;
     for (int i = 0; i < set->count; i++) {
         if (set->entries[i].loaded) {
-            UnloadModel(set->entries[i].model);
-        free(set->entries[i].base_verts);
-        free(set->entries[i].rest_verts);
-        free(set->entries[i].rest_texcoords);
+            if (set->entries[i].uploaded) {
+                UnloadModel(set->entries[i].model);
+            } else {
+                free(set->entries[i].cpu_mesh.vertices);
+                free(set->entries[i].cpu_mesh.texcoords);
+                free(set->entries[i].cpu_mesh.texcoords2);
+                free(set->entries[i].cpu_mesh.normals);
+                free(set->entries[i].cpu_mesh.tangents);
+                free(set->entries[i].cpu_mesh.colors);
+                free(set->entries[i].cpu_mesh.indices);
+            }
+            free(set->entries[i].base_verts);
+            free(set->entries[i].rest_verts);
+            free(set->entries[i].rest_texcoords);
             free(set->entries[i].rest_colors);
             free(set->entries[i].vertex_skins);
             free(set->entries[i].face_indices);

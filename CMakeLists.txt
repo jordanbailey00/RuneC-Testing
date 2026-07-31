@@ -178,3 +178,36 @@ if(TARGET test_streaming_config)
         rc-viewer
     )
 endif()
+
+if(TARGET test_streaming_async)
+    target_sources(test_streaming_async PRIVATE
+        rc-viewer/streaming.c
+        rc-viewer/streaming_async.c
+    )
+    target_include_directories(test_streaming_async PRIVATE
+        rc-viewer
+    )
+    target_link_libraries(test_streaming_async pthread)
+endif()
+
+if(TARGET rc-viewer AND TARGET test_streaming_cpu_assets)
+    target_sources(test_streaming_cpu_assets PRIVATE
+        rc-viewer/streaming.c
+    )
+    target_include_directories(test_streaming_cpu_assets PRIVATE
+        rc-viewer
+        ${CMAKE_SOURCE_DIR}/lib/raylib/include
+    )
+    target_link_directories(test_streaming_cpu_assets PRIVATE
+        ${CMAKE_SOURCE_DIR}/lib/raylib/lib
+    )
+    target_link_libraries(test_streaming_cpu_assets raylib dl pthread m)
+    if(UNIX AND NOT APPLE)
+        if(GL_LIB)
+            target_link_libraries(test_streaming_cpu_assets ${GL_LIB})
+        else()
+            target_link_libraries(test_streaming_cpu_assets
+                /usr/lib/x86_64-linux-gnu/libGL.so.1)
+        endif()
+    endif()
+endif()

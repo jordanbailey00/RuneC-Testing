@@ -150,22 +150,33 @@ presentation responsibilities.
 - It links both `rc-core` and `rc-content`, but it should still behave
   as a presentation shell rather than a second gameplay engine.
 
-The PR 1 viewer defaults preserve current behavior: scene radius 1, startup
-preload radius 0, CPU/GPU chunk caps 128, and a declared 16 MB upload budget.
-The upload budget is telemetry/configuration only until the asynchronous upload
-path is implemented. Existing `RUNEC_SCENE_RADIUS_REGIONS` and
+The viewer defaults preserve current behavior: scene radius 1, startup preload
+radius 0, CPU/GPU chunk caps 128, and a 16 MB per-frame upload budget. Existing
+`RUNEC_SCENE_RADIUS_REGIONS` and
 `RUNEC_STARTUP_SCENE_RADIUS_REGIONS` overrides remain accepted.
 
-PR 5 makes per-mapsquare visuals mandatory during normal gameplay. The current
-synchronous cache loads complete
-mapsquares center-first, retains overlap, evicts entries outside the new plan,
-and obeys the lower CPU/GPU chunk cap. Empty object-animation sidecars are
-complete without a model sidecar. Newly decoded chunks are staged and committed
-only after the full visible window and backend area succeed, so a failed edge
-load leaves the prior scene intact. Static object CPU geometry is released
-after GPU upload. The shared material page has separate ownership from chunk
-geometry so it is loaded once and can be replaced by paged material ownership
-later without changing chunk files.
+Normal gameplay uses a generation-tagged worker to load complete mapsquares
+center-first. The worker reads loose/packed assets, decompresses pack entries,
+parses terrain/static objects/animated-object models, prepares NPC model filters
+from indexed spawns, and builds CPU meshes. The render thread drains results,
+uploads GPU resources, attaches shared materials/shaders, retains overlap, and
+evicts entries outside the new plan. A destination commits only after its full
+visible window, NPC models, and backend area succeed; cancellation or failure
+keeps the prior scene active.
+
+Core-scheduled object traversals use the same transaction. When a traversal
+crosses the current visual window, the viewer records its resolved destination,
+restores the player to the source while loading, and applies the destination in
+the same frame that the complete visual and backend scene commits. Failed or
+cancelled loads leave the player at the source. While one is pending, later
+route ticks restore that source without superseding or restarting the request.
+
+GPU uploads obey the configured byte budget between upload units. Model sets
+upload one entry at a time. A legacy mapsquare object mesh is one indivisible
+unit, so a mesh larger than the configured budget is admitted alone to ensure
+forward progress and is reported by peak-upload telemetry. Static object CPU
+geometry is released after upload. The shared material page has separate
+ownership from chunk geometry and is loaded once.
 
 Split terrain uses neighboring mapsquares when calculating underlay smoothing,
 lighting normals, and outer corner heights. New chunks carry a `65x65` corner
@@ -184,11 +195,11 @@ generation for maintainers with a local b237 cache. Scene or plane transitions
 still load the visual and backend destination before committing coordinates.
 
 Streaming telemetry logs startup and scene/active-area changes. It reports
-decode/upload time, resident scene chunks and vertices, deduplicated texture
-memory, estimated model memory and draw calls, active actors/items, and backend
-page timings. CPU and GPU chunk counts are currently equal because current
-loaders decode and upload synchronously; later chunk-cache work will separate
-them.
+worker decode and render-thread upload time, queued async jobs, staged CPU
+chunks, current/peak upload bytes and budget, async frame count, maximum
+main-thread streaming work, resident chunks/vertices, deduplicated texture
+memory, estimated model memory/draw calls, active actors/items, and backend page
+timings.
 
 ## Why it exists
 
