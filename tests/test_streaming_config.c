@@ -146,6 +146,52 @@ int main(void) {
     assert(viewer_streaming_plan_mapsquares(
         &viewer, -1, 0, plan, VIEWER_STREAMING_CHUNK_CAPACITY) == -1);
     assert(!viewer_streaming_mapsquare_in_plan(NULL, 1, 0, 0));
+    assert(viewer_streaming_chunk_retained(plan, count, 0, 0, 0, 0, 2));
+    assert(viewer_streaming_chunk_retained(plan, count, 0, 0, 2, 0, 2));
+    assert(!viewer_streaming_chunk_retained(plan, count, 0, 0, 1, 0, 2));
+    assert(!viewer_streaming_chunk_retained(plan, count, 2, 2, 0, 0, 2));
+    assert(viewer_streaming_same_window(3136, 3392, 0, 3199, 3455, 0));
+    assert(!viewer_streaming_same_window(3136, 3392, 0, 3200, 3455, 0));
+    assert(!viewer_streaming_same_window(3136, 3392, 0, 3136, 3392, 1));
+    assert(!viewer_streaming_same_window(-1, 3392, 0, 3136, 3392, 0));
+
+    int prefetch_x = -1;
+    int prefetch_y = -1;
+    assert(viewer_streaming_predict_prefetch_center(
+        49, 53, 3160, 3424, 3264, 3424, 16,
+        &prefetch_x, &prefetch_y));
+    assert(prefetch_x == 50 * 64 + 32 && prefetch_y == 53 * 64 + 32);
+    assert(viewer_streaming_predict_prefetch_center(
+        49, 53, 3160, 3424, 3000, 3500, 16,
+        &prefetch_x, &prefetch_y));
+    assert(prefetch_x == 48 * 64 + 32 && prefetch_y == 54 * 64 + 32);
+    assert(viewer_streaming_predict_prefetch_center(
+        49, 53, 3188, 3424, 3189, 3424, 16,
+        &prefetch_x, &prefetch_y));
+    assert(prefetch_x == 50 * 64 + 32 && prefetch_y == 53 * 64 + 32);
+    assert(viewer_streaming_predict_prefetch_center(
+        49, 53, 3137, 3424, 3136, 3424, 16,
+        &prefetch_x, &prefetch_y));
+    assert(prefetch_x == 48 * 64 + 32 && prefetch_y == 53 * 64 + 32);
+    assert(viewer_streaming_predict_prefetch_center(
+        49, 53, 3160, 3448, 3160, 3449, 16,
+        &prefetch_x, &prefetch_y));
+    assert(prefetch_x == 49 * 64 + 32 && prefetch_y == 54 * 64 + 32);
+    assert(viewer_streaming_predict_prefetch_center(
+        49, 53, 3160, 3393, 3160, 3392, 16,
+        &prefetch_x, &prefetch_y));
+    assert(prefetch_x == 49 * 64 + 32 && prefetch_y == 52 * 64 + 32);
+    assert(viewer_streaming_predict_prefetch_center(
+        49, 53, 3168, 3424, 3169, 3424, 99,
+        &prefetch_x, &prefetch_y));
+    assert(prefetch_x == 50 * 64 + 32 && prefetch_y == 53 * 64 + 32);
+    assert(!viewer_streaming_predict_prefetch_center(
+        0, 0, 1, 1, 0, 1, 16, &prefetch_x, &prefetch_y));
+    assert(!viewer_streaming_predict_prefetch_center(
+        49, 53, 3160, 3424, 3161, 3424, 16,
+        &prefetch_x, &prefetch_y));
+    assert(!viewer_streaming_predict_prefetch_center(
+        49, 53, 3160, 3424, 3264, 3424, 16, NULL, &prefetch_y));
 
     char catalog_path[128];
     snprintf(catalog_path, sizeof(catalog_path),

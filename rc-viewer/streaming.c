@@ -245,6 +245,83 @@ int viewer_streaming_upload_budget_admit(size_t used_bytes,
     return used_bytes == 0;
 }
 
+int viewer_streaming_chunk_retained(const ViewerMapsquareCoord *plan,
+                                    int plan_count, int region_x,
+                                    int region_y, int chunk_plane,
+                                    int scene_plane, int player_plane) {
+    return (chunk_plane == scene_plane || chunk_plane == player_plane)
+        && viewer_streaming_mapsquare_in_plan(
+            plan, plan_count, region_x, region_y);
+}
+
+int viewer_streaming_same_window(int first_x, int first_y, int first_plane,
+                                 int second_x, int second_y,
+                                 int second_plane) {
+    if (first_x < 0 || first_y < 0 || second_x < 0 || second_y < 0)
+        return 0;
+    return first_plane == second_plane
+        && first_x / VIEWER_STREAMING_MAPSQUARE_SIZE
+            == second_x / VIEWER_STREAMING_MAPSQUARE_SIZE
+        && first_y / VIEWER_STREAMING_MAPSQUARE_SIZE
+            == second_y / VIEWER_STREAMING_MAPSQUARE_SIZE;
+}
+
+static int direction(int value) {
+    return (value > 0) - (value < 0);
+}
+
+int viewer_streaming_predict_prefetch_center(
+    int active_region_x, int active_region_y,
+    int player_x, int player_y, int target_x, int target_y,
+    int edge_distance, int *center_x, int *center_y) {
+    if (!center_x || !center_y || active_region_x < 0 || active_region_y < 0
+            || player_x < 0 || player_y < 0 || target_x < 0 || target_y < 0
+            || edge_distance < 0) {
+        return 0;
+    }
+    if (edge_distance > VIEWER_STREAMING_MAPSQUARE_SIZE / 2)
+        edge_distance = VIEWER_STREAMING_MAPSQUARE_SIZE / 2;
+
+    int next_region_x = active_region_x;
+    int next_region_y = active_region_y;
+    int target_region_x = target_x / VIEWER_STREAMING_MAPSQUARE_SIZE;
+    int target_region_y = target_y / VIEWER_STREAMING_MAPSQUARE_SIZE;
+    int local_x = player_x
+                - active_region_x * VIEWER_STREAMING_MAPSQUARE_SIZE;
+    int local_y = player_y
+                - active_region_y * VIEWER_STREAMING_MAPSQUARE_SIZE;
+
+    if (target_region_x != active_region_x) {
+        next_region_x += direction(target_region_x - active_region_x);
+    } else if (target_x > player_x
+            && local_x >= VIEWER_STREAMING_MAPSQUARE_SIZE - edge_distance) {
+        next_region_x++;
+    } else if (target_x < player_x && local_x < edge_distance) {
+        next_region_x--;
+    }
+
+    if (target_region_y != active_region_y) {
+        next_region_y += direction(target_region_y - active_region_y);
+    } else if (target_y > player_y
+            && local_y >= VIEWER_STREAMING_MAPSQUARE_SIZE - edge_distance) {
+        next_region_y++;
+    } else if (target_y < player_y && local_y < edge_distance) {
+        next_region_y--;
+    }
+
+    if (next_region_x == active_region_x
+            && next_region_y == active_region_y) {
+        return 0;
+    }
+    if (next_region_x < 0 || next_region_y < 0)
+        return 0;
+    *center_x = next_region_x * VIEWER_STREAMING_MAPSQUARE_SIZE
+              + VIEWER_STREAMING_MAPSQUARE_SIZE / 2;
+    *center_y = next_region_y * VIEWER_STREAMING_MAPSQUARE_SIZE
+              + VIEWER_STREAMING_MAPSQUARE_SIZE / 2;
+    return 1;
+}
+
 void viewer_streaming_player_transition_begin(
     ViewerStreamingPlayerTransition *transition,
     int source_x, int source_y, int source_plane,

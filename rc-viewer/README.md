@@ -166,10 +166,20 @@ keeps the prior scene active.
 
 Core-scheduled object traversals use the same transaction. When a traversal
 crosses the current visual window, the viewer records its resolved destination,
-restores the player to the source while loading, and applies the destination in
-the same frame that the complete visual and backend scene commits. Failed or
-cancelled loads leave the player at the source. While one is pending, later
-route ticks restore that source without superseding or restarting the request.
+keeps presenting a source position/plane snapshot while loading, and reveals
+the authoritative destination in the same frame that the complete visual and
+backend scene commits. Normal loading does not repeatedly write the source
+back to the player; failure still restores the safe source once. Later route
+ticks cannot supersede or restart the owned request.
+
+PR 11 hides this latency in the viewer without changing `rc-core`. The existing
+async request now has a cache-only prefetch purpose: route and movement
+lookahead warm one mapsquare center ahead, while an accepted object traversal
+warms its known destination during routing/action presentation. A matching
+boundary or transport promotes that work instead of restarting it. Normal
+movement does not show progress UI or block input. Active-scene culling keeps
+overlapping cached chunks from drawing, and stale chunks retire incrementally
+after commit within the existing hard cache limits.
 
 GPU uploads obey the configured byte budget between upload units. Model sets
 upload one entry at a time. A legacy mapsquare object mesh is one indivisible

@@ -239,11 +239,20 @@ the source cache. Maintainers can opt into bounded development generation with
 `RUNEC_SCENE_AUTO_EXPORT=1`; an incomplete or failed split export still blocks
 the transition instead of launching aggregate generation.
 Object traversals that cross scene windows carry their resolved destination in
-the pending transaction. The player remains at the source until the destination
-visual window and backend area commit together; cancellation or failure also
-keeps the source coordinates, preventing empty intermediate scenes and
-automatic source-window reloads. Additional route ticks cannot replace or
-restart an already-pending player transition.
+the pending transaction. The backend keeps its normal traversal timing, while
+the viewer presents a source position/plane snapshot until the destination
+visual window and active area commit together. Failure restores the safe source
+once; normal loading does not repeatedly rewrite authoritative player
+coordinates. Additional route ticks cannot replace or restart an already
+pending player transition.
+PR 11 adds frontend-only latency hiding rather than a loading screen.
+Route/direction lookahead warms one visual window ahead of an ordinary
+boundary, and accepted object interactions prefetch their existing traversal
+destination while the player routes and the authored action runs. Matching
+work is promoted without restarting it. The backend player/traversal contract
+is unchanged; PR 10 transaction safety remains the fallback when prediction
+loses the race. The superseded progress overlay and broad loading input gate
+have been removed. See `full_world_streaming_plan.md` for acceptance criteria.
 Height sampling also clamps the outer corner of legacy `64x64` terrain files;
 new exports carry the actual neighboring corner values.
 

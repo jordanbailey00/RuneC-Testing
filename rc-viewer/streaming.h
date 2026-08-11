@@ -43,6 +43,13 @@ typedef struct {
     int destination_x, destination_y, destination_plane;
 } ViewerStreamingPlayerTransition;
 
+typedef enum {
+    VIEWER_STREAMING_REQUEST_ACTIVATE = 0,
+    VIEWER_STREAMING_REQUEST_MOVEMENT_PREFETCH,
+    VIEWER_STREAMING_REQUEST_TRANSPORT_PREFETCH,
+    VIEWER_STREAMING_REQUEST_PLANE,
+} ViewerStreamingRequestKind;
+
 typedef struct {
     uint64_t scene_load_count;
     double startup_ms;
@@ -107,6 +114,17 @@ size_t viewer_streaming_upload_budget_bytes(
 int viewer_streaming_upload_budget_admit(size_t used_bytes,
                                          size_t upload_bytes,
                                          size_t budget_bytes);
+int viewer_streaming_chunk_retained(const ViewerMapsquareCoord *plan,
+                                    int plan_count, int region_x,
+                                    int region_y, int chunk_plane,
+                                    int scene_plane, int player_plane);
+int viewer_streaming_same_window(int first_x, int first_y, int first_plane,
+                                 int second_x, int second_y,
+                                 int second_plane);
+int viewer_streaming_predict_prefetch_center(
+    int active_region_x, int active_region_y,
+    int player_x, int player_y, int target_x, int target_y,
+    int edge_distance, int *center_x, int *center_y);
 void viewer_streaming_player_transition_begin(
     ViewerStreamingPlayerTransition *transition,
     int source_x, int source_y, int source_plane,
