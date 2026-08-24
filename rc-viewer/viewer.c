@@ -8688,7 +8688,7 @@ static void draw_scene(ViewerState *v) {
         : v->prev_player_y + ((float)p->y - v->prev_player_y) * t;
     float px = (wx - g_world_origin_x) + 0.5f;
     float pz = -((wy - g_world_origin_y) + 0.5f);
-    float py = ground_y_plane(v, scene_plane, presented_x, presented_y);
+    float py = ground_yf_plane(v, scene_plane, wx, wy);
 
     if (v->camera_locked)
         v->camera.target = (Vector3){px, py, pz};
