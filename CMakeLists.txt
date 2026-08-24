@@ -221,3 +221,5 @@ if(TARGET rc-viewer AND TARGET test_streaming_cpu_assets)
         endif()
     endif()
 endif()
+
+include(${CMAKE_SOURCE_DIR}/tests/tier1_suites.cmake)
