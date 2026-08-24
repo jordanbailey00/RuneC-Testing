@@ -238,8 +238,9 @@ Today `rc-viewer` is primarily:
   default identity-kit body parts plus recolored/retextured equipped
   item models, with body-part hiding driven by viewer-only render
   metadata rather than core gameplay rules
-- a terrain/collision-backed circular minimap surface with player/NPC/
-  destination dots and click-to-route behavior
+- a cache-backed circular minimap assembled from streamed per-mapsquare floor,
+  wall, door, and mapscene rasters, with camera-rotated player/NPC/destination
+  dots and inverse-rotated click-to-route behavior
 - current-cache OpenRS2 b237 OSRS widget art for the native compass,
   minimap cover/masks, side icons, orb frames/fillers/icons, and skill
   icons; RuneLite gameval sprite IDs are the naming authority
@@ -249,6 +250,14 @@ Today `rc-viewer` is primarily:
 - isolated combat-validation helpers for local manual testing, kept out of
   `rc-core` so they can be disabled or removed without changing simulation
   rules
+
+Each streamed visual chunk optionally owns a `512x512` centered minimap raster
+named `<region_x>_<region_y>.p<plane>.minimap.png`. The worker decodes that PNG
+alongside terrain and objects; the render thread projects resident rasters into
+the `152x152` gameframe orb. The current player stays centered while the map,
+compass, NPC dots, destination flag, and click transform follow camera yaw.
+Missing rasters fall back pixel-by-pixel to the older terrain-derived surface,
+which keeps older runtime-data packs usable until they are republished.
 
 That means it is useful for presentation validation and the first
 inventory/equipment runtime checks, but it is not yet the authority for

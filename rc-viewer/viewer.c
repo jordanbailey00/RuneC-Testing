@@ -28,6 +28,7 @@
 #include "spotanims.h"
 #include "combat_visuals.h"
 #include "dev_validation.h"
+#include "minimap.h"
 #include "streaming.h"
 #include "streaming_async.h"
 #include <math.h>
@@ -95,6 +96,9 @@ typedef struct {
     ModelSet *object_anim_models;
     AnimModelState **object_anim_states;
     int object_anim_state_count;
+    Color *minimap_pixels;
+    int minimap_width;
+    int minimap_height;
 } ViewerMapsquareChunk;
 
 typedef enum {
@@ -111,6 +115,7 @@ typedef struct {
     char terrain_path[1024];
     char objects_path[1024];
     char models_path[1024];
+    char minimap_path[1024];
     char material_path[1024];
     char npc_spawns_path[1024];
     int min_x, min_y, max_x, max_y;
@@ -392,12 +397,6 @@ typedef struct {
     int minimap_tiles_w;
     int minimap_tiles_h;
     int minimap_tiles_plane;
-    Color *world_map_pixels;
-    int world_map_w;
-    int world_map_h;
-    int world_map_min_x;
-    int world_map_max_y;
-    int use_world_map_minimap;
     ViewerStreamingConfig streaming;
     ViewerStreamingTelemetry telemetry;
     double pending_cpu_decode_ms;
@@ -1914,44 +1913,6 @@ static Color minimap_quantize_color(Color c) {
     return (Color){78, 83, 58, 255};
 }
 
-static void minimap_put_pixel(Color *pixels, int x, int y, Color c) {
-    if (x < 0 || y < 0 || x >= 152 || y >= 152)
-        return;
-    float dx = (float)x - 76.0f;
-    float dy = (float)y - 76.0f;
-    if (dx * dx + dy * dy > 75.0f * 75.0f)
-        return;
-    pixels[x + y * 152] = c;
-}
-
-static void minimap_fill_rect(Color *pixels, int x, int y, int w, int h, Color c) {
-    for (int yy = 0; yy < h; yy++) {
-        for (int xx = 0; xx < w; xx++)
-            minimap_put_pixel(pixels, x + xx, y + yy, c);
-    }
-}
-
-static void minimap_draw_tile_features(ViewerState *v, Color *pixels,
-                                       int wx, int wy, int sx, int sy) {
-    uint32_t f = rc_get_flags(&v->world->map, wx, wy,
-                              viewer_scene_plane(v));
-    if (!f)
-        return;
-
-    if (f & COL_LOC)
-        minimap_fill_rect(pixels, sx - 1, sy - 1, 3, 3, (Color){73, 62, 45, 255});
-
-    Color wall = (Color){224, 221, 198, 255};
-    if (f & COL_WALL_N)
-        minimap_fill_rect(pixels, sx - 2, sy - 2, 5, 1, wall);
-    if (f & COL_WALL_S)
-        minimap_fill_rect(pixels, sx - 2, sy + 2, 5, 1, wall);
-    if (f & COL_WALL_W)
-        minimap_fill_rect(pixels, sx - 2, sy - 2, 1, 5, wall);
-    if (f & COL_WALL_E)
-        minimap_fill_rect(pixels, sx + 2, sy - 2, 1, 5, wall);
-}
-
 static void minimap_accumulate_terrain(const TerrainMesh *terrain, int w, int h,
                                        unsigned int *sum_r,
                                        unsigned int *sum_g,
@@ -3186,61 +3147,6 @@ static Color minimap_tile_color(const ViewerState *v, int wx, int wy) {
             || lx >= v->minimap_tiles_w || ly >= v->minimap_tiles_h)
         return (Color){42, 62, 38, 255};
     return v->minimap_tiles[lx + ly * v->minimap_tiles_w];
-}
-
-static void load_world_map_minimap(ViewerState *v) {
-    const char *enabled = getenv("RUNEC_MINIMAP_WORLD_MAP");
-    if (!enabled || !enabled[0] || strcmp(enabled, "0") == 0)
-        return;
-
-    const char *path = getenv("RUNEC_MINIMAP_MAP");
-    if (!path || !path[0])
-        return;
-    if (!rc_asset_exists(path))
-        return;
-
-    Image img = runec_load_image_asset(path);
-    if (!img.data)
-        return;
-    ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
-    v->world_map_pixels = LoadImageColors(img);
-    v->world_map_w = img.width;
-    v->world_map_h = img.height;
-    UnloadImage(img);
-    if (!v->world_map_pixels) {
-        v->world_map_w = 0;
-        v->world_map_h = 0;
-        return;
-    }
-
-    v->world_map_min_x = env_int("RUNEC_MINIMAP_MAP_MIN_X", 16 * 64);
-    v->world_map_max_y = env_int("RUNEC_MINIMAP_MAP_MAX_Y", (194 + 1) * 64 - 1);
-    v->use_world_map_minimap = 1;
-    fprintf(stderr, "minimap: loaded world map %s (%dx%d, min_x=%d max_y=%d)\n",
-            path, v->world_map_w, v->world_map_h,
-            v->world_map_min_x, v->world_map_max_y);
-}
-
-static Color world_map_minimap_color(const ViewerState *v, int wx, int wy) {
-    if (!v->use_world_map_minimap || !v->world_map_pixels
-            || viewer_scene_plane(v) != 0)
-        return minimap_tile_color(v, wx, wy);
-
-    int ix = wx - v->world_map_min_x;
-    int iy = v->world_map_max_y - wy;
-    if (ix < 0 || iy < 0 || ix >= v->world_map_w || iy >= v->world_map_h)
-        return minimap_tile_color(v, wx, wy);
-
-    Color c = v->world_map_pixels[ix + iy * v->world_map_w];
-    if (c.a == 0)
-        return minimap_tile_color(v, wx, wy);
-    if ((c.r > 215 && c.g > 215 && c.b > 215)
-            || (c.g > 165 && c.r < 95 && c.b < 95)
-            || (c.r < 18 && c.g < 24 && c.b < 18)) {
-        return minimap_tile_color(v, wx, wy);
-    }
-    c.a = 255;
-    return c;
 }
 
 static void route_player_to(ViewerState *v, int tx, int ty) {
@@ -5437,6 +5343,8 @@ static void free_mapsquare_chunk(ViewerMapsquareChunk *chunk) {
     objects_free(chunk->objects);
     chunk->objects = NULL;
     terrain_free(chunk->terrain);
+    if (chunk->minimap_pixels)
+        UnloadImageColors(chunk->minimap_pixels);
     memset(chunk, 0, sizeof(*chunk));
 }
 
@@ -5545,6 +5453,30 @@ static ModelSet *viewer_decode_npc_models(
     return models;
 }
 
+static void viewer_decode_minimap(ViewerMapsquareChunk *chunk,
+                                  const char *path) {
+    if (!chunk || !path || !path[0] || !rc_asset_exists(path))
+        return;
+    Image image = runec_load_image_asset(path);
+    if (!image.data)
+        return;
+    if (image.width == RUNEC_MINIMAP_SOURCE_SIZE
+            && image.height == RUNEC_MINIMAP_SOURCE_SIZE) {
+        ImageFormat(&image, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+        chunk->minimap_pixels = LoadImageColors(image);
+        if (chunk->minimap_pixels) {
+            chunk->minimap_width = image.width;
+            chunk->minimap_height = image.height;
+        }
+    } else {
+        fprintf(stderr,
+                "minimap: ignored %s with invalid size %dx%d (expected %dx%d)\n",
+                path, image.width, image.height,
+                RUNEC_MINIMAP_SOURCE_SIZE, RUNEC_MINIMAP_SOURCE_SIZE);
+    }
+    UnloadImage(image);
+}
+
 static void *viewer_async_mapsquare_decode(void *opaque,
                                            size_t *upload_bytes,
                                            double *decode_ms, void *user) {
@@ -5585,6 +5517,7 @@ static void *viewer_async_mapsquare_decode(void *opaque,
             if (!chunk->object_anim_models)
                 goto failed;
         }
+        viewer_decode_minimap(chunk, request->minimap_path);
         payload->terrain_upload_bytes = terrain_upload_bytes(chunk->terrain);
         payload->object_upload_bytes = objects_upload_bytes(chunk->objects);
         payload->model_upload_bytes = models_upload_bytes(
@@ -5673,7 +5606,10 @@ static ViewerAsyncMapsquareRequest *mapsquare_chunk_request(
                 region_x, region_y, plane, ".objects")
             || !viewer_mapsquare_asset_path(
                 v, request->models_path, sizeof(request->models_path),
-                region_x, region_y, plane, ".object_anim.models")) {
+                region_x, region_y, plane, ".object_anim.models")
+            || !viewer_mapsquare_asset_path(
+                v, request->minimap_path, sizeof(request->minimap_path),
+                region_x, region_y, plane, ".minimap.png")) {
         free(request);
         return NULL;
     }
@@ -6153,24 +6089,29 @@ static int commit_pending_mapsquare_window(ViewerState *v) {
         create_npc_anim_states(v);
     }
     int object_count = 0;
+    int minimap_count = 0;
     for (int i = 0; i < v->mapsquare_chunk_count; i++) {
         const ViewerMapsquareChunk *chunk = &v->mapsquare_chunks[i];
-        if (chunk->plane == load->plane && chunk->objects
-                && viewer_streaming_mapsquare_in_plan(
+        if (chunk->plane != load->plane
+                || !viewer_streaming_mapsquare_in_plan(
                     load->plan, load->plan_count,
                     chunk->region_x, chunk->region_y)) {
-            object_count++;
+            continue;
         }
+        if (chunk->objects)
+            object_count++;
+        if (chunk->minimap_pixels)
+            minimap_count++;
     }
     v->active_scene_prefix[0] = '\0';
     build_minimap_tiles(v);
     fprintf(stderr,
             "viewer mapsquare: center=%d,%d plane=%d terrain=%d/%d "
-            "objects=%d resident=%d origin=%d,%d size=%dx%d\n",
+            "objects=%d minimaps=%d/%d resident=%d origin=%d,%d size=%dx%d\n",
             center_region_x, center_region_y, load->plane,
             load->loaded_count, load->plan_count, object_count,
-            v->mapsquare_chunk_count, g_world_origin_x, g_world_origin_y,
-            g_world_w, g_world_h);
+            minimap_count, load->plan_count, v->mapsquare_chunk_count,
+            g_world_origin_x, g_world_origin_y, g_world_w, g_world_h);
     return 1;
 }
 
@@ -8285,45 +8226,66 @@ static void sync_ui_minimap(ViewerState *v) {
     int scene_plane = viewer_scene_plane(v);
     if (!v->minimap_tiles || v->minimap_tiles_plane != scene_plane)
         build_minimap_tiles(v);
-    Color pixels[152 * 152];
-    const float scale = 4.0f;
+    Color pixels[RUNEC_MINIMAP_DISPLAY_SIZE * RUNEC_MINIMAP_DISPLAY_SIZE];
     int presented_x = p->x;
     int presented_y = p->y;
     int presented_plane = p->plane;
     int held = viewer_streaming_player_transition_source(
         &v->mapsquare_load.player_transition,
         &presented_x, &presented_y, &presented_plane);
-    float player_x = held ? (float)presented_x
+    float player_x = (held ? (float)presented_x
         : v->prev_player_x
-            + ((float)p->x - v->prev_player_x) * v->tick_frac;
-    float player_y = held ? (float)presented_y
+            + ((float)p->x - v->prev_player_x) * v->tick_frac) + 0.5f;
+    float player_y = (held ? (float)presented_y
         : v->prev_player_y
-            + ((float)p->y - v->prev_player_y) * v->tick_frac;
-    for (int y = 0; y < 152; y++) {
-        for (int x = 0; x < 152; x++) {
-            float sx = (float)x - 76.0f;
-            float sy = (float)y - 76.0f;
-            if (sx * sx + sy * sy > 75.0f * 75.0f) {
-                pixels[x + y * 152] = BLANK;
-                continue;
-            }
-            int wx = (int)roundf(player_x + sx / scale);
-            int wy = (int)roundf(player_y - sy / scale);
-            pixels[x + y * 152] = world_map_minimap_color(v, wx, wy);
-        }
+            + ((float)p->y - v->prev_player_y) * v->tick_frac) + 0.5f;
+    float sine = sinf(v->cam_yaw);
+    float cosine = cosf(v->cam_yaw);
+
+    RuneCMinimapChunk sources[VIEWER_STREAMING_CHUNK_CAPACITY];
+    int source_count = 0;
+    for (int i = 0; i < v->mapsquare_chunk_count; i++) {
+        const ViewerMapsquareChunk *chunk = &v->mapsquare_chunks[i];
+        if (chunk->plane != scene_plane || !chunk->minimap_pixels)
+            continue;
+        sources[source_count++] = (RuneCMinimapChunk){
+            chunk->region_x,
+            chunk->region_y,
+            chunk->plane,
+            chunk->minimap_pixels,
+            chunk->minimap_width,
+            chunk->minimap_height,
+        };
     }
 
-    if (!v->use_world_map_minimap || scene_plane != 0) {
-        for (int dy = -20; dy <= 20; dy++) {
-            for (int dx = -20; dx <= 20; dx++) {
-                int sx = (int)roundf(76.0f + dx * scale);
-                int sy = (int)roundf(76.0f - dy * scale);
-                minimap_draw_tile_features(v, pixels, presented_x + dx,
-                                           presented_y + dy, sx, sy);
+    if (source_count > 0) {
+        RuneCMinimapScene scene = {sources, source_count, scene_plane};
+        runec_minimap_render(&scene, player_x, player_y, v->cam_yaw, pixels);
+    }
+    for (int y = 0; y < RUNEC_MINIMAP_DISPLAY_SIZE; y++) {
+        for (int x = 0; x < RUNEC_MINIMAP_DISPLAY_SIZE; x++) {
+            int index = x + y * RUNEC_MINIMAP_DISPLAY_SIZE;
+            if (source_count > 0 && pixels[index].a != 0)
+                continue;
+            float sx = (float)x - RUNEC_MINIMAP_DISPLAY_CENTER;
+            float sy = (float)y - RUNEC_MINIMAP_DISPLAY_CENTER;
+            if (sx * sx + sy * sy > RUNEC_MINIMAP_DISPLAY_RADIUS
+                    * RUNEC_MINIMAP_DISPLAY_RADIUS) {
+                pixels[index] = BLANK;
+                continue;
             }
+            float dx = (sx * cosine + sy * sine)
+                     / RUNEC_MINIMAP_DISPLAY_PIXELS_PER_TILE;
+            float dy = (sx * sine - sy * cosine)
+                     / RUNEC_MINIMAP_DISPLAY_PIXELS_PER_TILE;
+            pixels[index] = minimap_tile_color(
+                v, (int)floorf(player_x + dx),
+                (int)floorf(player_y + dy));
         }
     }
-    runec_ui_update_minimap(&v->ui, pixels, 152, 152);
+    runec_ui_update_minimap(&v->ui, pixels, RUNEC_MINIMAP_DISPLAY_SIZE,
+                            RUNEC_MINIMAP_DISPLAY_SIZE);
+    runec_ui_set_minimap_rotation(&v->ui, v->cam_yaw);
 
     runec_ui_clear_minimap(&v->ui);
     runec_ui_add_minimap_dot(&v->ui, 0, 0, RUNEC_UI_MINIMAP_DOT_PLAYER);
@@ -8331,8 +8293,10 @@ static void sync_ui_minimap(ViewerState *v) {
     if (p->route_idx < p->route_len && p->route_len > 0) {
         int tx = p->route_x[p->route_len - 1];
         int ty = p->route_y[p->route_len - 1];
-        runec_ui_add_minimap_dot(&v->ui, (float)tx - player_x,
-                                 (float)ty - player_y,
+        Vector2 offset = runec_minimap_rotate_offset(
+            (float)tx + 0.5f - player_x,
+            (float)ty + 0.5f - player_y, v->cam_yaw);
+        runec_ui_add_minimap_dot(&v->ui, offset.x, offset.y,
                                  RUNEC_UI_MINIMAP_DOT_DESTINATION);
     }
 
@@ -8344,11 +8308,14 @@ static void sync_ui_minimap(ViewerState *v) {
                     ? v->npc_render[i].render_x : (float)npc->x;
         float npc_y = v->npc_render[i].initialized
                     ? v->npc_render[i].render_y : (float)npc->y;
-        float dx = npc_x - player_x;
-        float dy = npc_y - player_y;
+        int size = viewer_npc_size(npc);
+        float dx = npc_x + 0.5f * (float)size - player_x;
+        float dy = npc_y + 0.5f * (float)size - player_y;
         if (dx < -40 || dx > 40 || dy < -40 || dy > 40)
             continue;
-        runec_ui_add_minimap_dot(&v->ui, dx, dy, RUNEC_UI_MINIMAP_DOT_NPC);
+        Vector2 offset = runec_minimap_rotate_offset(dx, dy, v->cam_yaw);
+        runec_ui_add_minimap_dot(&v->ui, offset.x, offset.y,
+                                 RUNEC_UI_MINIMAP_DOT_NPC);
     }
 }
 
@@ -9362,7 +9329,6 @@ int main(int argc, char **argv) {
                                    RUNEC_DEV_VARROCK_BANK_Y))
         runec_dev_validation_spawn_varrock_bank_dummy(v.world);
     build_minimap_tiles(&v);
-    load_world_map_minimap(&v);
 
     // Aggregate development scenes retain the synchronous compatibility path.
     // Mapsquare scenes arrive through the worker and are already GPU-resident.
@@ -9551,9 +9517,15 @@ int main(int argc, char **argv) {
             if (transports && idx >= 0 && idx < count)
                 viewer_dev_transport_to(&v, &transports[idx]);
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_MINIMAP_CLICK) {
-            int dx = (v.ui.last_intent.primary - 72) / 4;
-            int dy = (75 - v.ui.last_intent.secondary) / 4;
-            route_player_to(&v, p->x + dx, p->y + dy);
+            int tile_x = 0;
+            int tile_y = 0;
+            if (runec_minimap_click_to_world(
+                    (float)v.ui.last_intent.primary,
+                    (float)v.ui.last_intent.secondary,
+                    (float)p->x + 0.5f, (float)p->y + 0.5f,
+                    v.cam_yaw, &tile_x, &tile_y)) {
+                route_player_to(&v, tile_x, tile_y);
+            }
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_INVENTORY_SLOT) {
             int slot = v.ui.last_intent.primary;
             int previous = v.ui.last_intent.secondary;
@@ -9764,8 +9736,6 @@ cleanup:
     rc_world_destroy(v.world);
     runec_ui_shutdown(&v.ui);
     free(v.minimap_tiles);
-    if (v.world_map_pixels)
-        UnloadImageColors(v.world_map_pixels);
     if (v.alpha_cutout_shader_static_loaded)
         UnloadShader(v.alpha_cutout_shader_static);
     if (v.alpha_cutout_shader_dynamic_loaded)

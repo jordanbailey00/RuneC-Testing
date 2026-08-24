@@ -63,7 +63,7 @@ OBJECT_PLACEMENT_INDEX_FILE = "world.object-placements.indexed.bin"
 COLLISION_TILE_INDEX_FILE = "world.collision-tiles.indexed.bin"
 MAPSQUARE_ASSET_RE = re.compile(
     r"^(?P<x>\d{1,3})_(?P<y>\d{1,3})\.p(?P<plane>[0-3])\."
-    r"(?P<kind>terrain|objects|oanim|object_anim\.models)$"
+    r"(?P<kind>terrain|objects|oanim|object_anim\.models|minimap\.png)$"
 )
 
 STORE_EXTENSIONS = {
@@ -378,7 +378,7 @@ def validate_mapsquare_runtime_assets(
         for plane in MAPSQUARE_PLANES:
             stem = f"{region_x}_{region_y}.p{plane}"
             plane_missing = False
-            for suffix in ("terrain", "objects", "oanim"):
+            for suffix in ("terrain", "objects", "oanim", "minimap.png"):
                 path = regions_root / f"{stem}.{suffix}"
                 if path.is_file():
                     continue

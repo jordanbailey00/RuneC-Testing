@@ -76,6 +76,10 @@ def decode_sprite_group(data: bytes) -> list[SpriteData]:
         width = sub_widths[i]
         height = sub_heights[i]
         dimension = width * height
+        if pixel_pos >= palette_start:
+            raise ValueError("sprite pixels overlap metadata")
+        flags = data[pixel_pos]
+        pixel_pos += 1
         if dimension <= 0:
             canvas_width = max(max_width, width + x_offsets[i], 1)
             canvas_height = max(max_height, height + y_offsets[i], 1)
@@ -87,11 +91,6 @@ def decode_sprite_group(data: bytes) -> list[SpriteData]:
                 )
             )
             continue
-        if pixel_pos >= palette_start:
-            raise ValueError("sprite pixels overlap metadata")
-
-        flags = data[pixel_pos]
-        pixel_pos += 1
         indices = bytearray(dimension)
         alphas = bytearray(dimension)
 

@@ -16,6 +16,7 @@ if str(TOOLS) not in sys.path:
 from region_sets import around_tile
 
 from export_objects import export_modern_objects, export_modern_objects_split
+from export_minimap import export_minimap_split
 from export_terrain import export_modern_terrain, export_modern_terrain_split
 from rc_cache import RcCacheStore, find_all_map_region_files
 from source_inputs import B237_CACHE, require_path
@@ -65,6 +66,7 @@ def export_split_batch(
         rsmod_visual_levels=True,
         write_shared_materials=write_shared_materials,
     )
+    export_minimap_split(cache, regions, output_dir, planes)
     return len(terrain_outputs), len(object_outputs)
 
 
@@ -241,7 +243,8 @@ def main(argv: list[str] | None = None) -> None:
                     object_count += batch_object_count
         print(
             f"scene_slice: wrote {terrain_count} terrain and "
-            f"{object_count} object/material files plus catalog",
+            f"{object_count} object/material files plus "
+            f"{len(selected_regions) * len(planes)} minimaps and catalog",
             file=sys.stderr,
         )
         return

@@ -18,15 +18,43 @@ sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "tools" / "cache_pipeline"))
 
 import export_models
+import export_minimap
 import export_objects
 import export_scene_slice
 import export_terrain
 import pack_runtime_data
 import spawn_index
+from rc_cache import decode_location_definition, decode_sprite_group
 from export_textures import TextureAtlas
 
 
 class MapsquareSceneTests(unittest.TestCase):
+    def test_location_definition_retains_map_scene_id(self) -> None:
+        definition = decode_location_definition(123, bytes((68, 0, 42, 0)))
+
+        self.assertTrue(definition.complete)
+        self.assertEqual(definition.map_scene_id, 42)
+
+    def test_sprite_group_consumes_zero_sized_frame_flags(self) -> None:
+        pixels = bytes((0, 0, 1))
+        palette = bytes((0x11, 0x22, 0x33))
+        metadata = bytes(
+            (
+                0, 1, 0, 1, 1,  # canvas 1x1, two palette entries
+                0, 0, 0, 0,     # x offsets
+                0, 0, 0, 0,     # y offsets
+                0, 0, 0, 1,     # widths: 0, 1
+                0, 0, 0, 1,     # heights: 0, 1
+            )
+        )
+        sprites = decode_sprite_group(
+            pixels + palette + metadata + bytes((0, 2))
+        )
+
+        self.assertEqual(len(sprites), 2)
+        self.assertEqual(sprites[0].pixels, bytes(4))
+        self.assertEqual(sprites[1].pixels, bytes((0x11, 0x22, 0x33, 0xFF)))
+
     def test_parsers_are_deterministic_and_validate_bounds(self) -> None:
         self.assertEqual(export_scene_slice.parse_planes("2,0,2"), [2, 0])
         self.assertEqual(
@@ -112,6 +140,7 @@ class MapsquareSceneTests(unittest.TestCase):
             cache = root / "cache"
             output = root / "regions"
             for exporter in (
+                export_minimap.export_minimap_split,
                 export_terrain.export_modern_terrain_split,
                 export_objects.export_modern_objects_split,
             ):
@@ -121,6 +150,7 @@ class MapsquareSceneTests(unittest.TestCase):
 
             cache.mkdir()
             for exporter in (
+                export_minimap.export_minimap_split,
                 export_terrain.export_modern_terrain_split,
                 export_objects.export_modern_objects_split,
             ):
@@ -150,6 +180,10 @@ class MapsquareSceneTests(unittest.TestCase):
                     "export_scene_slice.export_modern_objects_split",
                     return_value=[output / "50_53.p0.objects"],
                 ) as object_export,
+                patch(
+                    "export_scene_slice.export_minimap_split",
+                    return_value=[output / "50_53.p0.minimap.png"],
+                ) as minimap_export,
             ):
                 export_scene_slice.main([
                     "--cache", str(cache),
@@ -169,6 +203,9 @@ class MapsquareSceneTests(unittest.TestCase):
                 [0, 2],
                 rsmod_visual_levels=True,
                 write_shared_materials=True,
+            )
+            minimap_export.assert_called_once_with(
+                cache, expected_regions, output, [0, 2]
             )
 
     def test_split_mode_skips_authoritative_void_mapsquares(self) -> None:
@@ -191,6 +228,10 @@ class MapsquareSceneTests(unittest.TestCase):
                     "export_scene_slice.export_modern_objects_split",
                     return_value=[],
                 ) as object_export,
+                patch(
+                    "export_scene_slice.export_minimap_split",
+                    return_value=[],
+                ) as minimap_export,
             ):
                 export_scene_slice.main([
                     "--cache", str(cache),
@@ -210,6 +251,7 @@ class MapsquareSceneTests(unittest.TestCase):
                 rsmod_visual_levels=True,
                 write_shared_materials=True,
             )
+            minimap_export.assert_called_once_with(cache, expected, output, [0])
 
     def test_parallel_split_dispatches_disjoint_bounded_batches(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -540,6 +582,7 @@ class SharedMaterialTests(unittest.TestCase):
             "50_53.p0.objects",
             "50_53.p0.oanim",
             "50_53.p0.object_anim.models",
+            "50_53.p0.minimap.png",
             "mapsquare.materials.atlas",
             "mapsquare.materials.tanim",
             "mapsquare.catalog",
@@ -581,6 +624,7 @@ class RuntimePackMapsquareTests(unittest.TestCase):
                     0,
                 )
             )
+            (regions / f"50_53.p{plane}.minimap.png").write_bytes(b"png")
         return regions
 
     def test_release_pack_requires_every_catalog_plane(self) -> None:

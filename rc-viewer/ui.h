@@ -241,6 +241,7 @@ typedef struct RuneCUiState {
 
     RuneCUiMinimapDot minimap_dots[RUNEC_UI_MINIMAP_DOTS];
     int minimap_dot_count;
+    float minimap_rotation;
     Texture2D minimap_texture;
     int minimap_texture_ready;
     RuneCUiItemIcon item_icons[RUNEC_UI_ITEM_ICON_CACHE];
@@ -272,6 +273,7 @@ void runec_ui_add_minimap_dot(RuneCUiState *ui, float dx, float dy,
                               RuneCUiMinimapDotKind kind);
 void runec_ui_update_minimap(RuneCUiState *ui, const Color *pixels,
                              int width, int height);
+void runec_ui_set_minimap_rotation(RuneCUiState *ui, float radians);
 void runec_ui_set_item_icon(RuneCUiState *ui, uint32_t icon_item_id, Texture2D texture);
 void runec_ui_set_combat_weapon_name(RuneCUiState *ui, const char *name);
 void runec_ui_set_combat_style_profile(RuneCUiState *ui, int core_weapon_category);

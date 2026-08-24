@@ -118,7 +118,7 @@ RuneC is still in active development. The current build is good for local
 exploration, UI validation, combat visual testing, object/transport testing,
 and backend regression work. Some game systems and content are still incomplete,
 including full combat parity, all special attacks, full boss behavior, exact
-minimap parity, and long-tail item/object edge cases.
+minimap marker/icon parity, and long-tail item/object edge cases.
 
 ## Repository Layout
 
@@ -212,7 +212,8 @@ sidecars. `--allow-partial-mapsquares` exists only for explicit development
 packs; `data_pipeline.py` applies it automatically for non-`full` region sets.
 
 Split exports use deterministic paths such as `regions/50_53.p0.terrain`,
-`regions/50_53.p0.objects`, and `regions/50_53.p0.oanim`. Object chunks and
+`regions/50_53.p0.objects`, `regions/50_53.p0.oanim`, and
+`regions/50_53.p0.minimap.png`. Object chunks and
 animated object model sidecars share `regions/mapsquare.materials.atlas` and
 `regions/mapsquare.materials.tanim`; they do not copy an atlas per chunk.
 `regions/mapsquare.catalog` records every mapsquare with authoritative b237
@@ -223,6 +224,10 @@ Terrain color blending, lighting normals, corner heights, and contoured object
 placement sample a one-mapsquare cache halo in every direction. Each split
 terrain file stores a complete `65x65` corner-height grid for its `64x64` tile
 area, so independently exported neighbors retain continuous edges.
+Minimap rasters use the cache's floor shapes, visual-plane rules, walls, doors,
+and mapscene sprites. The viewer streams them with the matching visual chunk,
+rotates the map/markers/click transform with the camera, and retains a coarse
+terrain fallback for runtime-data packs built before minimap rasters existed.
 Aggregate scene slices remain available only as a development compatibility
 cache through `tools/cache_pipeline/export_scene_slice.py --output-prefix ...`.
 They and `data/regions/scene_cache/` are excluded from runtime-data packs.

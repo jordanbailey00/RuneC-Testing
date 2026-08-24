@@ -1537,6 +1537,11 @@ void runec_ui_update_minimap(RuneCUiState *ui, const Color *pixels,
     UpdateTexture(ui->minimap_texture, pixels);
 }
 
+void runec_ui_set_minimap_rotation(RuneCUiState *ui, float radians) {
+    if (ui)
+        ui->minimap_rotation = radians;
+}
+
 void runec_ui_set_item_icon(RuneCUiState *ui, uint32_t icon_item_id, Texture2D texture) {
     if (!ui || icon_item_id == 0 || texture.id == 0)
         return;
@@ -3282,8 +3287,23 @@ static void draw_minimap(const RuneCUiState *ui, const RuneCUiLayout *layout) {
         DrawCircleLines((int)center.x, (int)center.y, 70.0f, (Color){180, 166, 104, 255});
     }
 
-    runec_ui_draw_asset(&ui->assets, "compass", layout->compass, WHITE);
-    if (!runec_ui_asset_ready(&ui->assets, "compass")) {
+    const Texture2D *compass = runec_ui_asset(&ui->assets, "compass");
+    if (compass) {
+        Rectangle source = {0, 0, (float)compass->width,
+                            (float)compass->height};
+        Rectangle destination = {
+            layout->compass.x + layout->compass.width * 0.5f,
+            layout->compass.y + layout->compass.height * 0.5f,
+            layout->compass.width,
+            layout->compass.height,
+        };
+        Vector2 origin = {layout->compass.width * 0.5f,
+                          layout->compass.height * 0.5f};
+        DrawTexturePro(*compass, source, destination, origin,
+                       ui->minimap_rotation
+                           * (180.0f / 3.14159265358979323846f),
+                       WHITE);
+    } else {
         runec_ui_draw_asset(&ui->assets, "resize_compass_mask", layout->compass, WHITE);
         draw_text_shadow(ui, "N", layout->compass.x + 16, layout->compass.y + 12, 14, OSRS_ORANGE);
     }

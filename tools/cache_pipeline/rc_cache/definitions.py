@@ -139,6 +139,7 @@ class LocationDef(DecodeSummary):
     animation_id: int = -1
     category: int = -1
     map_icon: int = -1
+    map_scene_id: int = -1
     force_approach: int = 0
     supports_items: int = -1
     ambient_sound_id: int = -1
@@ -232,8 +233,10 @@ def decode_location_definition(loc_id: int, data: bytes) -> LocationDef:
             d.category = u16_or_missing(read_u16(buf))
         elif op == 62:
             d.rotated = True
-        elif op in (65, 66, 67, 68):
+        elif op in (65, 66, 67):
             read_u16(buf)
+        elif op == 68:
+            d.map_scene_id = u16_or_missing(read_u16(buf))
         elif op == 69:
             d.force_approach = read_u8(buf)
         elif op in (70, 71, 72):

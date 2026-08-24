@@ -179,6 +179,16 @@ if(TARGET test_streaming_config)
     )
 endif()
 
+if(TARGET test_minimap)
+    target_sources(test_minimap PRIVATE
+        rc-viewer/minimap.c
+    )
+    target_include_directories(test_minimap PRIVATE
+        rc-viewer
+        ${CMAKE_SOURCE_DIR}/lib/raylib/include
+    )
+endif()
+
 if(TARGET test_streaming_async)
     target_sources(test_streaming_async PRIVATE
         rc-viewer/streaming.c
