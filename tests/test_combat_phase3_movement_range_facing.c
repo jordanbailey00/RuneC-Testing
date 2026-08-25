@@ -35,6 +35,8 @@ static RcWorld *phase3_world(int cache_id, int size, int attack_types) {
     cfg.seed = 12345;
     RcWorld *world = rc_test_world_create_with_defs(&cfg, "phase3", 0);
     assert(world);
+    rc_test_open_mapsquare(world, world->player.x, world->player.y,
+                           world->player.plane);
     for (int i = 0; i < SKILL_COUNT; i++) {
         world->player.skills.base_level[i] = 99;
         world->player.skills.boosted_level[i] = 99;

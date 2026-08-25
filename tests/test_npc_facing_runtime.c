@@ -11,6 +11,23 @@ static RcWorld *facing_world(void) {
     cfg.seed = 17;
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world != NULL);
+    int region_x = 3200 / RC_MAPSQUARE_SIZE;
+    int region_y = 3200 / RC_MAPSQUARE_SIZE;
+    world->map.base_region_x = region_x;
+    world->map.base_region_y = region_y;
+    world->map.region_width = 1;
+    world->map.region_height = 1;
+    world->map.region_count = 1;
+    world->map.regions[0].region_x = region_x;
+    world->map.regions[0].region_y = region_y;
+    world->map.regions[0].loaded = 1;
+    world->active_area.active = true;
+    world->active_area.origin_x = region_x * RC_MAPSQUARE_SIZE;
+    world->active_area.origin_y = region_y * RC_MAPSQUARE_SIZE;
+    world->active_area.width = RC_MAPSQUARE_SIZE;
+    world->active_area.height = RC_MAPSQUARE_SIZE;
+    world->active_area.min_plane = world->player.plane;
+    world->active_area.max_plane = world->player.plane;
     return world;
 }
 

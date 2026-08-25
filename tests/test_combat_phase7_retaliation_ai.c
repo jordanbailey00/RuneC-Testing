@@ -44,6 +44,8 @@ static RcWorld *phase7_world(void) {
     world->player.x = 3200;
     world->player.y = 3200;
     world->player.plane = 0;
+    rc_test_open_mapsquare(world, world->player.x, world->player.y,
+                           world->player.plane);
     world->player.current_hp = 990;
     world->player.max_hp = 990;
     world->player.auto_retaliate = true;
@@ -133,6 +135,8 @@ static void test_aggressive_npc_acquires_target_and_respects_leash(void) {
 
     world->player.x = aggro->spawn_x + 30;
     world->player.y = aggro->spawn_y + 30;
+    rc_test_open_mapsquare(world, world->player.x, world->player.y,
+                           world->player.plane);
     rc_world_tick(world);
     assert(aggro->target_uid == -1);
     assert(aggro->combat.leash_state == 1);

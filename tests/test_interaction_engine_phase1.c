@@ -175,6 +175,8 @@ static void test_existing_npc_api_populates_pending_state(void) {
     cfg.subsystems = RC_SUB_COMBAT;
     RcWorld *world = rc_test_world_create_with_defs(&cfg, "interaction1", 0);
     assert(world);
+    rc_test_open_mapsquare(world, world->player.x, world->player.y,
+                           world->player.plane);
 
     int npc_idx = rc_npc_spawn(world, 0, world->player.x + 1,
                                world->player.y, world->player.plane);
@@ -206,6 +208,13 @@ static void test_existing_object_api_with_coords_populates_pending_state(void) {
     cfg.object_placements_path = NULL;
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world);
+    world->player.x = 3205;
+    world->player.y = 3210;
+    world->player.plane = 0;
+    world->player.prev_x = world->player.x;
+    world->player.prev_y = world->player.y;
+    rc_test_open_mapsquare(world, world->player.x, world->player.y,
+                           world->player.plane);
 
     const int obj_id = 11780;
     const RcObjectDef *def = rc_object_def_get(obj_id);

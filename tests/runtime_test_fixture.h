@@ -3,6 +3,7 @@
 
 #include "npc.h"
 #include "spells.h"
+#include "world_test_fixture.h"
 
 #include <stdint.h>
 #include <stdio.h>

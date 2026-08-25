@@ -552,9 +552,10 @@ static int has_player_attack_los(const RcWorld *world, const RcPlayer *p,
     if (!style_needs_los(style)) {
         return 1;
     }
-    int tx, ty;
-    if (!nearest_npc_tile_to_point(npc, p->x, p->y, &tx, &ty)) return 0;
-    return rc_has_los(&world->map, p->x, p->y, tx, ty, p->plane);
+    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+    int size = def && def->size > 0 ? def->size : 1;
+    return rc_has_los_rect(&world->map, p->x, p->y, 1, 1,
+                           npc->x, npc->y, size, size, p->plane);
 }
 
 static int player_can_attack_npc_now(const RcWorld *world, const RcPlayer *p,
@@ -571,97 +572,36 @@ static int player_can_attack_npc_now(const RcWorld *world, const RcPlayer *p,
     return dist <= range && line;
 }
 
-static void set_player_route(RcPlayer *p, const RcRoute *route) {
-    if (!p || !route || route->length <= 0) return;
-    int n = route->length < RC_MAX_ROUTE ? route->length : RC_MAX_ROUTE;
-    for (int i = 0; i < n; i++) {
-        p->route_x[i] = route->waypoints_x[i];
-        p->route_y[i] = route->waypoints_y[i];
-    }
-    p->route_len = n;
-    p->route_idx = 0;
-}
-
 static int choose_player_attack_tile(const RcWorld *world, const RcPlayer *p,
                                      const RcNpc *npc, int range,
                                      RcCombatStyle style,
                                      RcRoute *out_route) {
-    RcTileBounds target_bounds;
-    if (!world || !p || !out_route || range < 0
-            || range >= RC_WORLD_SIZE
-            || !npc_tile_bounds(npc, &target_bounds)) {
-        return 0;
-    }
-    int scan = range > 1 ? range : 1;
-    RcTileRect scan_bounds;
-    if (!rc_tile_rect_intersect_world(
-            target_bounds.rect.min_x - scan,
-            target_bounds.rect.min_y - scan,
-            target_bounds.rect.max_x + scan,
-            target_bounds.rect.max_y + scan, &scan_bounds)) {
-        return 0;
-    }
-    int best_score = 0x7FFFFFFF;
-    RcRoute best_route;
-    memset(&best_route, 0, sizeof(best_route));
-    int found = 0;
-    for (int y = scan_bounds.min_y; y <= scan_bounds.max_y; y++) {
-        for (int x = scan_bounds.min_x; x <= scan_bounds.max_x; x++) {
-            if (rc_tile_rect_contains(&target_bounds.rect, x, y)) {
-                continue;
-            }
-            int tx, ty;
-            if (!rc_tile_rect_closest_point(&target_bounds.rect, x, y,
-                                            &tx, &ty)) {
-                return 0;
-            }
-            int dist = rc_tile_distance(x, y, p->plane,
-                                        tx, ty, p->plane);
-            if (dist > range) continue;
-            if (style_is_melee(style) && dist != 1) continue;
-            if (rc_tile_blocked(&world->map, x, y, p->plane)) continue;
-            if (style_needs_los(style) &&
-                    !rc_has_los(&world->map, x, y, tx, ty, p->plane)) {
-                continue;
-            }
-            RcRoute route = {0};
-            if (p->x != x || p->y != y) {
-                route = rc_find_path(&world->map, p->x, p->y, x, y,
-                                     1, p->plane, false);
-                if (!route.success || route.alternative ||
-                        route.length <= 0) {
-                    continue;
-                }
-            } else {
-                route.success = true;
-                route.length = 0;
-            }
-            int player_distance = rc_tile_distance(
-                p->x, p->y, p->plane, x, y, p->plane);
-            if (player_distance < 0) continue;
-            int score = route.length * 4 + player_distance;
-            if (score < best_score) {
-                best_score = score;
-                best_route = route;
-                found = 1;
-            }
-        }
-    }
-    if (!found) return 0;
-    *out_route = best_route;
-    return 1;
+    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+    int size = def && def->size > 0 ? def->size : 1;
+    if (!world || !p || !npc || !out_route || range < 1
+            || range >= RC_WORLD_SIZE) return 0;
+    RcRouteTarget target = rc_route_target_rectangle(
+        npc->x, npc->y, size, size, 1, range, false,
+        style_needs_los(style));
+    *out_route = rc_find_route(&world->map, p->x, p->y, 1, 1,
+                               p->plane, &target, false);
+    return rc_route_status_admitted(out_route->status);
 }
 
-static void route_player_toward_npc(RcWorld *world, RcPlayer *p,
-                                    const RcNpc *npc, int range) {
+static int route_player_toward_npc(RcWorld *world, RcPlayer *p,
+                                   const RcNpc *npc, int range) {
     RcRoute route = {0};
     if (!choose_player_attack_tile(world, p, npc, range, p->combat_style,
                                    &route)) {
-        p->route_len = 0;
-        p->route_idx = 0;
-        return;
+        rc_player_route_clear(p, RC_MOVEMENT_NO_ROUTE);
+        return 0;
     }
-    set_player_route(p, &route);
+    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+    int size = def && def->size > 0 ? def->size : 1;
+    RcRouteTarget target = rc_route_target_rectangle(
+        npc->x, npc->y, size, size, 1, range, false,
+        style_needs_los(p->combat_style));
+    return rc_player_route_admit(p, &route, &target, 1, 1, false);
 }
 
 static int npc_can_attack_player_now(const RcWorld *world, const RcNpc *npc,
@@ -673,8 +613,11 @@ static int npc_can_attack_player_now(const RcWorld *world, const RcNpc *npc,
     int dist = rc_tile_distance(p->x, p->y, p->plane,
                                 tx, ty, npc->plane);
     if (dist < 0) return 0;
+    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+    int size = def && def->size > 0 ? def->size : 1;
     int line = style_needs_los(style)
-               ? rc_has_los(&world->map, tx, ty, p->x, p->y, npc->plane)
+               ? rc_has_los_rect(&world->map, npc->x, npc->y, size, size,
+                                 p->x, p->y, 1, 1, npc->plane)
                : 1;
     if (distance) *distance = dist;
     if (los) *los = line;
@@ -683,6 +626,8 @@ static int npc_can_attack_player_now(const RcWorld *world, const RcNpc *npc,
 
 static void step_npc_toward_player(RcWorld *world, RcNpc *npc,
                                    const RcPlayer *p) {
+    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+    int size = def && def->size > 0 ? def->size : 1;
     int tx, ty;
     if (!nearest_npc_tile_to_point(npc, p->x, p->y, &tx, &ty)) return;
     int sx = 0, sy = 0;
@@ -697,15 +642,15 @@ static void step_npc_toward_player(RcWorld *world, RcNpc *npc,
         else sy = 1;
     }
     int dx = 0, dy = 0;
-    if ((sx || sy) && rc_can_move(&world->map, npc->x, npc->y,
-                                  sx, sy, npc->plane)) {
+    if ((sx || sy) && rc_can_move_rect(&world->map, npc->x, npc->y,
+                                       size, size, sx, sy, npc->plane)) {
         dx = sx;
         dy = sy;
-    } else if (sx && rc_can_move(&world->map, npc->x, npc->y,
-                                 sx, 0, npc->plane)) {
+    } else if (sx && rc_can_move_rect(&world->map, npc->x, npc->y,
+                                      size, size, sx, 0, npc->plane)) {
         dx = sx;
-    } else if (sy && rc_can_move(&world->map, npc->x, npc->y,
-                                 0, sy, npc->plane)) {
+    } else if (sy && rc_can_move_rect(&world->map, npc->x, npc->y,
+                                      size, size, 0, sy, npc->plane)) {
         dy = sy;
     }
     if (dx || dy) {
@@ -718,21 +663,23 @@ static void step_npc_toward_player(RcWorld *world, RcNpc *npc,
 }
 
 static void step_npc_toward_tile(RcWorld *world, RcNpc *npc, int tx, int ty) {
+    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+    int size = def && def->size > 0 ? def->size : 1;
     int sx = 0, sy = 0;
     if (tx > npc->x) sx = 1;
     else if (tx < npc->x) sx = -1;
     if (ty > npc->y) sy = 1;
     else if (ty < npc->y) sy = -1;
     int dx = 0, dy = 0;
-    if ((sx || sy) && rc_can_move(&world->map, npc->x, npc->y,
-                                  sx, sy, npc->plane)) {
+    if ((sx || sy) && rc_can_move_rect(&world->map, npc->x, npc->y,
+                                       size, size, sx, sy, npc->plane)) {
         dx = sx;
         dy = sy;
-    } else if (sx && rc_can_move(&world->map, npc->x, npc->y,
-                                 sx, 0, npc->plane)) {
+    } else if (sx && rc_can_move_rect(&world->map, npc->x, npc->y,
+                                      size, size, sx, 0, npc->plane)) {
         dx = sx;
-    } else if (sy && rc_can_move(&world->map, npc->x, npc->y,
-                                 0, sy, npc->plane)) {
+    } else if (sy && rc_can_move_rect(&world->map, npc->x, npc->y,
+                                      size, size, 0, sy, npc->plane)) {
         dy = sy;
     }
     if (dx || dy) {
@@ -1359,7 +1306,10 @@ static void combat_tick_player_legacy(struct RcWorld *world) {
     int range = rc_player_attack_range(p);
     if (!player_can_attack_npc_now(world, p, target, range,
                                    p->combat_style, NULL, NULL)) {
-        route_player_toward_npc(world, p, target, range);
+        if (!route_player_toward_npc(world, p, target, range)) {
+            RcCombatActorRef player = {RC_COMBAT_ACTOR_PLAYER, 0};
+            rc_combat_stop_actor(world, player, RC_COMBAT_STATE_CANCELLED);
+        }
         return;
     }
     if (p->attack_timer > 0) return;

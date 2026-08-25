@@ -7,6 +7,7 @@
 #include "events.h"
 #include "interaction.h"
 #include "items.h"
+#include "world_test_fixture.h"
 
 #define ITEM_PATH RC_TEST_SOURCE_DIR "/data/defs/items.bin"
 
@@ -30,6 +31,8 @@ static RcWorld *phase2_world(void) {
     cfg.items_path = ITEM_PATH;
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world != NULL);
+    rc_test_open_mapsquare(world, world->player.x, world->player.y,
+                           world->player.plane);
     return world;
 }
 

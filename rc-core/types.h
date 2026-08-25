@@ -35,6 +35,7 @@ typedef enum {
     RC_PLAYER_COMMAND_NONE = 0,
     RC_PLAYER_COMMAND_WALK_TO,
     RC_PLAYER_COMMAND_RUN_TO,
+    RC_PLAYER_COMMAND_STEP,
     RC_PLAYER_COMMAND_SET_RUNNING,
     RC_PLAYER_COMMAND_ATTACK_NPC,
     RC_PLAYER_COMMAND_SET_ATTACK_STYLE,
@@ -326,6 +327,15 @@ typedef enum {
 #define COL_WALL_SW         0x40
 #define COL_WALL_W          0x80
 #define COL_LOC             0x100
+#define COL_PROJ_WALL_NW    0x200
+#define COL_PROJ_WALL_N     0x400
+#define COL_PROJ_WALL_NE    0x800
+#define COL_PROJ_WALL_E     0x1000
+#define COL_PROJ_WALL_SE    0x2000
+#define COL_PROJ_WALL_S     0x4000
+#define COL_PROJ_WALL_SW    0x8000
+#define COL_PROJ_WALL_W     0x10000
+#define COL_PROJ_BLOCK_FULL 0x20000
 #define COL_GROUND_DECOR    0x40000
 #define COL_BLOCK_WALK      0x200000
 
@@ -340,7 +350,20 @@ typedef enum {
 #define COL_BLOCK_SE  (COL_WALL_NW | COL_WALL_N | COL_WALL_W | COL_LOC | COL_BLOCK_WALK | COL_GROUND_DECOR)
 #define COL_BLOCK_SW  (COL_WALL_N | COL_WALL_NE | COL_WALL_E | COL_LOC | COL_BLOCK_WALK | COL_GROUND_DECOR)
 
-#define COL_PROJ_BLOCK_FULL 0x20000
+#define COL_BLOCK_N_EW (COL_WALL_NW | COL_WALL_N | COL_WALL_NE | COL_WALL_E | COL_WALL_W | COL_LOC | COL_BLOCK_WALK | COL_GROUND_DECOR)
+#define COL_BLOCK_S_EW (COL_WALL_E | COL_WALL_SE | COL_WALL_S | COL_WALL_SW | COL_WALL_W | COL_LOC | COL_BLOCK_WALK | COL_GROUND_DECOR)
+#define COL_BLOCK_E_NS (COL_WALL_NW | COL_WALL_N | COL_WALL_S | COL_WALL_SW | COL_WALL_W | COL_LOC | COL_BLOCK_WALK | COL_GROUND_DECOR)
+#define COL_BLOCK_W_NS (COL_WALL_N | COL_WALL_NE | COL_WALL_E | COL_WALL_SE | COL_WALL_S | COL_LOC | COL_BLOCK_WALK | COL_GROUND_DECOR)
+
+#define COL_PROJ_SIGHT_N (COL_PROJ_WALL_N | COL_PROJ_BLOCK_FULL)
+#define COL_PROJ_SIGHT_E (COL_PROJ_WALL_E | COL_PROJ_BLOCK_FULL)
+#define COL_PROJ_SIGHT_S (COL_PROJ_WALL_S | COL_PROJ_BLOCK_FULL)
+#define COL_PROJ_SIGHT_W (COL_PROJ_WALL_W | COL_PROJ_BLOCK_FULL)
+
+#define RC_BLOCK_ACCESS_NORTH 0x1
+#define RC_BLOCK_ACCESS_EAST  0x2
+#define RC_BLOCK_ACCESS_SOUTH 0x4
+#define RC_BLOCK_ACCESS_WEST  0x8
 
 // Pending hit (delayed damage with prayer snapshot)
 enum {
@@ -506,16 +529,54 @@ typedef struct {
     RcRegion regions[RC_MAX_REGIONS];
     int region_count;
     int base_region_x, base_region_y;
+    int region_width, region_height;
 } RcWorldMap;
 
-// Pathfinding result
+typedef enum {
+    RC_ROUTE_FAILED = 0,
+    RC_ROUTE_BLOCKED,
+    RC_ROUTE_ALREADY_ARRIVED,
+    RC_ROUTE_EXACT,
+    RC_ROUTE_ALTERNATIVE,
+    RC_ROUTE_PARTIAL,
+} RcRouteStatus;
+
+typedef enum {
+    RC_ROUTE_REACH_EXACT = 0,
+    RC_ROUTE_REACH_RECTANGLE,
+    RC_ROUTE_REACH_WALL,
+} RcRouteReachKind;
+
+typedef struct {
+    int x, y;
+    int width, height;
+    int min_distance, max_distance;
+    uint8_t kind;
+    uint8_t shape;
+    uint8_t rotation;
+    uint8_t block_access;
+    bool allow_inside;
+    bool require_los;
+} RcRouteTarget;
+
 typedef struct {
     int waypoints_x[RC_MAX_ROUTE];
     int waypoints_y[RC_MAX_ROUTE];
     int length;
-    bool success;
-    bool alternative;
+    int reached_x, reached_y;
+    int cost;
+    int segment_cost;
+    RcRouteStatus status;
 } RcRoute;
+
+typedef enum {
+    RC_MOVEMENT_NONE = 0,
+    RC_MOVEMENT_ROUTE_ADMITTED,
+    RC_MOVEMENT_MOVED,
+    RC_MOVEMENT_ARRIVED,
+    RC_MOVEMENT_BLOCKED,
+    RC_MOVEMENT_NO_ROUTE,
+} RcMovementResult;
 
 // Player
 typedef struct {
@@ -526,6 +587,14 @@ typedef struct {
     // Route
     int route_x[RC_MAX_ROUTE], route_y[RC_MAX_ROUTE];
     int route_len, route_idx;
+    RcRouteTarget route_target;
+    int route_entity_width, route_entity_height;
+    bool route_allow_alternative;
+    bool route_continue;
+    RcRouteStatus route_status;
+    RcMovementResult movement_result;
+    int movement_step_x[2], movement_step_y[2];
+    uint8_t movement_step_count;
     bool running;
 
     // Combat
@@ -596,7 +665,7 @@ typedef struct {
 
     // Run energy
     int run_energy;         // 0-10000
-    int weight;
+    int weight;             // grams
 
     // Auto-retaliate
     bool auto_retaliate;

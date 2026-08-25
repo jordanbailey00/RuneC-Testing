@@ -24,6 +24,8 @@ int main(void) {
 
     RcWorld *world = rc_test_world_create_with_defs(&cfg, "npc_options", 0);
     assert(world);
+    rc_test_open_mapsquare(world, world->player.x, world->player.y,
+                           world->player.plane);
 
     int npc_idx = rc_npc_spawn(world, 0, world->player.x + 2,
                                world->player.y, world->player.plane);

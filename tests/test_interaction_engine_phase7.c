@@ -1,6 +1,7 @@
 #include "../rc-core/api.h"
 #include "../rc-core/items.h"
 #include "../rc-core/objects.h"
+#include "world_test_fixture.h"
 
 #include <assert.h>
 #include <string.h>
@@ -45,6 +46,8 @@ static void test_object_routes_faces_and_dispatches_custom_handler(void) {
     RcWorldConfig cfg = phase7_skilling_config();
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world);
+    rc_test_open_mapsquare(world, world->player.x, world->player.y,
+                           world->player.plane);
 
     int obj_id = 11780;
     int obj_x = world->player.x + 4;
@@ -82,6 +85,8 @@ static void test_default_object_handler_runs_after_arrival(void) {
     RcWorldConfig cfg = phase7_skilling_config();
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world);
+    rc_test_open_mapsquare(world, world->player.x, world->player.y,
+                           world->player.plane);
 
     int obj_id = 11780;
     int obj_x = world->player.x + 1;
@@ -105,6 +110,8 @@ static void test_ground_item_routes_faces_and_takes(void) {
     cfg.items_path = ITEM_PATH;
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world);
+    rc_test_open_mapsquare(world, world->player.x, world->player.y,
+                           world->player.plane);
 
     int item_x = world->player.x + 3;
     int item_y = world->player.y;
@@ -138,6 +145,8 @@ static void test_stale_ground_item_cancels_cleanly(void) {
     cfg.items_path = ITEM_PATH;
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world);
+    rc_test_open_mapsquare(world, world->player.x, world->player.y,
+                           world->player.plane);
 
     world->ground_item_count = 1;
     world->ground_items[0] = (RcGroundItem){

@@ -434,6 +434,8 @@ int rc_collision_populate_map_rect_stats(RcWorldMap *map, int min_x, int min_y,
     if (geometric_pages > RC_MAX_REGIONS) return -1;
     map->base_region_x = min_rx;
     map->base_region_y = min_ry;
+    map->region_width = max_rx - min_rx + 1;
+    map->region_height = max_ry - min_ry + 1;
 
     uint32_t missing_pages = 0;
     for (int rx = min_rx; rx <= max_rx; rx++) {

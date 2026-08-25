@@ -26,6 +26,8 @@ int main(void) {
 
     RcWorld *world = rc_test_world_create_with_defs(&cfg, "combat_flow", 0);
     assert(world);
+    rc_test_open_mapsquare(world, world->player.x, world->player.y,
+                           world->player.plane);
 
     RcPlayer *p = &world->player;
     for (int i = 0; i < SKILL_COUNT; i++) {

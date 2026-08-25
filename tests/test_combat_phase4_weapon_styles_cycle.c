@@ -36,6 +36,8 @@ static RcWorld *phase4_world(int include_spells) {
     RcWorld *world = rc_test_world_create_with_defs(
         &cfg, "phase4", include_spells);
     assert(world);
+    rc_test_open_mapsquare(world, world->player.x, world->player.y,
+                           world->player.plane);
     for (int i = 0; i < SKILL_COUNT; i++) {
         world->player.skills.base_level[i] = 99;
         world->player.skills.boosted_level[i] = 99;

@@ -169,9 +169,11 @@ static RcWorld *make_region_world(uint32_t seed) {
         fprintf(stderr, "failed to create region benchmark world\n");
         exit(1);
     }
-    world->player.x = 3213;
-    world->player.y = 3428;
-    world->player.plane = 0;
+    if (!rc_world_relocate_player(world, 3213, 3428, 0)) {
+        fprintf(stderr, "failed to activate path benchmark area\n");
+        rc_world_destroy(world);
+        exit(1);
+    }
     return world;
 }
 

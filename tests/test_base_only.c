@@ -37,6 +37,8 @@ int main(void) {
     assert(w->player.y == 3428);
 
     memset(&w->map, 0, sizeof(w->map));
+    w->map.region_width = 1;
+    w->map.region_height = 1;
     w->map.region_count = 1;
     w->map.regions[0].region_x = 0;
     w->map.regions[0].region_y = 0;
@@ -56,10 +58,15 @@ int main(void) {
     assert(w->player.route_len > 0);
     assert(w->player.route_x[w->player.route_len - 1] == 7);
     assert(w->player.route_y[w->player.route_len - 1] == 5);
+    int prior_route_len = w->player.route_len;
+    int prior_destination_x = w->player.route_x[prior_route_len - 1];
+    int prior_destination_y = w->player.route_y[prior_route_len - 1];
     w->map.regions[0].tiles[0][8][5].collision_flags = COL_BLOCK_WALK;
     rc_player_walk_to(w, 8, 5);
     rc_world_tick(w);
-    assert(w->player.route_len == 0);
+    assert(w->player.route_len == prior_route_len);
+    assert(w->player.route_x[prior_route_len - 1] == prior_destination_x);
+    assert(w->player.route_y[prior_route_len - 1] == prior_destination_y);
     w->player.x = 3213;
     w->player.y = 3428;
     w->player.route_len = 0;

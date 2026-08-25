@@ -601,8 +601,11 @@ void rc_npc_tick(RcWorld *world, RcNpc *npc) {
             else if (npc->spawn_y < npc->y) step_y = -1;
             if (!step_x && !step_y) {
                 npc->wander_timer = 0;
-            } else if (rc_can_move(&world->map, npc->x, npc->y,
-                                   step_x, step_y, npc->plane)) {
+            } else if (rc_can_move_rect(
+                           &world->map, npc->x, npc->y,
+                           def->size > 0 ? def->size : 1,
+                           def->size > 0 ? def->size : 1,
+                           step_x, step_y, npc->plane)) {
                 npc->x += step_x;
                 npc->y += step_y;
                 npc_face_move_delta(npc, step_x, step_y);
@@ -625,8 +628,10 @@ void rc_npc_tick(RcWorld *world, RcNpc *npc) {
             if (target_y > npc->y) step_y = 1;
             else if (target_y < npc->y) step_y = -1;
 
-            if ((step_x || step_y) &&
-                rc_can_move(&world->map, npc->x, npc->y, step_x, step_y, npc->plane)) {
+            int size = def->size > 0 ? def->size : 1;
+            if ((step_x || step_y) && rc_can_move_rect(
+                    &world->map, npc->x, npc->y, size, size,
+                    step_x, step_y, npc->plane)) {
                 npc->x += step_x;
                 npc->y += step_y;
                 npc_face_move_delta(npc, step_x, step_y);

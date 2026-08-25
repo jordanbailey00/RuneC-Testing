@@ -23,11 +23,6 @@
 #include <string.h>
 
 #define RC_OBJECT_DOOR_REVERT_TICKS 100
-#define RC_BLOCK_ACCESS_NORTH 0x1
-#define RC_BLOCK_ACCESS_EAST  0x2
-#define RC_BLOCK_ACCESS_SOUTH 0x4
-#define RC_BLOCK_ACCESS_WEST  0x8
-
 static void process_player_input(RcWorld *world) {
     if (world && world->player_commands.count > 0)
         rc_player_command_process(world);
@@ -57,7 +52,9 @@ static int api_npc_attack_option_index(const RcNpcDef *def);
 static void api_register_default_npc_handlers(RcWorld *world);
 static void api_register_default_object_handlers(RcWorld *world);
 static void api_register_default_ground_item_handlers(RcWorld *world);
-static void api_set_player_route(RcPlayer *p, const RcRoute *route);
+static int api_route_player(RcWorld *world, const RcRouteTarget *target,
+                            int entity_width, int entity_height,
+                            int allow_alternative);
 static void process_player_interaction(RcWorld *world, int dispatch_ready);
 static RcObjectState *object_state_find(RcWorld *world, int obj_id,
                                         int x, int y, int plane);
@@ -88,6 +85,7 @@ static int placement_dimensions(const RcObjectDef *def,
 static int tile_reaches_object_target(const RcWorld *world,
                                       const RcInteractionTarget *target,
                                       int tx, int ty);
+static int rotate_block_access_flags(int flags, int angle);
 static const RcTraversalEdge *object_traversal_edge(
     const RcWorld *world, int obj_id, int x, int y, int plane, int opt,
     uint64_t placement_key);
@@ -116,8 +114,7 @@ static void process_player_action_timers(RcWorld *world) {
         int destination_plane = p->pending_traversal_plane;
         (void)rc_world_relocate_player(
             world, destination_x, destination_y, destination_plane);
-        p->route_len = 0;
-        p->route_idx = 0;
+        rc_player_route_clear(p, RC_MOVEMENT_NONE);
         p->pending_traversal_active = 0;
         p->pending_traversal_x = -1;
         p->pending_traversal_y = -1;
@@ -125,17 +122,76 @@ static void process_player_action_timers(RcWorld *world) {
     }
 }
 
+static int player_agility_level(const RcPlayer *player) {
+    int level = player ? player->skills.base_level[SKILL_AGILITY] : 1;
+    if (level < 1) level = 1;
+    if (level > 99) level = 99;
+    return level;
+}
+
+static int player_run_energy_loss(const RcPlayer *player) {
+    int kilograms = player && player->weight > 0
+        ? player->weight / 1000 : 0;
+    if (kilograms > 64) kilograms = 64;
+    int loss = (60 + (67 * kilograms) / 64)
+             * (300 - player_agility_level(player)) / 300;
+    return loss > 0 ? loss : 1;
+}
+
+static void update_player_run_energy(RcPlayer *player, int ran_two_steps) {
+    if (!player) return;
+    if (ran_two_steps) {
+        player->run_energy -= player_run_energy_loss(player);
+        if (player->run_energy <= 0) {
+            player->run_energy = 0;
+            player->running = false;
+        }
+        return;
+    }
+    int recovery = 15 + player_agility_level(player) / 10;
+    player->run_energy += recovery;
+    if (player->run_energy > 10000) player->run_energy = 10000;
+}
+
+static int continue_player_route(RcWorld *world) {
+    RcPlayer *player = world ? &world->player : NULL;
+    if (!player || !player->route_continue) return 0;
+    RcRoute route = rc_find_route(
+        &world->map, player->x, player->y,
+        player->route_entity_width, player->route_entity_height,
+        player->plane, &player->route_target,
+        player->route_allow_alternative);
+    if (!rc_player_route_admit(
+            player, &route, &player->route_target,
+            player->route_entity_width, player->route_entity_height,
+            player->route_allow_alternative)) {
+        rc_player_route_clear(player, RC_MOVEMENT_NO_ROUTE);
+        return 0;
+    }
+    return player->route_idx < player->route_len;
+}
+
 static void process_player_movement(RcWorld *world) {
     if (!world) return;
     RcPlayer *p = &world->player;
-    if (p->route_idx >= p->route_len) return;
+    p->movement_step_count = 0;
+    if (p->route_idx >= p->route_len && !continue_player_route(world)) {
+        update_player_run_energy(p, 0);
+        return;
+    }
     if (world->player_action.active
             && world->player_action.category == RC_ACTION_CATEGORY_STRONG
-            && world->player_action.ready_tick > world->tick) return;
+            && world->player_action.ready_tick > world->tick) {
+        update_player_run_energy(p, 0);
+        return;
+    }
+    if (rc_player_is_frozen(world)) {
+        update_player_run_energy(p, 0);
+        return;
+    }
     p->prev_x = p->x;
     p->prev_y = p->y;
-    if (rc_player_is_frozen(world)) return;
-    int steps = p->running ? 2 : 1;
+    int steps = p->running && p->run_energy > 0 ? 2 : 1;
     for (int s = 0; s < steps && p->route_idx < p->route_len; s++) {
         int nx = p->route_x[p->route_idx];
         int ny = p->route_y[p->route_idx];
@@ -149,24 +205,42 @@ static void process_player_movement(RcWorld *world) {
             p->route_idx++;
             continue;
         }
+        int step_world_x = p->x + dx;
+        int step_world_y = p->y + dy;
         if (!world->active_area.active
-                || nx / RC_MAPSQUARE_SIZE != p->x / RC_MAPSQUARE_SIZE
-                || ny / RC_MAPSQUARE_SIZE != p->y / RC_MAPSQUARE_SIZE) {
+                || step_world_x / RC_MAPSQUARE_SIZE
+                    != p->x / RC_MAPSQUARE_SIZE
+                || step_world_y / RC_MAPSQUARE_SIZE
+                    != p->y / RC_MAPSQUARE_SIZE) {
             if (rc_world_activate_area_around(
-                    world, nx, ny, p->plane, NULL) < 0) {
-                p->route_len = 0;
-                p->route_idx = 0;
-                return;
+                    world, step_world_x, step_world_y,
+                    p->plane, NULL) < 0) {
+                rc_player_route_clear(p, RC_MOVEMENT_BLOCKED);
+                break;
             }
         }
-        if (!rc_can_move(&world->map, p->x, p->y, dx, dy, p->plane)) {
-            p->route_len = 0;
-            p->route_idx = 0;
-            return;
+        int entity_width = p->route_entity_width > 0
+            ? p->route_entity_width : 1;
+        int entity_height = p->route_entity_height > 0
+            ? p->route_entity_height : 1;
+        if (!rc_can_move_rect(&world->map, p->x, p->y,
+                              entity_width, entity_height,
+                              dx, dy, p->plane)) {
+            rc_player_route_clear(p, RC_MOVEMENT_BLOCKED);
+            break;
         }
         p->x += dx;
         p->y += dy;
+        p->movement_step_x[p->movement_step_count] = p->x;
+        p->movement_step_y[p->movement_step_count] = p->y;
+        p->movement_step_count++;
+        p->movement_result = RC_MOVEMENT_MOVED;
         if (p->x == nx && p->y == ny) p->route_idx++;
+    }
+    update_player_run_energy(p, p->movement_step_count == 2);
+    if (p->route_idx >= p->route_len && !p->route_continue) {
+        p->movement_result = p->route_status == RC_ROUTE_ALTERNATIVE
+            ? RC_MOVEMENT_NO_ROUTE : RC_MOVEMENT_ARRIVED;
     }
 }
 
@@ -218,33 +292,22 @@ static int npc_interaction_has_los(const RcWorld *world, const RcPlayer *p,
                                    const RcNpc *npc, int range) {
     if (!p || !npc || p->plane != npc->plane) return 0;
     if (range <= 1) return 1;
-    int tx, ty;
-    if (!nearest_npc_tile_to_player(npc, p, &tx, &ty)) return 0;
-    return rc_has_los(&world->map, p->x, p->y, tx, ty, p->plane);
-}
-
-static void route_player_toward_interaction_npc(RcWorld *world, RcPlayer *p,
-                                                const RcNpc *npc, int range) {
-    if (!p || !npc || p->plane != npc->plane) return;
     const RcNpcDef *def = npc_def_for(npc);
     int size = def && def->size > 0 ? def->size : 1;
-    RcTileBounds bounds;
-    if (!rc_tile_bounds_from_origin_size(npc->x, npc->y, size, size,
-                                         npc->plane, &bounds)) return;
-    int min_x = bounds.rect.min_x;
-    int min_y = bounds.rect.min_y;
-    int max_x = bounds.rect.max_x;
-    int max_y = bounds.rect.max_y;
-    int tx = p->x;
-    int ty = p->y;
-    if (p->x < min_x) tx = min_x - range;
-    else if (p->x > max_x) tx = max_x + range;
-    if (p->y < min_y) ty = min_y - range;
-    else if (p->y > max_y) ty = max_y + range;
-    RcRoute route = rc_find_path(&world->map, p->x, p->y, tx, ty,
-                                 1, p->plane, true);
-    api_set_player_route(p, &route);
+    return rc_has_los_rect(&world->map, p->x, p->y, 1, 1,
+                           npc->x, npc->y, size, size, p->plane);
+}
+
+static int route_player_toward_interaction_npc(RcWorld *world, RcPlayer *p,
+                                               const RcNpc *npc, int range) {
+    if (!world || !p || !npc || p->plane != npc->plane) return 0;
+    const RcNpcDef *def = npc_def_for(npc);
+    int size = def && def->size > 0 ? def->size : 1;
+    RcRouteTarget target = rc_route_target_rectangle(
+        npc->x, npc->y, size, size, 1, range, false, range > 1);
+    if (!api_route_player(world, &target, 1, 1, false)) return 0;
     p->interaction.flags |= RC_INTERACTION_MOVED;
+    return 1;
 }
 
 static int nearest_target_tile_to_player(const RcInteractionTarget *target,
@@ -281,6 +344,19 @@ static int player_distance_to_target(const RcPlayer *p,
     return distance;
 }
 
+static int tile_distance_to_target_rect(int x, int y, int min_x, int min_y,
+                                        int max_x, int max_y) {
+    RcTileRect target;
+    int closest_x, closest_y;
+    if (!rc_tile_rect_make(min_x, min_y, max_x, max_y, &target)
+            || !rc_world_coord_valid(x) || !rc_world_coord_valid(y)
+            || !rc_tile_rect_closest_point(
+                &target, x, y, &closest_x, &closest_y)) {
+        return INT_MAX;
+    }
+    return rc_tile_distance(x, y, 0, closest_x, closest_y, 0);
+}
+
 static int player_has_active_route(const RcPlayer *p) {
     return p && p->route_idx < p->route_len;
 }
@@ -297,18 +373,6 @@ static void face_player_to_target(RcPlayer *p,
     p->facing_y = ty;
 }
 
-static int tile_distance_to_target_rect(int x, int y, int min_x, int min_y,
-                                        int max_x, int max_y) {
-    RcTileRect target;
-    int tx, ty;
-    if (!rc_tile_rect_make(min_x, min_y, max_x, max_y, &target)
-            || !rc_world_coord_valid(x) || !rc_world_coord_valid(y)
-            || !rc_tile_rect_closest_point(&target, x, y, &tx, &ty)) {
-        return INT_MAX;
-    }
-    return rc_tile_distance(x, y, 0, tx, ty, 0);
-}
-
 static int route_player_toward_interaction_target(RcWorld *world, RcPlayer *p,
                                                   const RcInteractionTarget *t,
                                                   int range) {
@@ -323,71 +387,42 @@ static int route_player_toward_interaction_target(RcWorld *world, RcPlayer *p,
                 && edge->start_x != 0xFFFFu && edge->start_y != 0xFFFFu) {
             if (p->x == (int)edge->start_x && p->y == (int)edge->start_y)
                 return 1;
-            RcRoute route = rc_find_path(&world->map, p->x, p->y,
-                                         edge->start_x, edge->start_y, 1,
-                                         p->plane, false);
-            if (!route.success || route.length <= 0)
-                return 0;
-            api_set_player_route(p, &route);
+            RcRouteTarget target = rc_route_target_point(
+                edge->start_x, edge->start_y);
+            if (!api_route_player(world, &target, 1, 1, false)) return 0;
             p->interaction.flags |= RC_INTERACTION_MOVED;
             return 1;
         }
     }
-    RcTileBounds target_bounds;
-    if (!rc_tile_bounds_from_origin_size(
-            t->tile_x, t->tile_y, t->footprint_width,
-            t->footprint_height, t->plane, &target_bounds)) {
-        return 0;
-    }
-    int min_x = target_bounds.rect.min_x;
-    int min_y = target_bounds.rect.min_y;
-    int max_x = target_bounds.rect.max_x;
-    int max_y = target_bounds.rect.max_y;
-
-    RcRoute best_route = {0};
-    int best_len = INT_MAX;
-    int best_dist = INT_MAX;
-    int found = 0;
-    for (int tx = min_x - range; tx <= max_x + range; tx++) {
-        for (int ty = min_y - range; ty <= max_y + range; ty++) {
-            int dist = tile_distance_to_target_rect(tx, ty, min_x, min_y,
-                                                    max_x, max_y);
-            if (dist > range) continue;
-            if (range > 0 && dist == 0) {
-                int allow_inside = 0;
-                if (t->kind == RC_INTERACTION_OBJECT) {
-                    RcObjectPlacement placement;
-                    allow_inside = current_object_placement_key(
-                        world, t->definition_id, t->tile_x, t->tile_y,
-                        t->plane, t->placement_key, &placement)
-                        && placement.type <= 3;
-                }
-                if (!allow_inside)
-                    continue;
-            }
-            if (t->kind == RC_INTERACTION_OBJECT &&
-                    !tile_reaches_object_target(world, t, tx, ty)) {
-                continue;
-            }
-            RcRoute route = rc_find_path(&world->map, p->x, p->y, tx, ty,
-                                         1, p->plane, false);
-            if (!route.success || route.length <= 0) continue;
-            int player_dx = p->x - tx;
-            int player_dy = p->y - ty;
-            if (player_dx < 0) player_dx = -player_dx;
-            if (player_dy < 0) player_dy = -player_dy;
-            int player_dist = player_dx > player_dy ? player_dx : player_dy;
-            if (!found || route.length < best_len ||
-                    (route.length == best_len && player_dist < best_dist)) {
-                best_route = route;
-                best_len = route.length;
-                best_dist = player_dist;
-                found = 1;
+    RcRouteTarget target = rc_route_target_rectangle(
+        t->tile_x, t->tile_y, t->footprint_width, t->footprint_height,
+        range > 0 ? 1 : 0, range, range == 0, range > 1);
+    if (t->kind == RC_INTERACTION_OBJECT) {
+        RcObjectPlacement placement;
+        if (current_object_placement_key(
+                world, t->definition_id, t->tile_x, t->tile_y,
+                t->plane, t->placement_key, &placement)) {
+            if (placement.type <= 3) {
+                target.kind = RC_ROUTE_REACH_WALL;
+                target.shape = placement.type;
+                target.rotation = placement.rotation;
+                target.width = 1;
+                target.height = 1;
+                target.min_distance = 0;
+                target.max_distance = 1;
+            } else {
+                const RcObjectDef *def = rc_object_def_get(
+                    (int)placement.obj_id);
+                placement_dimensions(def, &placement,
+                                     &target.width, &target.height);
+                target.x = placement.x;
+                target.y = placement.y;
+                target.block_access = rotate_block_access_flags(
+                    def ? def->force_approach : 0, placement.rotation);
             }
         }
     }
-    if (!found) return 0;
-    api_set_player_route(p, &best_route);
+    if (!api_route_player(world, &target, 1, 1, false)) return 0;
     p->interaction.flags |= RC_INTERACTION_MOVED;
     return 1;
 }
@@ -620,9 +655,10 @@ static void process_player_interaction(RcWorld *world, int dispatch_ready) {
         int range = p->interaction.approach_range > 0
                   ? p->interaction.approach_range : 1;
         if (player_distance_to_npc(p, npc) > range) {
-            if (player_has_active_route(p))
-                return;
-            route_player_toward_interaction_npc(world, p, npc, range);
+            if (!route_player_toward_interaction_npc(
+                    world, p, npc, range)) {
+                rc_interaction_cancel(p, RC_INTERACTION_FAIL_CANNOT_REACH);
+            }
             return;
         }
         if (!npc_interaction_has_los(world, p, npc, range)) {
@@ -666,8 +702,6 @@ static void process_player_interaction(RcWorld *world, int dispatch_ready) {
             }
         }
         if (!in_range) {
-            if (player_has_active_route(p))
-                return;
             if (!route_player_toward_interaction_target(
                     world, p, &p->interaction.target, range)) {
                 rc_interaction_cancel(p, RC_INTERACTION_FAIL_CANNOT_REACH);
@@ -688,8 +722,6 @@ static void process_player_interaction(RcWorld *world, int dispatch_ready) {
         }
         int range = p->interaction.approach_range;
         if (player_distance_to_target(p, &p->interaction.target) > range) {
-            if (player_has_active_route(p))
-                return;
             if (!route_player_toward_interaction_target(
                     world, p, &p->interaction.target, range)) {
                 rc_interaction_cancel(p, RC_INTERACTION_FAIL_CANNOT_REACH);
@@ -709,6 +741,8 @@ static void process_player_interaction(RcWorld *world, int dispatch_ready) {
         return;
     }
     p->interaction.flags |= RC_INTERACTION_ARRIVED;
+    if (player_has_active_route(p))
+        rc_player_route_clear(p, RC_MOVEMENT_ARRIVED);
     if (!dispatch_ready) return;
     RcInteractionHandlerResult result = rc_interaction_dispatch(world, p);
     finish_interaction_result(p, result);
@@ -718,8 +752,6 @@ static int api_prepare_spatial_interaction(RcWorld *world) {
     if (!world || !world->player.interaction.active)
         return 0;
     RcPlayer *p = &world->player;
-    p->route_len = 0;
-    p->route_idx = 0;
     process_player_interaction(world, 0);
     return p->interaction.active;
 }
@@ -1391,18 +1423,38 @@ static int queue_player_command(RcWorld *world, RcPlayerCommandKind kind,
     return rc_player_command_submit(world, kind, category, args, key);
 }
 
-static void api_set_player_route(RcPlayer *p, const RcRoute *route) {
-    if (!p) return;
-    p->route_len = 0;
-    p->route_idx = 0;
-    if (!route || route->length <= 0) return;
-    int n = route->length < RC_MAX_ROUTE ? route->length : RC_MAX_ROUTE;
-    for (int i = 0; i < n; i++) {
-        p->route_x[i] = route->waypoints_x[i];
-        p->route_y[i] = route->waypoints_y[i];
+static int route_targets_equal(const RcRouteTarget *a,
+                               const RcRouteTarget *b) {
+    return a && b && a->x == b->x && a->y == b->y
+        && a->width == b->width && a->height == b->height
+        && a->min_distance == b->min_distance
+        && a->max_distance == b->max_distance
+        && a->kind == b->kind && a->shape == b->shape
+        && a->rotation == b->rotation
+        && a->block_access == b->block_access
+        && a->allow_inside == b->allow_inside
+        && a->require_los == b->require_los;
+}
+
+static int api_route_player(RcWorld *world, const RcRouteTarget *target,
+                            int entity_width, int entity_height,
+                            int allow_alternative) {
+    if (!world || !target) return 0;
+    RcPlayer *player = &world->player;
+    if (player_has_active_route(player)
+            && player->route_entity_width == entity_width
+            && player->route_entity_height == entity_height
+            && player->route_allow_alternative == (allow_alternative != 0)
+            && route_targets_equal(&player->route_target, target)) {
+        return 1;
     }
-    p->route_len = n;
-    p->route_idx = 0;
+    RcRoute route = rc_find_route(
+        &world->map, player->x, player->y,
+        entity_width, entity_height, player->plane,
+        target, allow_alternative != 0);
+    return rc_player_route_admit(
+        player, &route, target, entity_width, entity_height,
+        allow_alternative != 0);
 }
 
 static void start_player_action_lock(RcWorld *world, int lock_ticks) {
@@ -1434,8 +1486,7 @@ static void schedule_player_traversal(RcWorld *world,
     p->pending_traversal_x = edge->dest_x;
     p->pending_traversal_y = edge->dest_y;
     p->pending_traversal_plane = edge->dest_plane;
-    p->route_len = 0;
-    p->route_idx = 0;
+    rc_player_route_clear(p, RC_MOVEMENT_NONE);
     start_player_action_lock(world, delay_ticks);
 }
 
@@ -1453,12 +1504,11 @@ int rc_player_walk_to(RcWorld *world, int x, int y) {
         return 0;
     }
     RcPlayer *p = &world->player;
-    RcRoute route = rc_find_path(&world->map, p->x, p->y, x, y,
-                                 1, p->plane, false);
-    api_set_player_route(p, &route);
+    RcRouteTarget target = rc_route_target_point(x, y);
+    if (!api_route_player(world, &target, 1, 1, false)) return 0;
+    rc_player_replace_action_with_movement(
+        world, RC_ACTION_CANCEL_REPLACED);
     p->running = false;
-    api_stop_player_combat(world);
-    rc_interaction_cancel(p, RC_INTERACTION_FAIL_CANCELLED);
     return 1;
 }
 
@@ -1476,12 +1526,35 @@ int rc_player_run_to(RcWorld *world, int x, int y) {
         return 0;
     }
     RcPlayer *p = &world->player;
-    RcRoute route = rc_find_path(&world->map, p->x, p->y, x, y,
-                                 1, p->plane, false);
-    api_set_player_route(p, &route);
-    p->running = true;
-    api_stop_player_combat(world);
-    rc_interaction_cancel(p, RC_INTERACTION_FAIL_CANCELLED);
+    RcRouteTarget target = rc_route_target_point(x, y);
+    if (!api_route_player(world, &target, 1, 1, false)) return 0;
+    rc_player_replace_action_with_movement(
+        world, RC_ACTION_CANCEL_REPLACED);
+    p->running = p->run_energy > 0;
+    return 1;
+}
+
+int rc_player_step(RcWorld *world, int dx, int dy) {
+    if (rc_player_command_should_queue(world)) {
+        return queue_player_command(world, RC_PLAYER_COMMAND_STEP,
+                                    RC_ACTION_CATEGORY_NORMAL,
+                                    dx, dy, 0, 0, 0, 0);
+    }
+    if (!world || dx < -1 || dx > 1 || dy < -1 || dy > 1
+            || (!dx && !dy)
+            || !rc_world_tile_valid(world->player.x + dx,
+                                    world->player.y + dy,
+                                    world->player.plane)
+            || !action_allowed_if_loaded(world,
+                                         RC_PLAYER_ACTION_WALK_TO)) {
+        return 0;
+    }
+    RcPlayer *player = &world->player;
+    RcRouteTarget target = rc_route_target_point(
+        player->x + dx, player->y + dy);
+    if (!api_route_player(world, &target, 1, 1, false)) return 0;
+    rc_player_replace_action_with_movement(
+        world, RC_ACTION_CANCEL_REPLACED);
     return 1;
 }
 
@@ -1492,7 +1565,7 @@ int rc_player_set_running(RcWorld *world, int enabled) {
                                     enabled != 0, 0, 0, 0, 0, 0);
     }
     if (!world) return 0;
-    world->player.running = enabled != 0;
+    world->player.running = enabled != 0 && world->player.run_energy > 0;
     return 1;
 }
 
@@ -2124,61 +2197,85 @@ static void set_map_wall_flag(RcWorld *world, int x, int y, int plane,
         *flags &= ~flag;
 }
 
+static uint32_t wall_collision_flags(uint32_t movement_flags,
+                                     int blocks_projectiles) {
+    return movement_flags | (blocks_projectiles
+        ? ((movement_flags & 0xffu) << 9) : 0u);
+}
+
 static void apply_wall_shape_collision(RcWorld *world, int x, int y,
                                        int plane, int type, int rotation,
-                                       int set) {
+                                       int set, int blocks_projectiles) {
+#define WALL_FLAGS(flags) wall_collision_flags((flags), blocks_projectiles)
     int r = rotation & 3;
     if (type == 0 || type == 3) {
         if (r == 0) {
-            set_map_wall_flag(world, x, y, plane, COL_WALL_W, set);
-            set_map_wall_flag(world, x - 1, y, plane, COL_WALL_E, set);
+            set_map_wall_flag(world, x, y, plane, WALL_FLAGS(COL_WALL_W), set);
+            set_map_wall_flag(world, x - 1, y, plane,
+                              WALL_FLAGS(COL_WALL_E), set);
         } else if (r == 1) {
-            set_map_wall_flag(world, x, y, plane, COL_WALL_N, set);
-            set_map_wall_flag(world, x, y + 1, plane, COL_WALL_S, set);
+            set_map_wall_flag(world, x, y, plane, WALL_FLAGS(COL_WALL_N), set);
+            set_map_wall_flag(world, x, y + 1, plane,
+                              WALL_FLAGS(COL_WALL_S), set);
         } else if (r == 2) {
-            set_map_wall_flag(world, x, y, plane, COL_WALL_E, set);
-            set_map_wall_flag(world, x + 1, y, plane, COL_WALL_W, set);
+            set_map_wall_flag(world, x, y, plane, WALL_FLAGS(COL_WALL_E), set);
+            set_map_wall_flag(world, x + 1, y, plane,
+                              WALL_FLAGS(COL_WALL_W), set);
         } else {
-            set_map_wall_flag(world, x, y, plane, COL_WALL_S, set);
-            set_map_wall_flag(world, x, y - 1, plane, COL_WALL_N, set);
+            set_map_wall_flag(world, x, y, plane, WALL_FLAGS(COL_WALL_S), set);
+            set_map_wall_flag(world, x, y - 1, plane,
+                              WALL_FLAGS(COL_WALL_N), set);
         }
     } else if (type == 2) {
         if (r == 0) {
-            set_map_wall_flag(world, x, y, plane, COL_WALL_W | COL_WALL_N,
-                              set);
-            set_map_wall_flag(world, x - 1, y, plane, COL_WALL_E, set);
-            set_map_wall_flag(world, x, y + 1, plane, COL_WALL_S, set);
+            set_map_wall_flag(world, x, y, plane,
+                              WALL_FLAGS(COL_WALL_W | COL_WALL_N), set);
+            set_map_wall_flag(world, x - 1, y, plane,
+                              WALL_FLAGS(COL_WALL_E), set);
+            set_map_wall_flag(world, x, y + 1, plane,
+                              WALL_FLAGS(COL_WALL_S), set);
         } else if (r == 1) {
-            set_map_wall_flag(world, x, y, plane, COL_WALL_E | COL_WALL_N,
-                              set);
-            set_map_wall_flag(world, x + 1, y, plane, COL_WALL_W, set);
-            set_map_wall_flag(world, x, y + 1, plane, COL_WALL_S, set);
+            set_map_wall_flag(world, x, y, plane,
+                              WALL_FLAGS(COL_WALL_E | COL_WALL_N), set);
+            set_map_wall_flag(world, x + 1, y, plane,
+                              WALL_FLAGS(COL_WALL_W), set);
+            set_map_wall_flag(world, x, y + 1, plane,
+                              WALL_FLAGS(COL_WALL_S), set);
         } else if (r == 2) {
-            set_map_wall_flag(world, x, y, plane, COL_WALL_E | COL_WALL_S,
-                              set);
-            set_map_wall_flag(world, x + 1, y, plane, COL_WALL_W, set);
-            set_map_wall_flag(world, x, y - 1, plane, COL_WALL_N, set);
+            set_map_wall_flag(world, x, y, plane,
+                              WALL_FLAGS(COL_WALL_E | COL_WALL_S), set);
+            set_map_wall_flag(world, x + 1, y, plane,
+                              WALL_FLAGS(COL_WALL_W), set);
+            set_map_wall_flag(world, x, y - 1, plane,
+                              WALL_FLAGS(COL_WALL_N), set);
         } else {
-            set_map_wall_flag(world, x, y, plane, COL_WALL_W | COL_WALL_S,
-                              set);
-            set_map_wall_flag(world, x - 1, y, plane, COL_WALL_E, set);
-            set_map_wall_flag(world, x, y - 1, plane, COL_WALL_N, set);
+            set_map_wall_flag(world, x, y, plane,
+                              WALL_FLAGS(COL_WALL_W | COL_WALL_S), set);
+            set_map_wall_flag(world, x - 1, y, plane,
+                              WALL_FLAGS(COL_WALL_E), set);
+            set_map_wall_flag(world, x, y - 1, plane,
+                              WALL_FLAGS(COL_WALL_N), set);
         }
     } else if (type == 1) {
         if (r == 0) {
-            set_map_wall_flag(world, x, y, plane, COL_WALL_NW, set);
-            set_map_wall_flag(world, x - 1, y + 1, plane, COL_WALL_SE, set);
+            set_map_wall_flag(world, x, y, plane, WALL_FLAGS(COL_WALL_NW), set);
+            set_map_wall_flag(world, x - 1, y + 1, plane,
+                              WALL_FLAGS(COL_WALL_SE), set);
         } else if (r == 1) {
-            set_map_wall_flag(world, x, y, plane, COL_WALL_NE, set);
-            set_map_wall_flag(world, x + 1, y + 1, plane, COL_WALL_SW, set);
+            set_map_wall_flag(world, x, y, plane, WALL_FLAGS(COL_WALL_NE), set);
+            set_map_wall_flag(world, x + 1, y + 1, plane,
+                              WALL_FLAGS(COL_WALL_SW), set);
         } else if (r == 2) {
-            set_map_wall_flag(world, x, y, plane, COL_WALL_SE, set);
-            set_map_wall_flag(world, x + 1, y - 1, plane, COL_WALL_NW, set);
+            set_map_wall_flag(world, x, y, plane, WALL_FLAGS(COL_WALL_SE), set);
+            set_map_wall_flag(world, x + 1, y - 1, plane,
+                              WALL_FLAGS(COL_WALL_NW), set);
         } else {
-            set_map_wall_flag(world, x, y, plane, COL_WALL_SW, set);
-            set_map_wall_flag(world, x - 1, y - 1, plane, COL_WALL_NE, set);
+            set_map_wall_flag(world, x, y, plane, WALL_FLAGS(COL_WALL_SW), set);
+            set_map_wall_flag(world, x - 1, y - 1, plane,
+                              WALL_FLAGS(COL_WALL_NE), set);
         }
     }
+#undef WALL_FLAGS
 }
 
 static void apply_door_collision(RcWorld *world, int obj_id, int x, int y,
@@ -2188,8 +2285,12 @@ static void apply_door_collision(RcWorld *world, int obj_id, int x, int y,
     for (int i = 0; i < count; i++) {
         if ((int)rows[i].obj_id != obj_id)
             continue;
+        const RcObjectDef *def = rc_object_def_get(obj_id);
+        int blocks_projectiles = def
+            && (def->clip_flags & RC_OBJECT_CLIP_BLOCKS_PROJECTILE);
         apply_wall_shape_collision(world, x, y, plane, rows[i].type,
-                                   rows[i].rotation, !open);
+                                   rows[i].rotation, !open,
+                                   blocks_projectiles);
         return;
     }
 }

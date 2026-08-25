@@ -51,6 +51,8 @@ static RcWorld *phase2_world(int cache_id) {
     cfg.seed = 12345;
     RcWorld *world = rc_test_world_create_with_defs(&cfg, "phase2", 0);
     assert(world);
+    rc_test_open_mapsquare(world, world->player.x, world->player.y,
+                           world->player.plane);
     return world;
 }
 

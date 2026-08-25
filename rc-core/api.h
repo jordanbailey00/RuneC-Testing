@@ -95,6 +95,7 @@ int rc_player_pending_command_count(const RcWorld *world);
 // Player input (queued, processed next tick)
 int rc_player_walk_to(RcWorld *world, int tile_x, int tile_y);
 int rc_player_run_to(RcWorld *world, int tile_x, int tile_y);
+int rc_player_step(RcWorld *world, int delta_x, int delta_y);
 int  rc_player_set_running(RcWorld *world, int enabled);
 int rc_player_attack_npc(RcWorld *world, int npc_uid);
 void rc_player_set_attack_style(RcWorld *world, int style_idx);

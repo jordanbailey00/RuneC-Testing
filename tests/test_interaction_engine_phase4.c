@@ -19,6 +19,8 @@ static RcWorld *phase4_world(int cache_id) {
     cfg.subsystems = RC_SUB_COMBAT;
     RcWorld *world = rc_test_world_create_with_defs(&cfg, "interaction4", 0);
     assert(world);
+    rc_test_open_mapsquare(world, world->player.x, world->player.y,
+                           world->player.plane);
     return world;
 }
 

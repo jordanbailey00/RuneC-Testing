@@ -3,6 +3,7 @@
 
 #include "../rc-core/storage.h"
 #include "../rc-viewer/dev_validation.c"
+#include "world_test_fixture.h"
 
 #define ITEM_PATH RC_TEST_SOURCE_DIR "/data/defs/items.bin"
 #define SPELL_PATH RC_TEST_SOURCE_DIR "/data/defs/spells.bin"
@@ -48,6 +49,8 @@ int main(void) {
     assert(world);
     for (int i = 0; i < SKILL_COUNT; i++)
         world->player.skills.base_level[i] = 99;
+    rc_test_open_mapsquare(world, world->player.x, world->player.y,
+                           world->player.plane);
 
     runec_dev_validation_seed_bank(world);
 
@@ -103,6 +106,7 @@ int main(void) {
     assert_validation_item_equips(world, "Confliction gauntlets", EQUIP_GLOVES);
     assert_validation_item_equips(world, "Twinflame staff", EQUIP_WEAPON);
 
+    rc_test_open_mapsquare(world, 3182, 3443, 0);
     int dummy_idx = runec_dev_validation_spawn_varrock_bank_dummy(world);
     assert(dummy_idx >= 0);
     RcNpc *dummy = &world->npcs[dummy_idx];
@@ -134,6 +138,8 @@ int main(void) {
     world->player.x = 2872;
     world->player.y = 5350;
     world->player.plane = 2;
+    rc_test_open_mapsquare(world, world->player.x, world->player.y,
+                           world->player.plane);
     int prepared = runec_dev_validation_prepare_encounter(world, graardor);
     assert(prepared == 4);
     assert(rc_combat_is_multi_combat(world));

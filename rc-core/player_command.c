@@ -3,6 +3,7 @@
 #include "api.h"
 #include "combat.h"
 #include "interaction.h"
+#include "pathfinding.h"
 #include "skills.h"
 #include "storage.h"
 #include "traversal.h"
@@ -71,8 +72,9 @@ static void stop_player_combat(RcWorld *world) {
     }
 }
 
-void rc_player_cancel_action(RcWorld *world,
-                             RcPlayerActionCancelReason reason) {
+static void cancel_player_activity(RcWorld *world,
+                                   RcPlayerActionCancelReason reason,
+                                   int clear_route) {
     if (!world) return;
     RcPlayerCommandQueue *queue = &world->player_commands;
     if (queue->count > 0) {
@@ -81,8 +83,7 @@ void rc_player_cancel_action(RcWorld *world,
         queue->last_result = RC_COMMAND_RESULT_REJECTED_CANCELLED;
     }
     RcPlayer *player = &world->player;
-    player->route_len = 0;
-    player->route_idx = 0;
+    if (clear_route) rc_player_route_clear(player, RC_MOVEMENT_NONE);
     rc_interaction_cancel(player, RC_INTERACTION_FAIL_CANCELLED);
     stop_player_combat(world);
     player->manual_spell_cast = -1;
@@ -101,6 +102,16 @@ void rc_player_cancel_action(RcWorld *world,
     world->player_action.category = RC_ACTION_CATEGORY_SOFT;
     world->player_action.ready_tick = world->tick;
     world->player_action.last_cancel_reason = reason;
+}
+
+void rc_player_cancel_action(RcWorld *world,
+                             RcPlayerActionCancelReason reason) {
+    cancel_player_activity(world, reason, 1);
+}
+
+void rc_player_replace_action_with_movement(
+    RcWorld *world, RcPlayerActionCancelReason reason) {
+    cancel_player_activity(world, reason, 0);
 }
 
 static void set_action(RcWorld *world, RcPlayerActionOwner owner,
@@ -162,6 +173,8 @@ static int execute_command(RcWorld *world, const RcPlayerCommand *command) {
         if (!rc_world_coord_valid(a[0]) || !rc_world_coord_valid(a[1]))
             return 0;
         return rc_player_run_to(world, a[0], a[1]);
+    case RC_PLAYER_COMMAND_STEP:
+        return rc_player_step(world, a[0], a[1]);
     case RC_PLAYER_COMMAND_SET_RUNNING:
         return rc_player_set_running(world, a[0]);
     case RC_PLAYER_COMMAND_ATTACK_NPC:
@@ -241,8 +254,7 @@ static int execute_command(RcWorld *world, const RcPlayerCommand *command) {
         player->pending_traversal_x = a[0];
         player->pending_traversal_y = a[1];
         player->pending_traversal_plane = a[2];
-        player->route_len = 0;
-        player->route_idx = 0;
+        rc_player_route_clear(player, RC_MOVEMENT_NONE);
         world->player_action.active = true;
         world->player_action.owner = RC_ACTION_OWNER_TRAVERSAL;
         world->player_action.category = RC_ACTION_CATEGORY_STRONG;
@@ -281,7 +293,11 @@ void rc_player_command_process(RcWorld *world) {
             queue->rejected_count++;
             continue;
         }
-        if (pending[i].category >= RC_ACTION_CATEGORY_NORMAL) {
+        int movement_command = pending[i].kind == RC_PLAYER_COMMAND_WALK_TO
+                            || pending[i].kind == RC_PLAYER_COMMAND_RUN_TO
+                            || pending[i].kind == RC_PLAYER_COMMAND_STEP;
+        if (pending[i].category >= RC_ACTION_CATEGORY_NORMAL
+                && !movement_command) {
             rc_player_cancel_action(world, RC_ACTION_CANCEL_REPLACED);
         }
         int ok = execute_command(world, &pending[i]);

@@ -82,6 +82,8 @@ static RcWorld *phase6_world(Phase6Events *events, int cache_id, int hp,
     RcWorld *world = rc_test_world_create_with_defs(
         &cfg, "interaction6", include_spells);
     assert(world);
+    rc_test_open_mapsquare(world, world->player.x, world->player.y,
+                           world->player.plane);
     for (int i = 0; i < SKILL_COUNT; i++) {
         world->player.skills.base_level[i] = 99;
         world->player.skills.boosted_level[i] = 99;

@@ -265,6 +265,27 @@ in the caller's render frame or headless control step. Admission and execution
 publish explicit queued, executed, invalid, full, dead, busy, or cancelled
 results. A full queue never falls back to immediate execution.
 
+Movement uses one world-owned collision and route contract. Missing, invalid,
+or unknown tiles fail closed; a loaded sparse mapsquare window can explicitly
+represent open tiles. `rc_find_route` accepts exact, rectangle/range/LOS, and
+wall-reach targets and returns a reached endpoint, traveled cost, and explicit
+failed, blocked, already-arrived, exact, alternative, or partial status.
+Bounded partial routes are source-connected and retain their target for
+deterministic continuation.
+
+Route search and execution share the same cardinal/diagonal validator for
+size-one and rectangular footprints. Projectile LOS likewise evaluates both
+footprints, directional projectile walls, full blockers, and endpoints.
+Dynamic doors mutate movement and projectile clipping together. Player walk,
+run, directional step, interaction approach, and combat approach all install
+routes through the same atomic admission path; a failed request does not erase
+a valid route or unrelated action.
+
+Running is core-owned. Each run tile is a separately validated ordered substep,
+the second substep requires positive energy, energy drains only when it occurs,
+and otherwise recovers within bounds. The viewer may observe routes for
+animation and prefetch but never writes route arrays or gameplay run mode.
+
 `RcPlayerActionState` records the current movement, interaction, combat,
 traversal, skill, or modal owner. Soft/background commands can coexist, normal
 commands replace through `rc_player_cancel_action`, and an unexpired strong

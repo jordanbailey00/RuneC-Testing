@@ -8483,10 +8483,7 @@ static void handle_input(ViewerState *v, int ui_capture) {
         if (IsKeyDown(KEY_D)) dx = 1;
     }
     if ((dx || dy) && p->route_idx >= p->route_len) {
-        p->route_x[0] = p->x + dx;
-        p->route_y[0] = p->y + dy;
-        p->route_len = 1;
-        p->route_idx = 0;
+        (void)rc_player_step(v->world, dx, dy);
     }
 }
 

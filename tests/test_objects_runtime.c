@@ -67,8 +67,36 @@ static RcObjectState *find_state(RcWorld *world, int obj_id, int x, int y,
     return NULL;
 }
 
+static void init_single_region_map(RcWorld *world, int region_x,
+                                   int region_y);
+
+static void place_player_at(RcWorld *world, int x, int y, int plane) {
+    assert(world != NULL);
+    init_single_region_map(world, x >> 6, y >> 6);
+    world->active_area.active = true;
+    world->active_area.origin_x = (x >> 6) << 6;
+    world->active_area.origin_y = (y >> 6) << 6;
+    world->active_area.width = RC_MAPSQUARE_SIZE;
+    world->active_area.height = RC_MAPSQUARE_SIZE;
+    world->active_area.min_plane = plane;
+    world->active_area.max_plane = plane;
+    world->player.x = x;
+    world->player.y = y;
+    world->player.plane = plane;
+    world->player.prev_x = x;
+    world->player.prev_y = y;
+}
+
 static void place_player_adjacent(RcWorld *world, int x, int y, int plane) {
     assert(world != NULL);
+    init_single_region_map(world, x >> 6, y >> 6);
+    world->active_area.active = true;
+    world->active_area.origin_x = (x >> 6) << 6;
+    world->active_area.origin_y = (y >> 6) << 6;
+    world->active_area.width = RC_MAPSQUARE_SIZE;
+    world->active_area.height = RC_MAPSQUARE_SIZE;
+    world->active_area.min_plane = plane;
+    world->active_area.max_plane = plane;
     world->player.x = x + 1;
     world->player.y = y;
     world->player.plane = plane;
@@ -80,6 +108,10 @@ static void init_single_region_map(RcWorld *world, int region_x,
                                    int region_y) {
     assert(world != NULL);
     memset(&world->map, 0, sizeof(world->map));
+    world->map.base_region_x = region_x;
+    world->map.base_region_y = region_y;
+    world->map.region_width = 1;
+    world->map.region_height = 1;
     world->map.region_count = 1;
     world->map.regions[0].region_x = region_x;
     world->map.regions[0].region_y = region_y;
@@ -238,6 +270,7 @@ int main(void) {
     assert(door != NULL);
     RcObjectPlacement door_placement;
     assert(object_at(11780, 3196, 3384, 0, &door_placement));
+    init_single_region_map(door, 3196 >> 6, 3384 >> 6);
     place_player_adjacent(door, 3196, 3384, 0);
     assert(rc_player_interact_object_placement(
         door, 11780, 3196, 3384, 0, UINT64_MAX, 0) == 1);
@@ -382,17 +415,22 @@ int main(void) {
     const int door_x = 3196;
     const int door_y = 3384;
     assert(has_object_at(door_obj, door_x, door_y, 0));
+    const RcObjectDef *door_def = rc_object_def_get(door_obj);
+    assert(door_def && (door_def->clip_flags
+                        & RC_OBJECT_CLIP_BLOCKS_PROJECTILE));
     init_single_region_map(door_collision, door_x >> 6, door_y >> 6);
     int lx = door_x & 63;
     int ly = door_y & 63;
     door_collision->map.regions[0].tiles[0][lx][ly].collision_flags =
-        COL_WALL_W;
+        COL_WALL_W | COL_PROJ_WALL_W;
     door_collision->map.regions[0].tiles[0][lx - 1][ly].collision_flags =
-        COL_WALL_E;
+        COL_WALL_E | COL_PROJ_WALL_E;
     door_collision->player.x = door_x - 1;
     door_collision->player.y = door_y;
     door_collision->player.plane = 0;
     assert(!rc_can_move(&door_collision->map, door_x - 1, door_y, 1, 0, 0));
+    assert(!rc_has_los(&door_collision->map, door_x - 1, door_y,
+                       door_x, door_y, 0));
     assert(run_object_interaction(door_collision, door_obj, door_x,
                                         door_y, 0, 0) == 1);
     for (int i = 0; i < 4 && door_collision->object_state_count == 0; i++)
@@ -400,6 +438,8 @@ int main(void) {
     assert(door_collision->object_state_count == 1);
     assert(door_collision->object_states[0].flags & RC_OBJECT_STATE_OPEN);
     assert(rc_can_move(&door_collision->map, door_x - 1, door_y, 1, 0, 0));
+    assert(rc_has_los(&door_collision->map, door_x - 1, door_y,
+                      door_x, door_y, 0));
     int revert_tick = door_collision->object_states[0].revert_tick;
     while (door_collision->tick <= revert_tick) {
         rc_world_tick(door_collision);
@@ -407,6 +447,8 @@ int main(void) {
     assert((door_collision->object_states[0].flags & RC_OBJECT_STATE_OPEN)
            == 0);
     assert(!rc_can_move(&door_collision->map, door_x - 1, door_y, 1, 0, 0));
+    assert(!rc_has_los(&door_collision->map, door_x - 1, door_y,
+                       door_x, door_y, 0));
     rc_world_destroy(door_collision);
 
     RcWorldConfig route_cfg = rc_preset_base_only();
@@ -580,9 +622,7 @@ int main(void) {
         rc_object_transport_find(882, 3236, 3458, 0, 0);
     assert(varrock_manhole != NULL);
     assert(has_object_at(881, 3237, 3458, 0));
-    travel->player.x = 3236;
-    travel->player.y = 3458;
-    travel->player.plane = 0;
+    place_player_at(travel, 3236, 3458, 0);
     rc_player_cancel_action(travel, RC_ACTION_CANCEL_RELOCATED);
     assert(run_object_interaction(travel, 881, 3237, 3458, 0, 0)
            == 1);
@@ -686,9 +726,7 @@ int main(void) {
 
     assert(has_object_at(11801, 3261, 3459, 0));
     assert(has_object_at(11802, 3261, 3459, 1));
-    travel->player.x = 3261;
-    travel->player.y = 3459;
-    travel->player.plane = 0;
+    place_player_at(travel, 3261, 3459, 0);
     rc_player_cancel_action(travel, RC_ACTION_CANCEL_RELOCATED);
     assert(run_object_interaction(travel, 11801, 3261, 3459, 0, 0)
            == 1);
@@ -708,9 +746,7 @@ int main(void) {
 
     assert(has_object_at(60731, 3217, 3398, 1));
     assert(has_object_at(60732, 3217, 3398, 3));
-    travel->player.x = 3217;
-    travel->player.y = 3398;
-    travel->player.plane = 1;
+    place_player_at(travel, 3217, 3398, 1);
     rc_player_cancel_action(travel, RC_ACTION_CANCEL_RELOCATED);
     assert(run_object_interaction(travel, 60731, 3217, 3398, 1, 0)
            == 1);
@@ -721,9 +757,7 @@ int main(void) {
     assert(travel->player.plane == 3);
 
     assert(has_object_at(11797, 3230, 3383, 0));
-    travel->player.x = 3230;
-    travel->player.y = 3386;
-    travel->player.plane = 0;
+    place_player_at(travel, 3230, 3386, 0);
     rc_player_cancel_action(travel, RC_ACTION_CANCEL_RELOCATED);
     assert(run_object_interaction(travel, 11797, 3230, 3383, 0, 0)
            == 1);
@@ -734,9 +768,7 @@ int main(void) {
     assert(travel->player.plane == 1);
 
     assert(has_object_at(56230, 3204, 3207, 0));
-    travel->player.x = 3206;
-    travel->player.y = 3208;
-    travel->player.plane = 0;
+    place_player_at(travel, 3206, 3208, 0);
     rc_player_cancel_action(travel, RC_ACTION_CANCEL_RELOCATED);
     assert(run_object_interaction(travel, 56230, 3204, 3207, 0, 0)
            == 1);
@@ -748,9 +780,7 @@ int main(void) {
 
     assert(has_object_at(24427, 1758, 4959, 0));
     assert(!has_object_at(24427, 1758, 4959, 1));
-    travel->player.x = 1759;
-    travel->player.y = 4958;
-    travel->player.plane = 0;
+    place_player_at(travel, 1759, 4958, 0);
     rc_player_cancel_action(travel, RC_ACTION_CANCEL_RELOCATED);
     assert(run_object_interaction(travel, 24427, 1758, 4959, 0, 0)
            == 1);
@@ -764,9 +794,7 @@ int main(void) {
     const int cooking_anchor_x = 3144;
     const int cooking_anchor_y = 3447;
     assert(has_object_at(cooking_stair, cooking_anchor_x, cooking_anchor_y, 1));
-    travel->player.x = 3144;
-    travel->player.y = 3449;
-    travel->player.plane = 1;
+    place_player_at(travel, 3144, 3449, 1);
     assert(run_object_interaction(travel, cooking_stair,
                                         cooking_anchor_x, cooking_anchor_y,
                                         1, 1) == 1);
@@ -775,9 +803,7 @@ int main(void) {
     assert(travel->player.x == 3144);
     assert(travel->player.y == 3446);
     assert(travel->player.plane == 2);
-    travel->player.x = 3144;
-    travel->player.y = 3449;
-    travel->player.plane = 1;
+    place_player_at(travel, 3144, 3449, 1);
     rc_player_cancel_action(travel, RC_ACTION_CANCEL_RELOCATED);
     assert(run_object_interaction(travel, cooking_stair,
                                         cooking_anchor_x, cooking_anchor_y,

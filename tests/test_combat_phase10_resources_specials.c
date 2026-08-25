@@ -182,6 +182,8 @@ static RcWorld *make_world(void) {
     RcWorld *world = rc_test_world_create_with_defs(
         &cfg, "phase10", g_rc_spell_count > 0);
     assert(world != NULL);
+    rc_test_open_mapsquare(world, world->player.x, world->player.y,
+                           world->player.plane);
     for (int i = 0; i < SKILL_COUNT; i++) {
         world->player.skills.base_level[i] = 99;
         world->player.skills.boosted_level[i] = 99;

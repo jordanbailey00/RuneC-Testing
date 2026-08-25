@@ -228,6 +228,7 @@ int main(void) {
     cfg.monster_mechanics_path = NULL;
     RcWorld *w = rc_world_create_config(&cfg);
     assert(w != NULL);
+    rc_test_open_mapsquare(w, w->player.x, w->player.y, w->player.plane);
     RcNpc pre_hook_turoth = { .def_id = 0, .current_hp = 60 };
     reset_player_gear(&w->player);
     w->player.combat_style = COMBAT_MELEE_SLASH;

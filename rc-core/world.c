@@ -60,6 +60,10 @@ static void init_player_defaults(RcPlayer *p) {
     p->plane = 0;
     p->prev_x = p->x;
     p->prev_y = p->y;
+    p->route_entity_width = 1;
+    p->route_entity_height = 1;
+    p->route_status = RC_ROUTE_FAILED;
+    p->movement_result = RC_MOVEMENT_NONE;
     p->attack_target = -1;
     p->attack_target_def_id = -1;
     p->interact_type = RC_INTERACT_NONE;
