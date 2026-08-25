@@ -4,6 +4,7 @@
 #include "items.h"
 #include "npc.h"
 #include "spells.h"
+#include "runtime_test_fixture.h"
 
 #include <assert.h>
 #include <string.h>
@@ -172,10 +173,14 @@ static int add_npc_def(void) {
 }
 
 static RcWorld *make_world(void) {
+    memset(g_npc_defs, 0, sizeof(g_npc_defs));
+    g_npc_def_count = 0;
+    add_npc_def();
     RcWorldConfig cfg = rc_preset_base_only();
     cfg.subsystems = RC_SUB_COMBAT;
     cfg.seed = 123;
-    RcWorld *world = rc_world_create_config(&cfg);
+    RcWorld *world = rc_test_world_create_with_defs(
+        &cfg, "phase10", g_rc_spell_count > 0);
     assert(world != NULL);
     for (int i = 0; i < SKILL_COUNT; i++) {
         world->player.skills.base_level[i] = 99;
@@ -185,8 +190,7 @@ static RcWorld *make_world(void) {
 }
 
 static int spawn_target(RcWorld *world, int dx) {
-    int def_idx = add_npc_def();
-    int idx = rc_npc_spawn(world, def_idx, world->player.x + dx,
+    int idx = rc_npc_spawn(world, 0, world->player.x + dx,
                            world->player.y, world->player.plane);
     assert(idx >= 0);
     return idx;
@@ -322,9 +326,10 @@ static void test_special_spends_energy_and_recovers(void) {
         (RcInvSlot){TEST_SPECIAL_WEAPON, 1};
     rc_recalc_bonuses(&world->player);
     int npc_idx = spawn_target(world, 1);
-    assert(rc_combat_start_player_vs_npc(world, 0, world->npcs[npc_idx].uid));
     rc_combat_toggle_special(world);
+    rc_world_tick(world);
     assert(world->player.combat.special_pending);
+    assert(rc_combat_start_player_vs_npc(world, 0, world->npcs[npc_idx].uid));
     rc_combat_tick_player(world);
     assert(world->player.special_energy == 5000);
     assert(!world->player.combat.special_pending);
@@ -352,9 +357,11 @@ static void test_content_specials_spend_energy_and_modify_damage(void) {
         (RcInvSlot){OSRS_ARMADYL_GODSWORD, 1};
     rc_recalc_bonuses(&world->player);
     rc_refresh_player_combat_style(&world->player);
+    rc_combat_toggle_special(world);
+    rc_world_tick(world);
+    assert(world->player.combat.special_pending);
     assert(rc_combat_start_player_vs_npc(world, 0,
                                          world->npcs[npc_idx].uid));
-    rc_combat_toggle_special(world);
     rc_combat_tick_player(world);
     assert(world->player.special_energy == 5000);
     assert(!world->player.combat.special_pending);
@@ -374,9 +381,11 @@ static void test_content_specials_spend_energy_and_modify_damage(void) {
     rc_recalc_bonuses(&world->player);
     rc_refresh_player_combat_style(&world->player);
     assert(world->player.combat_style == COMBAT_RANGED);
+    rc_combat_toggle_special(world);
+    rc_world_tick(world);
+    assert(world->player.combat.special_pending);
     assert(rc_combat_start_player_vs_npc(world, 0,
                                          world->npcs[npc_idx].uid));
-    rc_combat_toggle_special(world);
     rc_combat_tick_player(world);
     assert(world->player.special_energy == 4500);
     assert(world->player.equipment[EQUIP_AMMO].quantity == 1);

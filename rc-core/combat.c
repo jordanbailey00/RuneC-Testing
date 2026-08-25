@@ -7,11 +7,13 @@
 #include "items.h"
 #include "npc.h"
 #include "pathfinding.h"
+#include "player_command.h"
 #include "prayer.h"
 #include "rng.h"
 #include "skills.h"
 #include "spells.h"
 #include "types.h"
+#include <limits.h>
 #include <stddef.h>   // NULL
 #include <string.h>
 
@@ -796,12 +798,7 @@ void rc_award_player_combat_xp(RcWorld *world, int damage) {
 }
 
 static RcNpc *find_npc_by_uid(struct RcWorld *world, int uid) {
-    for (int i = 0; i < world->npc_count; i++) {
-        if (world->npcs[i].active && world->npcs[i].uid == uid) {
-            return &world->npcs[i];
-        }
-    }
-    return NULL;
+    return rc_npc_resolve(world, uid);
 }
 
 static RcCombatActorRef combat_actor_none(void) {
@@ -958,18 +955,6 @@ static RcCombatTargetRef combat_target_from_player(const RcPlayer *player) {
     return target;
 }
 
-static void combat_copy_pending_hits(RcCombatActorState *state,
-                                     const RcPendingHit *hits, int count) {
-    if (!state) return;
-    if (count < 0) count = 0;
-    if (count > RC_MAX_PENDING_HITS) count = RC_MAX_PENDING_HITS;
-    if (count > 0) {
-        memcpy(state->pending_hits, hits,
-               (size_t)count * sizeof(state->pending_hits[0]));
-    }
-    state->num_pending_hits = count;
-}
-
 void rc_combat_init_player_state(RcPlayer *player) {
     if (!player) return;
     bool special_pending = player->combat.special_pending;
@@ -1003,8 +988,6 @@ static void sync_player_combat_state_from_legacy(RcWorld *world,
     uint32_t flags = 0;
     player->combat.active = false;
     player->combat.target = combat_target_none();
-    player->combat.attack_cooldown = player->attack_timer;
-    player->combat.action_delay = player->attack_timer;
     player->combat.attack_range = 0;
     player->combat.distance_to_target = -1;
     player->combat.line_of_sight = 0;
@@ -1019,8 +1002,6 @@ static void sync_player_combat_state_from_legacy(RcWorld *world,
     player->combat.special_energy = player->special_energy;
     player->combat.special_pending = special_pending;
     player->combat.auto_retaliate = player->auto_retaliate;
-    combat_copy_pending_hits(&player->combat, player->pending_hits,
-                             player->num_pending_hits);
     if (player->attack_target >= 0) {
         RcNpc *target = find_npc_by_uid(world, player->attack_target);
         if (!target || !rc_npc_def_for_npc(target)) {
@@ -1056,8 +1037,6 @@ static void sync_npc_combat_state_from_legacy(RcWorld *world, RcNpc *npc) {
     uint32_t flags = 0;
     npc->combat.active = false;
     npc->combat.target = combat_target_none();
-    npc->combat.attack_cooldown = npc->attack_timer;
-    npc->combat.action_delay = npc->attack_timer;
     npc->combat.attack_range = 0;
     npc->combat.distance_to_target = -1;
     npc->combat.line_of_sight = 0;
@@ -1068,8 +1047,6 @@ static void sync_npc_combat_state_from_legacy(RcWorld *world, RcNpc *npc) {
     npc->combat.in_multi_combat = world->multi_combat;
     npc->combat.last_hit_timer = npc->last_hit_timer;
     npc->combat.attack_count = npc->attack_count;
-    combat_copy_pending_hits(&npc->combat, npc->pending_hits,
-                             npc->num_pending_hits);
     if (npc->target_uid >= 0) {
         if (npc->target_uid != 0) {
             flags |= RC_COMBAT_STATE_INVALID_TARGET;
@@ -1138,6 +1115,7 @@ int rc_combat_start_player_vs_npc(struct RcWorld *world, int player_uid,
     face_npc_to_player(npc, player);
     sync_player_combat_state_from_legacy(world, player);
     sync_npc_combat_state_from_legacy(world, npc);
+    rc_player_action_refresh(world);
     return 1;
 }
 
@@ -1185,14 +1163,6 @@ void rc_combat_stop_actor(struct RcWorld *world, RcCombatActorRef actor,
     }
 }
 
-void rc_combat_tick_world(struct RcWorld *world) {
-    if (!world) return;
-    for (int i = 0; i < world->npc_count; i++) {
-        if (world->npcs[i].active) rc_combat_tick_npc(world, &world->npcs[i]);
-    }
-    rc_combat_tick_player(world);
-}
-
 void rc_combat_set_player_style(struct RcWorld *world, int style_idx) {
     if (!world) return;
     rc_player_set_attack_style(world, style_idx);
@@ -1200,12 +1170,26 @@ void rc_combat_set_player_style(struct RcWorld *world, int style_idx) {
 }
 
 void rc_combat_toggle_auto_retaliate(struct RcWorld *world) {
+    if (rc_player_command_should_queue(world)) {
+        int args[8] = {0};
+        (void)rc_player_command_submit(
+            world, RC_PLAYER_COMMAND_TOGGLE_AUTO_RETALIATE,
+            RC_ACTION_CATEGORY_SOFT, args, 0);
+        return;
+    }
     if (!world) return;
     world->player.auto_retaliate = !world->player.auto_retaliate;
     sync_player_combat_state_from_legacy(world, &world->player);
 }
 
 void rc_combat_toggle_special(struct RcWorld *world) {
+    if (rc_player_command_should_queue(world)) {
+        int args[8] = {0};
+        (void)rc_player_command_submit(world,
+                                      RC_PLAYER_COMMAND_TOGGLE_SPECIAL,
+                                      RC_ACTION_CATEGORY_SOFT, args, 0);
+        return;
+    }
     if (!world) return;
     world->player.combat.special_pending =
         !world->player.combat.special_pending;
@@ -1246,7 +1230,7 @@ int rc_combat_get_player_view(const struct RcWorld *world,
     out->special_energy = p->combat.special_energy;
     out->attack_range = p->combat.attack_range;
     out->attack_speed = rc_player_attack_speed(p);
-    out->attack_cooldown = p->combat.attack_cooldown;
+    out->attack_cooldown = p->attack_timer;
     out->target = p->combat.target;
     out->player_hp_current = p->combat.hp_current;
     out->player_hp_max = p->combat.hp_max;
@@ -1448,7 +1432,7 @@ static void combat_tick_player_legacy(struct RcWorld *world) {
     p->attack_timer = rc_player_attack_speed(p);
     target->target_uid = 0;
     RcPayloadPlayerAttack payload = {
-        .target_npc_id = (uint16_t)target->uid,
+        .target_npc_id = (uint32_t)target->uid,
         .style = (uint8_t)p->combat_style,
     };
     rc_event_fire(world, RC_EVT_PLAYER_ATTACK, &payload);
@@ -1542,7 +1526,7 @@ static void combat_tick_npc_legacy(struct RcWorld *world, RcNpc *npc) {
     int speed = d->attack_speed;
     npc->attack_timer = content_modify_npc_attack_speed(world, npc, speed);
     RcPayloadNpcAttack payload = {
-        .npc_id = (uint16_t)npc->uid,
+        .npc_id = (uint32_t)npc->uid,
         .style = (uint8_t)style,
     };
     rc_event_fire(world, RC_EVT_NPC_ATTACK, &payload);
@@ -1567,7 +1551,7 @@ void rc_resolve_player_hits(struct RcWorld *world) {
     for (int i = 0; i < p->num_pending_hits; i++) {
         RcPendingHit *h = &p->pending_hits[i];
         if (!h->active) continue;
-        if (h->ticks_remaining > 0) { h->ticks_remaining--; continue; }
+        if (world->tick < h->apply_tick) continue;
 
         int scale = rc_encounter_player_protection_scale_pct(
             world, h->source_idx, h->attack_style,
@@ -1608,8 +1592,8 @@ void rc_resolve_player_hits(struct RcWorld *world) {
 
             RcPayloadPlayerDamaged payload = {
                 .source_npc_id = h->source_idx >= 0
-                                 ? (uint16_t)h->source_idx
-                                 : 0xFFFFu,   // 0xFFFF = self / non-NPC source
+                                 ? (uint32_t)h->source_idx
+                                 : UINT32_MAX,
                 .damage = (uint16_t)(dmg & 0xFFFF),
                 .current_hp = p->current_hp - total * 10 > 0
                             ? (uint16_t)((p->current_hp - total * 10)
@@ -1636,6 +1620,57 @@ void rc_resolve_player_hits(struct RcWorld *world) {
         if (p->current_hp < 0) p->current_hp = 0;
     }
     sync_player_combat_state_from_legacy(world, p);
+}
+
+static void apply_status_deadline(RcWorld *world, int ticks,
+                                  RcTick *start_tick,
+                                  RcTick *expire_tick) {
+    if (!world || ticks <= 0 || !start_tick || !expire_tick) return;
+    RcTick start = world->tick + (world->in_tick ? 1u : 0u);
+    RcTick duration = (RcTick)ticks;
+    RcTick expire = UINT64_MAX - start < duration
+                  ? UINT64_MAX : start + duration;
+    if (*expire_tick <= world->tick || start < *start_tick)
+        *start_tick = start;
+    if (expire > *expire_tick) *expire_tick = expire;
+}
+
+static int status_ticks_remaining(RcTick now, RcTick start_tick,
+                                  RcTick expire_tick) {
+    if (expire_tick <= now || expire_tick <= start_tick) return 0;
+    RcTick remaining = expire_tick - (now < start_tick ? start_tick : now);
+    return remaining > INT_MAX ? INT_MAX : (int)remaining;
+}
+
+void rc_player_apply_freeze(RcWorld *world, int ticks) {
+    if (!world) return;
+    apply_status_deadline(world, ticks,
+                          &world->player.freeze_start_tick,
+                          &world->player.freeze_expire_tick);
+}
+
+void rc_player_apply_teleblock(RcWorld *world, int ticks) {
+    if (!world) return;
+    apply_status_deadline(world, ticks,
+                          &world->player.teleblock_start_tick,
+                          &world->player.teleblock_expire_tick);
+}
+
+int rc_player_freeze_ticks_remaining(const RcWorld *world) {
+    return world ? status_ticks_remaining(
+        world->tick, world->player.freeze_start_tick,
+        world->player.freeze_expire_tick) : 0;
+}
+
+int rc_player_teleblock_ticks_remaining(const RcWorld *world) {
+    return world ? status_ticks_remaining(
+        world->tick, world->player.teleblock_start_tick,
+        world->player.teleblock_expire_tick) : 0;
+}
+
+bool rc_player_is_frozen(const RcWorld *world) {
+    return world && world->tick >= world->player.freeze_start_tick
+        && world->tick < world->player.freeze_expire_tick;
 }
 
 void rc_combat_tick_player_status(struct RcWorld *world) {
@@ -1668,8 +1703,6 @@ void rc_combat_tick_player_status(struct RcWorld *world) {
     if (p->disease_tick_counter > 0) {
         p->disease_tick_counter--;
     }
-    if (p->teleblock_timer > 0) p->teleblock_timer--;
-    if (p->freeze_timer > 0) p->freeze_timer--;
     if (p->special_energy < RC_SPECIAL_ENERGY_MAX) {
         p->special_recover_counter++;
         if (p->special_recover_counter >= RC_SPECIAL_RECOVER_TICKS) {

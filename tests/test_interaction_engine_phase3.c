@@ -1,5 +1,6 @@
 #include "../rc-core/api.h"
 #include "../rc-core/npc.h"
+#include "runtime_test_fixture.h"
 
 #include <assert.h>
 #include <string.h>
@@ -22,40 +23,41 @@ static RcInteractionHandlerResult exact_talk_handler(
     return rc_interaction_result_complete();
 }
 
-static int spawn_option_npc(RcWorld *world, int cache_id) {
-    int def_idx = g_npc_def_count++;
-    assert(def_idx < RC_MAX_NPC_DEFS);
-    memset(&g_npc_defs[def_idx], 0, sizeof(g_npc_defs[def_idx]));
-    g_npc_defs[def_idx].id = cache_id;
-    strcpy(g_npc_defs[def_idx].name, "Phase 3 Dummy");
-    g_npc_defs[def_idx].size = 1;
-    g_npc_defs[def_idx].combat_level = 2;
-    g_npc_defs[def_idx].hitpoints = 10;
-    g_npc_defs[def_idx].wander_range = 0;
-    strcpy(g_npc_defs[def_idx].options[0], "Talk-to");
-    strcpy(g_npc_defs[def_idx].options[1], "Attack");
-    strcpy(g_npc_defs[def_idx].options[2], "Trade");
+static RcWorld *phase3_world(int cache_id) {
+    g_npc_def_count = 1;
+    memset(&g_npc_defs[0], 0, sizeof(g_npc_defs[0]));
+    g_npc_defs[0].id = cache_id;
+    strcpy(g_npc_defs[0].name, "Phase 3 Dummy");
+    g_npc_defs[0].size = 1;
+    g_npc_defs[0].combat_level = 2;
+    g_npc_defs[0].hitpoints = 10;
+    strcpy(g_npc_defs[0].options[0], "Talk-to");
+    strcpy(g_npc_defs[0].options[1], "Attack");
+    strcpy(g_npc_defs[0].options[2], "Trade");
+    RcWorldConfig cfg = rc_preset_base_only();
+    cfg.subsystems = RC_SUB_COMBAT;
+    RcWorld *world = rc_test_world_create_with_defs(&cfg, "interaction3", 0);
+    assert(world);
+    return world;
+}
 
-    int npc_idx = rc_npc_spawn(world, def_idx, world->player.x + 1,
+static int spawn_option_npc(RcWorld *world) {
+    int npc_idx = rc_npc_spawn(world, 0, world->player.x + 1,
                                world->player.y, world->player.plane);
     assert(npc_idx >= 0);
     return npc_idx;
 }
 
 static void tick_until_inactive(RcWorld *world, int max_ticks) {
-    for (int i = 0; i < max_ticks && rc_interaction_is_active(&world->player);
-            i++) {
+    for (int i = 0; i < max_ticks; i++) {
         rc_world_tick(world);
+        if (!rc_interaction_is_active(&world->player)) break;
     }
 }
 
 static void test_exact_handler_overrides_default_npc_option(void) {
-    RcWorldConfig cfg = rc_preset_base_only();
-    cfg.subsystems = RC_SUB_COMBAT;
-    RcWorld *world = rc_world_create_config(&cfg);
-    assert(world);
-
-    int npc_idx = spawn_option_npc(world, 901300);
+    RcWorld *world = phase3_world(901300);
+    int npc_idx = spawn_option_npc(world);
     int uid = world->npcs[npc_idx].uid;
     HandlerCtx state = {0};
 
@@ -80,12 +82,8 @@ static void test_exact_handler_overrides_default_npc_option(void) {
 }
 
 static void test_default_attack_and_noncombat_handlers_preserve_behavior(void) {
-    RcWorldConfig cfg = rc_preset_base_only();
-    cfg.subsystems = RC_SUB_COMBAT;
-    RcWorld *world = rc_world_create_config(&cfg);
-    assert(world);
-
-    int npc_idx = spawn_option_npc(world, 901301);
+    RcWorld *world = phase3_world(901301);
+    int npc_idx = spawn_option_npc(world);
     int uid = world->npcs[npc_idx].uid;
 
     rc_player_interact_npc(world, uid, 2);
@@ -127,12 +125,8 @@ static void test_default_attack_and_noncombat_handlers_preserve_behavior(void) {
 }
 
 static void test_missing_option_and_no_handler_are_deterministic(void) {
-    RcWorldConfig cfg = rc_preset_base_only();
-    cfg.subsystems = RC_SUB_COMBAT;
-    RcWorld *world = rc_world_create_config(&cfg);
-    assert(world);
-
-    int npc_idx = spawn_option_npc(world, 901302);
+    RcWorld *world = phase3_world(901302);
+    int npc_idx = spawn_option_npc(world);
     int uid = world->npcs[npc_idx].uid;
 
     rc_player_interact_npc(world, uid, 4);

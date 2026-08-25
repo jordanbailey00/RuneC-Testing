@@ -35,33 +35,19 @@ static const char *rc_mode_name(RcBenchMode mode) {
     return mode == RC_BENCH_COMBAT ? "combat" : "idle";
 }
 
-static int rc_add_bench_npc_def(void) {
-    memset(g_npc_defs, 0, sizeof(g_npc_defs));
-    g_npc_def_count = 0;
-
-    int idx = g_npc_def_count++;
-    RcNpcDef *def = &g_npc_defs[idx];
-    memset(def, 0, sizeof(*def));
-    def->id = 980001;
-    strcpy(def->name, "SPS benchmark target");
-    def->size = 1;
-    def->combat_level = 50;
-    def->hitpoints = 1000000000;
-    def->stats[0] = 99;
-    def->stats[1] = 1;
-    def->stats[2] = 99;
-    def->stats[3] = 1000000000;
-    def->stats[4] = 99;
-    def->stats[5] = 99;
-    def->max_hit = 0;
-    def->attack_speed = 4;
-    def->attack_types = 0x04;
-    def->respawn_ticks = 8;
-    strcpy(def->options[1], "Attack");
-    return idx;
+static int rc_find_bench_npc_def(void) {
+    int count = 0;
+    const RcNpcDef *defs = rc_npc_defs_all(&count);
+    for (int i = 0; defs && i < count; i++) {
+        if (defs[i].hitpoints > 0 && defs[i].max_hit == 0
+                && strcmp(defs[i].options[1], "Attack") == 0) {
+            return i;
+        }
+    }
+    return -1;
 }
 
-static RcWorld *rc_make_world(int seed, RcBenchMode mode, int npc_def_idx) {
+static RcWorld *rc_make_world(int seed, RcBenchMode mode, int *npc_def_idx) {
     RcWorldConfig cfg = rc_preset_base_only();
     cfg.subsystems = mode == RC_BENCH_COMBAT ? RC_SUB_COMBAT : 0;
     cfg.seed = (uint64_t)seed;
@@ -75,8 +61,8 @@ static RcWorld *rc_make_world(int seed, RcBenchMode mode, int npc_def_idx) {
     world->player.x = 3200;
     world->player.y = 3200;
     world->player.plane = 0;
-    world->player.current_hp = 990;
-    world->player.max_hp = 990;
+    world->player.current_hp = 1000000000;
+    world->player.max_hp = 1000000000;
     world->player.auto_retaliate = true;
     for (int i = 0; i < SKILL_COUNT; i++) {
         world->player.skills.base_level[i] = 99;
@@ -85,11 +71,14 @@ static RcWorld *rc_make_world(int seed, RcBenchMode mode, int npc_def_idx) {
     rc_player_set_attack_style(world, 0);
 
     if (mode == RC_BENCH_COMBAT) {
-        int npc_idx = rc_npc_spawn(world, npc_def_idx, 3201, 3200, 0);
+        if (*npc_def_idx < 0) *npc_def_idx = rc_find_bench_npc_def();
+        int npc_idx = rc_npc_spawn(world, *npc_def_idx, 3201, 3200, 0);
         if (npc_idx < 0) {
             fprintf(stderr, "failed to spawn benchmark npc\n");
             exit(1);
         }
+        world->npcs[npc_idx].current_hp = 1000000000;
+        world->npcs[npc_idx].spawn_hp = 1000000000;
         if (!rc_combat_start_player_vs_npc(world, 0, world->npcs[npc_idx].uid)) {
             fprintf(stderr, "failed to start benchmark combat\n");
             exit(1);
@@ -137,7 +126,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    int npc_def_idx = rc_add_bench_npc_def();
+    int npc_def_idx = -1;
     RcWorld **worlds = calloc((size_t)envs, sizeof(*worlds));
     if (!worlds) {
         fprintf(stderr, "failed to allocate %d benchmark worlds\n", envs);
@@ -145,7 +134,7 @@ int main(int argc, char **argv) {
     }
 
     for (int i = 0; i < envs; i++) {
-        worlds[i] = rc_make_world(9001 + i, mode, npc_def_idx);
+        worlds[i] = rc_make_world(9001 + i, mode, &npc_def_idx);
     }
 
     for (int step = 0; step < warmup; step++) {

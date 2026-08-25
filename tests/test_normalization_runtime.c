@@ -12,6 +12,19 @@ static void write_u32(FILE *f, uint32_t value) {
     assert(fwrite(&value, sizeof(value), 1, f) == 1);
 }
 
+static void write_u16(FILE *f, uint16_t value) {
+    assert(fwrite(&value, sizeof(value), 1, f) == 1);
+}
+
+static void write_item_row(FILE *f, uint32_t item_id) {
+    write_u32(f, item_id);
+    write_u32(f, item_id);
+    write_u32(f, UINT32_MAX);
+    write_u32(f, UINT32_MAX);
+    write_u32(f, 1);
+    write_u16(f, 0);
+}
+
 int main(void) {
     FILE *f = fopen("/tmp/runec_bad_normalization.bin", "wb");
     assert(f != NULL);
@@ -27,16 +40,40 @@ int main(void) {
     fputc(0, f);
     fclose(f);
 
+    f = fopen("/tmp/runec_trailing_normalization.bin", "wb");
+    assert(f != NULL);
+    write_u32(f, 0x4D524F4Eu);
+    write_u32(f, 1);
+    write_u32(f, 0);
+    write_u32(f, 0);
+    write_u32(f, 0);
+    fputc(0, f);
+    fclose(f);
+
+    f = fopen("/tmp/runec_duplicate_normalization.bin", "wb");
+    assert(f != NULL);
+    write_u32(f, 0x4D524F4Eu);
+    write_u32(f, 1);
+    write_u32(f, 2);
+    write_u32(f, 0);
+    write_u32(f, 0);
+    write_item_row(f, 1);
+    write_item_row(f, 1);
+    fclose(f);
+
     assert(rc_load_normalization(NULL) == -1);
     assert(rc_load_normalization("/tmp/runec_bad_normalization.bin") == -1);
     assert(rc_load_normalization("/tmp/runec_short_normalization.bin") == -1);
+    assert(rc_load_normalization("/tmp/runec_trailing_normalization.bin") == -1);
+    assert(rc_load_normalization("/tmp/runec_duplicate_normalization.bin") == -1);
     assert(rc_load_normalization("missing_normalization.bin") == -1);
 
     int loaded = rc_load_normalization(NORM_PATH);
     assert(loaded > 30000);
     assert(g_rc_item_normalization_count > 30000);
     assert(g_rc_npc_normalization_count > 10000);
-    assert(g_rc_source_normalization_count > 5000);
+    // Exact duplicate source rows are collapsed at load time.
+    assert(g_rc_source_normalization_count > 4000);
 
     assert(rc_normalize_item_id(4151) == 4151);
     assert(rc_normalize_item_id(4152) == 4151);

@@ -5,6 +5,7 @@
 #include "events.h"
 #include "interaction.h"
 #include "player_actions.h"
+#include "player_command.h"
 #include "spawn_index.h"
 #include <limits.h>
 #include <stdint.h>
@@ -312,14 +313,7 @@ const RcItemDef *rc_item_def_get(int item_id) {
     int count = defs == g_item_defs ? g_item_def_count
                                     : g_active_item_def_count;
     const RcItemDef *def = &defs[item_id];
-    if (defs != g_item_defs && g_item_defs[item_id].loaded
-            && memcmp(def, &g_item_defs[item_id], sizeof(*def)) != 0) {
-        return &g_item_defs[item_id];
-    }
     if (def->loaded) return def;
-    if (defs != g_item_defs && g_item_defs[item_id].loaded) {
-        return &g_item_defs[item_id];
-    }
     if (item_id < count && def->id == item_id) return def;
     return NULL;
 }
@@ -481,6 +475,13 @@ static int add_return_item(RcPlayer *player, RcInvSlot item) {
 }
 
 int rc_player_move_inventory_item(RcWorld *world, int from_slot, int to_slot) {
+    if (rc_player_command_should_queue(world)) {
+        int args[8] = {from_slot, to_slot, 0, 0, 0, 0, 0, 0};
+        return rc_player_command_submit(world,
+                                        RC_PLAYER_COMMAND_MOVE_INVENTORY,
+                                        RC_ACTION_CATEGORY_BACKGROUND,
+                                        args, 0);
+    }
     if (!inventory_enabled(world) || !valid_inv_slot(from_slot)
             || !valid_inv_slot(to_slot) || from_slot == to_slot) {
         return 0;
@@ -505,6 +506,13 @@ int rc_player_move_inventory_item(RcWorld *world, int from_slot, int to_slot) {
 }
 
 void rc_player_equip(RcWorld *world, int inv_slot) {
+    if (rc_player_command_should_queue(world)) {
+        int args[8] = {inv_slot, 0, 0, 0, 0, 0, 0, 0};
+        (void)rc_player_command_submit(world, RC_PLAYER_COMMAND_EQUIP,
+                                      RC_ACTION_CATEGORY_BACKGROUND,
+                                      args, 0);
+        return;
+    }
     if (!inventory_enabled(world) || !equipment_enabled(world)
             || !rc_player_action_allowed(world->enabled,
                                          RC_PLAYER_ACTION_EQUIP)
@@ -560,6 +568,13 @@ void rc_player_equip(RcWorld *world, int inv_slot) {
 }
 
 void rc_player_unequip(RcWorld *world, int equip_slot) {
+    if (rc_player_command_should_queue(world)) {
+        int args[8] = {equip_slot, 0, 0, 0, 0, 0, 0, 0};
+        (void)rc_player_command_submit(world, RC_PLAYER_COMMAND_UNEQUIP,
+                                      RC_ACTION_CATEGORY_BACKGROUND,
+                                      args, 0);
+        return;
+    }
     if (!inventory_enabled(world) || !equipment_enabled(world)
             || !rc_player_action_allowed(world->enabled,
                                          RC_PLAYER_ACTION_UNEQUIP)
@@ -677,6 +692,7 @@ static int spawn_ground_item_one(RcWorld *world, int item_id, int quantity,
             if (static_spawn) g->spawn_quantity += quantity;
             g->despawn_timer = despawn_timer;
             g->reveal_timer = reveal_timer;
+            g->timer_start_tick = world->tick + (world->in_tick ? 1u : 0u);
             g->version++;
             return i;
         }
@@ -702,6 +718,7 @@ static int spawn_ground_item_one(RcWorld *world, int item_id, int quantity,
         .original_owner_uid = original_owner_uid,
         .reveal_timer = reveal_timer,
         .despawn_timer = despawn_timer,
+        .timer_start_tick = world->tick + (world->in_tick ? 1u : 0u),
         .visibility = (uint8_t)visibility,
         .static_spawn = static_spawn ? true : false,
         .active = true,
@@ -854,6 +871,12 @@ int rc_load_ground_item_spawns_rect_stats(RcWorld *world, const char *path,
 }
 
 void rc_player_drop_item(RcWorld *world, int inv_slot) {
+    if (rc_player_command_should_queue(world)) {
+        int args[8] = {inv_slot, 0, 0, 0, 0, 0, 0, 0};
+        (void)rc_player_command_submit(world, RC_PLAYER_COMMAND_DROP_ITEM,
+                                      RC_ACTION_CATEGORY_NORMAL, args, 0);
+        return;
+    }
     if (!inventory_enabled(world) || !loot_enabled(world)
             || !rc_player_action_allowed(world->enabled,
                                          RC_PLAYER_ACTION_DROP_ITEM)
@@ -932,6 +955,12 @@ int rc_player_take_ground_item(RcWorld *world, int ground_item_idx,
 }
 
 void rc_player_pickup_item(RcWorld *world, int ground_item_idx) {
+    if (rc_player_command_should_queue(world)) {
+        int args[8] = {ground_item_idx, 0, 0, 0, 0, 0, 0, 0};
+        (void)rc_player_command_submit(world, RC_PLAYER_COMMAND_PICKUP_ITEM,
+                                      RC_ACTION_CATEGORY_NORMAL, args, 0);
+        return;
+    }
     if (!inventory_enabled(world) || !loot_enabled(world)
             || !rc_player_action_allowed(world->enabled,
                                          RC_PLAYER_ACTION_PICKUP_ITEM)

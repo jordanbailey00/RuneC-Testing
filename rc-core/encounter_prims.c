@@ -36,12 +36,7 @@
 // ---- Helpers -----------------------------------------------------------
 
 static RcNpc *find_boss(RcWorld *world, RcNpcId uid) {
-    for (int i = 0; i < world->npc_count; i++) {
-        if (world->npcs[i].active && world->npcs[i].uid == uid) {
-            return &world->npcs[i];
-        }
-    }
-    return NULL;
+    return rc_npc_resolve(world, uid);
 }
 
 static int find_npc_def_idx_by_name(const char *name) {
@@ -264,7 +259,7 @@ static void prim_spawn_npcs(RcWorld *world, int enc_idx,
         rc_npc_spawn(world, def_idx,
                      x, y, boss->plane);
     }
-    if (p->freeze_player_ticks) world->player.freeze_timer = p->freeze_player_ticks;
+    rc_player_apply_freeze(world, p->freeze_player_ticks);
 }
 
 static void prim_spawn_npcs_once(RcWorld *world, int enc_idx,
@@ -822,9 +817,7 @@ static void prim_stun_then_fire_walls(RcWorld *world, int enc_idx,
     RcActiveEncounter *a = &world->encounter.active[enc_idx];
     RcNpc *boss = find_boss(world, a->boss_id);
     if (!boss) return;
-    if (p->stun_ticks > world->player.freeze_timer) {
-        world->player.freeze_timer = p->stun_ticks;
-    }
+    rc_player_apply_freeze(world, p->stun_ticks);
     int duration = p->duration_ticks ? p->duration_ticks : 8;
     static const int dx[4] = { -1, 1, 0, 0 };
     static const int dy[4] = { 0, 0, -1, 1 };
@@ -859,9 +852,7 @@ static void prim_moving_dot_line(RcWorld *world, int enc_idx,
                                 COMBAT_MAGIC, p->dot_per_tick,
                                 "Moving DOT Line", "");
     }
-    if (p->slows_player && world->player.freeze_timer < 2) {
-        world->player.freeze_timer = 2;
-    }
+    if (p->slows_player) rc_player_apply_freeze(world, 2);
 }
 
 static void prim_object_interaction_ticked(RcWorld *world, int enc_idx,
@@ -916,9 +907,7 @@ static void prim_spawn_paired_husks(RcWorld *world, int enc_idx,
     RcActiveEncounter *a = &world->encounter.active[enc_idx];
     RcNpc *boss = find_boss(world, a->boss_id);
     if (!boss) return;
-    if (p->immobilizes_target && world->player.freeze_timer < 8) {
-        world->player.freeze_timer = 8;
-    }
+    if (p->immobilizes_target) rc_player_apply_freeze(world, 8);
     uint8_t styles[2] = {
         p->blue_style ? p->blue_style : COMBAT_MAGIC,
         p->green_style ? p->green_style : COMBAT_RANGED,
@@ -1027,9 +1016,7 @@ static void prim_aoe_tile_debuff(RcWorld *world, int enc_idx,
     if (!boss) return;
     if (p->run_disabled) world->player.running = false;
     if (p->attack_speed_penalty) world->player.attack_timer += p->attack_speed_penalty;
-    if (p->debuff_ticks > world->player.freeze_timer) {
-        world->player.freeze_timer = p->debuff_ticks;
-    }
+    rc_player_apply_freeze(world, p->debuff_ticks);
     rc_encounter_add_effect(world, RC_ENC_EFFECT_LAVA_POOL,
                             world->player.x, world->player.y,
                             world->player.plane,
@@ -1647,9 +1634,7 @@ static void prim_spawn_web_tiles(RcWorld *world, int enc_idx,
                                 8, (uint16_t)boss->uid, COMBAT_NONE, 0,
                                 "Web Tile", "");
     }
-    if (p->immobilizes_player_ticks > world->player.freeze_timer) {
-        world->player.freeze_timer = p->immobilizes_player_ticks;
-    }
+    rc_player_apply_freeze(world, p->immobilizes_player_ticks);
 }
 
 static void prim_spawn_colored_nylocas(RcWorld *world, int enc_idx,

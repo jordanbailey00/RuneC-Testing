@@ -1,5 +1,6 @@
 #include "../rc-core/api.h"
 #include "../rc-core/npc.h"
+#include "runtime_test_fixture.h"
 
 #include <assert.h>
 #include <string.h>
@@ -20,42 +21,44 @@ static RcInteractionHandlerResult phase5_complete_handler(
     return rc_interaction_result_complete();
 }
 
-static int spawn_phase5_npc(RcWorld *world, int cache_id, int dx,
-                            int add_attack) {
-    int def_idx = g_npc_def_count++;
-    assert(def_idx < RC_MAX_NPC_DEFS);
-    memset(&g_npc_defs[def_idx], 0, sizeof(g_npc_defs[def_idx]));
-    g_npc_defs[def_idx].id = cache_id;
-    strcpy(g_npc_defs[def_idx].name, "Phase 5 Dummy");
-    g_npc_defs[def_idx].size = 1;
-    g_npc_defs[def_idx].combat_level = 2;
-    g_npc_defs[def_idx].hitpoints = 10;
-    g_npc_defs[def_idx].stats[3] = 10;
-    g_npc_defs[def_idx].max_hit = 1;
-    g_npc_defs[def_idx].attack_speed = 4;
-    g_npc_defs[def_idx].attack_types = 0x04;
-    strcpy(g_npc_defs[def_idx].options[0], "Talk-to");
-    if (add_attack) strcpy(g_npc_defs[def_idx].options[1], "Attack");
-    int npc_idx = rc_npc_spawn(world, def_idx, world->player.x + dx,
+static RcWorld *phase5_world(int cache_id, int add_attack) {
+    g_npc_def_count = 1;
+    memset(&g_npc_defs[0], 0, sizeof(g_npc_defs[0]));
+    g_npc_defs[0].id = cache_id;
+    strcpy(g_npc_defs[0].name, "Phase 5 Dummy");
+    g_npc_defs[0].size = 1;
+    g_npc_defs[0].combat_level = 2;
+    g_npc_defs[0].hitpoints = 10;
+    g_npc_defs[0].stats[3] = 10;
+    g_npc_defs[0].max_hit = 1;
+    g_npc_defs[0].attack_speed = 4;
+    g_npc_defs[0].attack_types = 0x04;
+    strcpy(g_npc_defs[0].options[0], "Talk-to");
+    if (add_attack) strcpy(g_npc_defs[0].options[1], "Attack");
+    RcWorldConfig cfg = rc_preset_base_only();
+    cfg.subsystems = RC_SUB_COMBAT;
+    RcWorld *world = rc_test_world_create_with_defs(&cfg, "interaction5", 0);
+    assert(world);
+    return world;
+}
+
+static int spawn_phase5_npc(RcWorld *world, int dx) {
+    int npc_idx = rc_npc_spawn(world, 0, world->player.x + dx,
                                world->player.y, world->player.plane);
     assert(npc_idx >= 0);
     return npc_idx;
 }
 
 static void tick_until_inactive(RcWorld *world, int max_ticks) {
-    for (int i = 0; i < max_ticks && rc_interaction_is_active(&world->player);
-            i++) {
+    for (int i = 0; i < max_ticks; i++) {
         rc_world_tick(world);
+        if (!rc_interaction_is_active(&world->player)) break;
     }
 }
 
 static void test_attack_group_handler_beats_generic_option_handler(void) {
-    RcWorldConfig cfg = rc_preset_base_only();
-    cfg.subsystems = RC_SUB_COMBAT;
-    RcWorld *world = rc_world_create_config(&cfg);
-    assert(world);
-
-    int npc_idx = spawn_phase5_npc(world, 901500, 1, 1);
+    RcWorld *world = phase5_world(901500, 1);
+    int npc_idx = spawn_phase5_npc(world, 1);
     int uid = world->npcs[npc_idx].uid;
     Phase5HandlerCtx generic = {0};
     Phase5HandlerCtx attack = {0};
@@ -82,12 +85,8 @@ static void test_attack_group_handler_beats_generic_option_handler(void) {
 }
 
 static void test_default_attack_handler_starts_and_refreshes_combat(void) {
-    RcWorldConfig cfg = rc_preset_base_only();
-    cfg.subsystems = RC_SUB_COMBAT;
-    RcWorld *world = rc_world_create_config(&cfg);
-    assert(world);
-
-    int npc_idx = spawn_phase5_npc(world, 901501, 1, 1);
+    RcWorld *world = phase5_world(901501, 1);
+    int npc_idx = spawn_phase5_npc(world, 1);
     int uid = world->npcs[npc_idx].uid;
 
     rc_player_interact_npc(world, uid, 1);
@@ -119,17 +118,16 @@ static void test_default_attack_handler_starts_and_refreshes_combat(void) {
 }
 
 static void test_attack_requires_data_backed_attack_option(void) {
-    RcWorldConfig cfg = rc_preset_base_only();
-    cfg.subsystems = RC_SUB_COMBAT;
-    RcWorld *world = rc_world_create_config(&cfg);
-    assert(world);
-
-    int npc_idx = spawn_phase5_npc(world, 901502, 1, 0);
+    RcWorld *world = phase5_world(901502, 0);
+    int npc_idx = spawn_phase5_npc(world, 1);
     int uid = world->npcs[npc_idx].uid;
 
-    rc_player_attack_npc(world, uid);
+    assert(rc_player_attack_npc(world, uid));
     assert(!rc_interaction_is_active(&world->player));
     assert(world->player.attack_target == -1);
+    rc_world_tick(world);
+    assert(rc_player_last_command_result(world, NULL)
+           == RC_COMMAND_RESULT_REJECTED_INVALID);
 
     RcInteractionTarget target = {0};
     target.kind = RC_INTERACTION_NPC;

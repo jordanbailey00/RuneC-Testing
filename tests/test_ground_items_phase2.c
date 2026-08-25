@@ -117,7 +117,8 @@ static void test_default_take_handler_reports_full_inventory(void) {
     fill_inventory(&world->player);
 
     rc_player_pickup_item(world, 0);
-    assert(rc_interaction_is_active(&world->player));
+    assert(!rc_interaction_is_active(&world->player));
+    rc_world_tick(world);
     tick_until_inactive(world, 16);
     assert(!rc_interaction_is_active(&world->player));
     assert(world->ground_items[0].active);

@@ -1,4 +1,5 @@
 #include "skills.h"
+#include "player_command.h"
 #include "config.h"
 #include "io.h"
 #include "items.h"
@@ -688,7 +689,23 @@ int rc_recipe_player_can_make(const RcWorld *world, const RcRecipe *recipe) {
     return 1;
 }
 
+int rc_recipe_index_of(const RcRecipe *recipe) {
+    if (!recipe || !g_active_recipes || recipe < g_active_recipes
+            || recipe >= g_active_recipes + g_active_recipe_count) {
+        return -1;
+    }
+    return (int)(recipe - g_active_recipes);
+}
+
 int rc_player_apply_recipe(RcWorld *world, const RcRecipe *recipe) {
+    if (rc_player_command_should_queue(world)) {
+        int idx = rc_recipe_index_of(recipe);
+        if (idx < 0) return 0;
+        int args[8] = {idx, 0, 0, 0, 0, 0, 0, 0};
+        return rc_player_command_submit(world,
+                                        RC_PLAYER_COMMAND_APPLY_RECIPE,
+                                        RC_ACTION_CATEGORY_NORMAL, args, 0);
+    }
     if (!rc_recipe_player_can_make(world, recipe)) return 0;
     for (int i = 0; i < recipe->input_count; i++) {
         inv_remove_qty(world->player.inventory, (int)recipe->inputs[i].item_id,
@@ -718,7 +735,7 @@ int rc_player_apply_recipe(RcWorld *world, const RcRecipe *recipe) {
         }
     }
     world->player.skill_action = (int)recipe->output_item;
-    world->player.skill_timer = recipe->ticks;
+    world->player.skill_ready_tick = world->tick + recipe->ticks;
     return 1;
 }
 

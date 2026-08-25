@@ -1,6 +1,7 @@
 #include "../rc-core/api.h"
 #include "../rc-core/combat.h"
 #include "../rc-core/npc.h"
+#include "runtime_test_fixture.h"
 
 #include <assert.h>
 #include <string.h>
@@ -20,50 +21,51 @@ static RcInteractionHandlerResult phase2_complete_handler(
     return rc_interaction_result_complete();
 }
 
-static int spawn_phase2_npc(RcWorld *world, int cache_id, int dx) {
-    int def_idx = g_npc_def_count++;
-    assert(def_idx < RC_MAX_NPC_DEFS);
-    memset(&g_npc_defs[def_idx], 0, sizeof(g_npc_defs[def_idx]));
-    g_npc_defs[def_idx].id = cache_id;
-    strcpy(g_npc_defs[def_idx].name, "Phase 2 Combat Handoff Guard");
-    g_npc_defs[def_idx].size = 1;
-    g_npc_defs[def_idx].combat_level = 2;
-    g_npc_defs[def_idx].hitpoints = 20;
-    g_npc_defs[def_idx].stats[0] = 1;
-    g_npc_defs[def_idx].stats[1] = 1;
-    g_npc_defs[def_idx].stats[2] = 1;
-    g_npc_defs[def_idx].stats[3] = 20;
-    g_npc_defs[def_idx].max_hit = 1;
-    g_npc_defs[def_idx].attack_speed = 4;
-    g_npc_defs[def_idx].attack_types = 0x04;
-    strcpy(g_npc_defs[def_idx].options[0], "Talk-to");
-    strcpy(g_npc_defs[def_idx].options[1], "Attack");
-    int idx = rc_npc_spawn(world, def_idx, world->player.x + dx,
+static int spawn_phase2_npc(RcWorld *world, int dx) {
+    int idx = rc_npc_spawn(world, 0, world->player.x + dx,
                            world->player.y, world->player.plane);
     assert(idx >= 0);
     world->npcs[idx].wander_timer = 999999;
     return idx;
 }
 
-static RcWorld *phase2_world(void) {
+static RcWorld *phase2_world(int cache_id) {
+    memset(g_npc_defs, 0, sizeof(g_npc_defs));
+    g_npc_def_count = 1;
+    g_npc_defs[0].id = cache_id;
+    strcpy(g_npc_defs[0].name, "Phase 2 Combat Handoff Guard");
+    g_npc_defs[0].size = 1;
+    g_npc_defs[0].combat_level = 2;
+    g_npc_defs[0].hitpoints = 20;
+    g_npc_defs[0].stats[0] = 1;
+    g_npc_defs[0].stats[1] = 1;
+    g_npc_defs[0].stats[2] = 1;
+    g_npc_defs[0].stats[3] = 20;
+    g_npc_defs[0].max_hit = 1;
+    g_npc_defs[0].attack_speed = 4;
+    g_npc_defs[0].attack_types = 0x04;
+    strcpy(g_npc_defs[0].options[0], "Talk-to");
+    strcpy(g_npc_defs[0].options[1], "Attack");
     RcWorldConfig cfg = rc_preset_base_only();
     cfg.subsystems = RC_SUB_COMBAT;
     cfg.seed = 12345;
-    RcWorld *world = rc_world_create_config(&cfg);
+    RcWorld *world = rc_test_world_create_with_defs(&cfg, "phase2", 0);
     assert(world);
     return world;
 }
 
 static void tick_until_inactive(RcWorld *world, int max_ticks) {
-    for (int i = 0; i < max_ticks && rc_interaction_is_active(&world->player);
+    for (int i = 0; i < max_ticks
+            && (rc_player_pending_command_count(world) > 0
+                || rc_interaction_is_active(&world->player));
             i++) {
         rc_world_tick(world);
     }
 }
 
 static void test_default_attack_handler_enters_new_combat_state(void) {
-    RcWorld *world = phase2_world();
-    int npc_idx = spawn_phase2_npc(world, 920200, 1);
+    RcWorld *world = phase2_world(920200);
+    int npc_idx = spawn_phase2_npc(world, 1);
     RcNpc *npc = &world->npcs[npc_idx];
 
     rc_player_interact_npc(world, npc->uid, 1);
@@ -88,8 +90,8 @@ static void test_default_attack_handler_enters_new_combat_state(void) {
 }
 
 static void test_custom_attack_handler_preserves_content_priority(void) {
-    RcWorld *world = phase2_world();
-    int npc_idx = spawn_phase2_npc(world, 920201, 1);
+    RcWorld *world = phase2_world(920201);
+    int npc_idx = spawn_phase2_npc(world, 1);
     RcNpc *npc = &world->npcs[npc_idx];
     Phase2HandlerCtx state = {0};
 
@@ -113,8 +115,8 @@ static void test_custom_attack_handler_preserves_content_priority(void) {
 }
 
 static void test_noncombat_actions_cancel_combat_through_new_state(void) {
-    RcWorld *world = phase2_world();
-    int npc_idx = spawn_phase2_npc(world, 920202, 1);
+    RcWorld *world = phase2_world(920202);
+    int npc_idx = spawn_phase2_npc(world, 1);
     RcNpc *npc = &world->npcs[npc_idx];
 
     rc_player_interact_npc(world, npc->uid, 1);
@@ -123,12 +125,13 @@ static void test_noncombat_actions_cancel_combat_through_new_state(void) {
     assert(rc_combat_actor_has_target(&npc->combat));
 
     rc_player_interact_npc(world, npc->uid, 0);
+    assert(world->player.attack_target == npc->uid);
+    tick_until_inactive(world, 8);
     assert(world->player.attack_target == -1);
     assert(world->player.attack_target_def_id == -1);
     assert(!rc_combat_actor_has_target(&world->player.combat));
     assert(npc->target_uid == -1);
     assert(!rc_combat_actor_has_target(&npc->combat));
-    tick_until_inactive(world, 8);
     assert(world->player.interact_type == RC_INTERACT_NPC);
     assert(world->player.interact_target == npc->uid);
     assert(world->player.interact_option == 0);
@@ -137,6 +140,8 @@ static void test_noncombat_actions_cancel_combat_through_new_state(void) {
     tick_until_inactive(world, 8);
     assert(rc_combat_actor_has_target(&world->player.combat));
     rc_player_walk_to(world, world->player.x + 1, world->player.y);
+    assert(world->player.attack_target == npc->uid);
+    rc_world_tick(world);
     assert(world->player.attack_target == -1);
     assert(!rc_combat_actor_has_target(&world->player.combat));
     assert(npc->target_uid == -1);

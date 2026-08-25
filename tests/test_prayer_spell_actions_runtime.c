@@ -66,6 +66,7 @@ int main(void) {
     RcWorld *denied = rc_world_create_config(&denied_cfg);
     assert(denied != NULL);
     rc_player_select_spell(denied, fire_blast);
+    rc_world_tick(denied);
     assert(denied->player.selected_spell == -1);
     rc_world_destroy(denied);
 
@@ -79,27 +80,33 @@ int main(void) {
     assert(world != NULL);
 
     rc_player_set_prayer(world, RC_PRAYER_RIGOUR);
+    rc_world_tick(world);
     assert(world->player.active_prayers == 0);
 
     world->player.current_prayer_points = 1000;
     rc_player_set_prayer(world, RC_PRAYER_RIGOUR);
+    rc_world_tick(world);
     assert(world->player.active_prayers == 0);
 
     world->player.skills.base_level[SKILL_PRAYER] = 99;
     rc_player_set_prayer(world, RC_PRAYER_THICK_SKIN);
     rc_player_set_prayer(world, RC_PRAYER_DEADEYE);
+    rc_world_tick(world);
     assert(world->player.active_prayers & PRAYER_THICK_SKIN);
     assert(world->player.active_prayers & PRAYER_DEADEYE);
     assert(rc_prayer_defence_bonus(world->player.active_prayers) == 10);
 
     rc_player_set_prayer(world, RC_PRAYER_RIGOUR);
+    rc_world_tick(world);
     assert(world->player.active_prayers == PRAYER_RIGOUR);
     for (int i = 0; i < 3; i++) rc_prayer_drain_tick(&world->player);
     assert(world->player.current_prayer_points == 990);
     rc_player_set_prayer(world, RC_PRAYER_RIGOUR);
+    rc_world_tick(world);
     assert(world->player.active_prayers == 0);
 
     rc_player_select_spell(world, fire_blast);
+    rc_world_tick(world);
     assert(world->player.selected_spell == fire_blast);
     rc_refresh_player_combat_style(&world->player);
     assert(world->player.combat_style != COMBAT_MAGIC);

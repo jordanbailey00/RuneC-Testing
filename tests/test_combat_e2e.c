@@ -8,11 +8,15 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "../rc-core/api.h"
 #include "../rc-core/config.h"
 #include "../rc-core/combat.h"
 #include "../rc-core/npc.h"
+#include "runtime_test_fixture.h"
+
+static char g_npc_fixture_path[256];
 
 // Build a synthetic NPC def at index 0 without loading npc_defs.bin.
 static void install_stub_npc_def(void) {
@@ -34,9 +38,10 @@ static void install_stub_npc_def(void) {
 }
 
 static int run_fight(uint32_t seed, int *out_ticks_to_kill) {
-    RcWorldConfig cfg = rc_preset_combat_only();
+    RcWorldConfig cfg = rc_preset_base_only();
+    cfg.subsystems = RC_SUB_COMBAT;
     cfg.seed = seed;
-    cfg.encounters_path = NULL;
+    cfg.npc_defs_path = g_npc_fixture_path;
     RcWorld *w = rc_world_create_config(&cfg);
     assert(w != NULL);
 
@@ -71,6 +76,10 @@ static int run_fight(uint32_t seed, int *out_ticks_to_kill) {
 
 int main(void) {
     install_stub_npc_def();
+    snprintf(g_npc_fixture_path, sizeof(g_npc_fixture_path),
+             "/tmp/runec_combat_e2e_npcs_%ld.bin", (long)getpid());
+    assert(rc_test_write_npc_defs(g_npc_fixture_path, g_npc_defs,
+                                  g_npc_def_count));
 
     int ticks1, ticks2, ticks3;
     run_fight(42, &ticks1);
@@ -92,5 +101,6 @@ int main(void) {
     printf("test_combat_e2e: fight in %d/%d/%d ticks "
            "(same-seed matches, different-seed diverges).\n",
            ticks1, ticks2, ticks3);
+    assert(unlink(g_npc_fixture_path) == 0);
     return 0;
 }

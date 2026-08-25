@@ -15,6 +15,7 @@ typedef struct {
 
 static RcWorldConfig phase7_skilling_config(void) {
     RcWorldConfig cfg = rc_preset_skilling_only();
+    cfg.subsystems &= ~RC_SUB_REGIONS;
     cfg.collision_tiles_path = NULL;
     cfg.area_flags_path = NULL;
     cfg.object_placements_path = NULL;
@@ -33,27 +34,10 @@ static RcInteractionHandlerResult phase7_complete_handler(
     return rc_interaction_result_complete();
 }
 
-static void install_object(int obj_id, const char *action, int width,
-                           int length, uint32_t flags) {
-    memset(&g_rc_object_defs[obj_id], 0, sizeof(g_rc_object_defs[obj_id]));
-    g_rc_object_defs[obj_id].id = obj_id;
-    strcpy(g_rc_object_defs[obj_id].name, "Phase 7 Object");
-    strcpy(g_rc_object_defs[obj_id].actions[0], action);
-    g_rc_object_defs[obj_id].width = width;
-    g_rc_object_defs[obj_id].length = length;
-    g_rc_object_defs[obj_id].loaded = 1;
-
-    memset(&g_rc_object_behaviors[obj_id], 0,
-           sizeof(g_rc_object_behaviors[obj_id]));
-    g_rc_object_behaviors[obj_id].action_mask = 1u << 0;
-    g_rc_object_behaviors[obj_id].flags = flags;
-    g_rc_object_behaviors[obj_id].loaded = 1;
-}
-
 static void tick_until_inactive(RcWorld *world, int max_ticks) {
-    for (int i = 0; i < max_ticks && rc_interaction_is_active(&world->player);
-            i++) {
+    for (int i = 0; i < max_ticks; i++) {
         rc_world_tick(world);
+        if (!rc_interaction_is_active(&world->player)) break;
     }
 }
 
@@ -62,10 +46,9 @@ static void test_object_routes_faces_and_dispatches_custom_handler(void) {
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world);
 
-    int obj_id = 41000;
+    int obj_id = 11780;
     int obj_x = world->player.x + 4;
     int obj_y = world->player.y;
-    install_object(obj_id, "Open", 1, 1, 0);
 
     Phase7HandlerCtx state = {0};
     RcInteractionDispatchKey key = rc_interaction_dispatch_key_any();
@@ -77,7 +60,7 @@ static void test_object_routes_faces_and_dispatches_custom_handler(void) {
 
     assert(rc_player_interact_object_at(world, obj_id, obj_x, obj_y,
                                         world->player.plane, 0));
-    assert(rc_interaction_is_active(&world->player));
+    assert(!rc_interaction_is_active(&world->player));
     assert(world->player.interact_type == RC_INTERACT_NONE);
 
     rc_world_tick(world);
@@ -100,10 +83,9 @@ static void test_default_object_handler_runs_after_arrival(void) {
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world);
 
-    int obj_id = 41001;
+    int obj_id = 11780;
     int obj_x = world->player.x + 1;
     int obj_y = world->player.y;
-    install_object(obj_id, "Open", 1, 1, 0);
 
     assert(rc_player_interact_object_at(world, obj_id, obj_x, obj_y,
                                         world->player.plane, 0));
@@ -138,7 +120,7 @@ static void test_ground_item_routes_faces_and_takes(void) {
     };
 
     rc_player_pickup_item(world, 0);
-    assert(rc_interaction_is_active(&world->player));
+    assert(!rc_interaction_is_active(&world->player));
     assert(rc_inv_find(world->player.inventory, 995) < 0);
     tick_until_inactive(world, 16);
     assert(!world->ground_items[0].active);
@@ -161,13 +143,15 @@ static void test_stale_ground_item_cancels_cleanly(void) {
     world->ground_items[0] = (RcGroundItem){
         .item_id = 995,
         .quantity = 100,
-        .x = world->player.x + 2,
+        .x = world->player.x + 4,
         .y = world->player.y,
         .plane = world->player.plane,
         .despawn_timer = 300,
         .active = true,
     };
     rc_player_pickup_item(world, 0);
+    assert(!rc_interaction_is_active(&world->player));
+    rc_world_tick(world);
     assert(rc_interaction_is_active(&world->player));
     world->ground_items[0].active = false;
     rc_world_tick(world);

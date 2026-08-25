@@ -1,40 +1,39 @@
 #include "../rc-core/api.h"
 #include "../rc-core/combat.h"
 #include "../rc-core/npc.h"
+#include "runtime_test_fixture.h"
 
 #include <assert.h>
 #include <string.h>
 
-static int spawn_phase3_npc(RcWorld *world, int cache_id, int dx, int dy,
-                            int size, int attack_types) {
-    int def_idx = g_npc_def_count++;
-    assert(def_idx < RC_MAX_NPC_DEFS);
-    memset(&g_npc_defs[def_idx], 0, sizeof(g_npc_defs[def_idx]));
-    g_npc_defs[def_idx].id = cache_id;
-    strcpy(g_npc_defs[def_idx].name, "Phase 3 Movement Guard");
-    g_npc_defs[def_idx].size = size;
-    g_npc_defs[def_idx].combat_level = 2;
-    g_npc_defs[def_idx].hitpoints = 200;
-    g_npc_defs[def_idx].stats[0] = 99;
-    g_npc_defs[def_idx].stats[1] = 1;
-    g_npc_defs[def_idx].stats[2] = 99;
-    g_npc_defs[def_idx].stats[3] = 200;
-    g_npc_defs[def_idx].max_hit = 1;
-    g_npc_defs[def_idx].attack_speed = 4;
-    g_npc_defs[def_idx].attack_types = attack_types;
-    strcpy(g_npc_defs[def_idx].options[1], "Attack");
-    int idx = rc_npc_spawn(world, def_idx, world->player.x + dx,
+static int spawn_phase3_npc(RcWorld *world, int dx, int dy) {
+    int idx = rc_npc_spawn(world, 0, world->player.x + dx,
                            world->player.y + dy, world->player.plane);
     assert(idx >= 0);
     world->npcs[idx].wander_timer = 999999;
     return idx;
 }
 
-static RcWorld *phase3_world(void) {
+static RcWorld *phase3_world(int cache_id, int size, int attack_types) {
+    memset(g_npc_defs, 0, sizeof(g_npc_defs));
+    g_npc_def_count = 1;
+    g_npc_defs[0].id = cache_id;
+    strcpy(g_npc_defs[0].name, "Phase 3 Movement Guard");
+    g_npc_defs[0].size = size;
+    g_npc_defs[0].combat_level = 2;
+    g_npc_defs[0].hitpoints = 200;
+    g_npc_defs[0].stats[0] = 99;
+    g_npc_defs[0].stats[1] = 1;
+    g_npc_defs[0].stats[2] = 99;
+    g_npc_defs[0].stats[3] = 200;
+    g_npc_defs[0].max_hit = 1;
+    g_npc_defs[0].attack_speed = 4;
+    g_npc_defs[0].attack_types = attack_types;
+    strcpy(g_npc_defs[0].options[1], "Attack");
     RcWorldConfig cfg = rc_preset_base_only();
     cfg.subsystems = RC_SUB_COMBAT;
     cfg.seed = 12345;
-    RcWorld *world = rc_world_create_config(&cfg);
+    RcWorld *world = rc_test_world_create_with_defs(&cfg, "phase3", 0);
     assert(world);
     for (int i = 0; i < SKILL_COUNT; i++) {
         world->player.skills.base_level[i] = 99;
@@ -47,8 +46,8 @@ static RcWorld *phase3_world(void) {
 }
 
 static void test_player_in_range_flag_and_facing_for_large_npc(void) {
-    RcWorld *world = phase3_world();
-    int npc_idx = spawn_phase3_npc(world, 930300, 1, 0, 3, 0x04);
+    RcWorld *world = phase3_world(930300, 3, 0x04);
+    int npc_idx = spawn_phase3_npc(world, 1, 0);
     RcNpc *npc = &world->npcs[npc_idx];
 
     assert(rc_combat_start_player_vs_npc(world, 0, npc->uid));
@@ -66,8 +65,8 @@ static void test_player_in_range_flag_and_facing_for_large_npc(void) {
 }
 
 static void test_player_routes_toward_valid_attack_tile_when_out_of_range(void) {
-    RcWorld *world = phase3_world();
-    int npc_idx = spawn_phase3_npc(world, 930301, 5, 0, 2, 0x04);
+    RcWorld *world = phase3_world(930301, 2, 0x04);
+    int npc_idx = spawn_phase3_npc(world, 5, 0);
     RcNpc *npc = &world->npcs[npc_idx];
 
     assert(rc_combat_start_player_vs_npc(world, 0, npc->uid));
@@ -91,8 +90,8 @@ static void test_player_routes_toward_valid_attack_tile_when_out_of_range(void) 
 }
 
 static void test_player_under_large_target_steps_out_before_attacking(void) {
-    RcWorld *world = phase3_world();
-    int npc_idx = spawn_phase3_npc(world, 930302, 0, 0, 3, 0x04);
+    RcWorld *world = phase3_world(930302, 3, 0x04);
+    int npc_idx = spawn_phase3_npc(world, 0, 0);
     RcNpc *npc = &world->npcs[npc_idx];
 
     assert(rc_combat_start_player_vs_npc(world, 0, npc->uid));
@@ -109,8 +108,8 @@ static void test_player_under_large_target_steps_out_before_attacking(void) {
 }
 
 static void test_npc_chases_faces_and_sets_range_state(void) {
-    RcWorld *world = phase3_world();
-    int npc_idx = spawn_phase3_npc(world, 930303, 4, 0, 1, 0x04);
+    RcWorld *world = phase3_world(930303, 1, 0x04);
+    int npc_idx = spawn_phase3_npc(world, 4, 0);
     RcNpc *npc = &world->npcs[npc_idx];
     int start_x = npc->x;
 

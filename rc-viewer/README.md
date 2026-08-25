@@ -43,6 +43,10 @@ presentation responsibilities.
   - visual scene selection/generation followed by backend active-area
     activation through `rc_world_activate_area`
   - world ticking for the current viewer path
+- `tick_pacing.c` / `tick_pacing.h`
+  - monotonic 600 ms world-tick accumulator
+  - bounded five-tick catch-up after a slow frame
+  - explicit dropped-overload telemetry and interpolation fraction
 - `streaming.c` / `streaming.h`
   - viewer streaming defaults and load telemetry counters
   - monotonic scene/chunk timing independent of the render implementation
@@ -149,6 +153,14 @@ presentation responsibilities.
   the local `data/` tree.
 - It links both `rc-core` and `rc-content`, but it should still behave
   as a presentation shell rather than a second gameplay engine.
+
+Ordinary viewer input calls the same queued player APIs used by headless
+consumers. Gameplay mutations become authoritative during the next core input
+phase, not during the render frame that observed the click or key. The viewer
+may interpolate presentation between ticks, but it does not own action
+replacement, cancellation, delayed effects, death, or cooldown progression.
+After a long frame it advances at most five core ticks, records any discarded
+overload ticks, and resumes from the remaining fractional accumulator.
 
 The viewer defaults preserve current behavior: scene radius 1, startup preload
 radius 0, CPU/GPU chunk caps 128, and a 16 MB per-frame upload budget. Existing

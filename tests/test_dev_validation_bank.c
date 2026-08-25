@@ -31,6 +31,7 @@ static void assert_validation_item_equips(RcWorld *world, const char *name,
     memset(world->player.equipment, 0xff, sizeof(world->player.equipment));
     assert(rc_inv_add(world->player.inventory, item_id, 1) == 0);
     rc_player_equip(world, 0);
+    rc_world_tick(world);
     assert(world->player.inventory[0].item_id == -1);
     assert(world->player.equipment[equip_slot].item_id == item_id);
 }
@@ -81,8 +82,8 @@ int main(void) {
     int stack_withdraw =
         runec_dev_validation_bank_withdraw_quantity(world, stack_slot);
     assert(stack_withdraw == stack_before - 1);
-    assert(rc_bank_withdraw_slot(world, stack_slot, stack_withdraw)
-           == stack_withdraw);
+    assert(rc_bank_withdraw_slot(world, stack_slot, stack_withdraw) == 1);
+    rc_world_tick(world);
     assert(world->player.bank[stack_slot].quantity == 1);
 
     memset(world->player.inventory, 0xff, sizeof(world->player.inventory));
@@ -91,8 +92,8 @@ int main(void) {
     int gear_withdraw =
         runec_dev_validation_bank_withdraw_quantity(world, gear_slot);
     assert(gear_withdraw == gear_before - 1);
-    assert(rc_bank_withdraw_slot(world, gear_slot, gear_withdraw)
-           == gear_withdraw);
+    assert(rc_bank_withdraw_slot(world, gear_slot, gear_withdraw) == 1);
+    rc_world_tick(world);
     assert(world->player.bank[gear_slot].quantity == 1);
 
     assert_validation_item_equips(world, "Oathplate helm", EQUIP_HEAD);

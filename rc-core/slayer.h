@@ -142,6 +142,6 @@ int rc_slayer_assign_task(struct RcWorld *world, const char *master_name,
 const char *rc_slayer_current_task_name(const struct RcWorld *world);
 const char *rc_slayer_current_boss_name(const struct RcWorld *world);
 const char *rc_slayer_current_location(const struct RcWorld *world);
-void rc_slayer_init(struct RcWorld *world);
+int rc_slayer_init(struct RcWorld *world);
 
 #endif

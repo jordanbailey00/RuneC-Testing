@@ -1,5 +1,9 @@
 #include "config.h"
 
+#include "types.h"
+
+#include <stdio.h>
+
 // Default asset paths. Relative to the process CWD which is expected
 // to be the project root; callers can override per-path by copying
 // a preset and mutating fields before passing to rc_world_create().
@@ -66,6 +70,74 @@ void rc_world_streaming_config_sanitize(RcWorldStreamingConfig *config) {
         config->max_cached_regions = (int)active_regions;
 }
 
+int rc_world_config_validate(const RcWorldConfig *config,
+                             char *message, size_t message_capacity) {
+    if (message && message_capacity > 0) message[0] = '\0';
+    if (!config) {
+        if (message && message_capacity > 0)
+            snprintf(message, message_capacity, "world config is null");
+        return 0;
+    }
+    uint32_t unknown = config->subsystems & ~RC_SUB_ALL;
+    if (unknown != 0) {
+        if (message && message_capacity > 0)
+            snprintf(message, message_capacity,
+                     "world config has unknown subsystem bits 0x%08x", unknown);
+        return 0;
+    }
+    if (config->npc_capacity <= 0 || config->npc_capacity > RC_MAX_NPCS) {
+        if (message && message_capacity > 0)
+            snprintf(message, message_capacity,
+                     "world NPC capacity %d is outside 1..%d",
+                     config->npc_capacity, RC_MAX_NPCS);
+        return 0;
+    }
+#define RC_REQUIRE_PATH(bits, field, label) \
+    do { \
+        if ((config->subsystems & (bits)) != 0 \
+                && (!config->field || !config->field[0])) { \
+            if (message && message_capacity > 0) \
+                snprintf(message, message_capacity, \
+                         "%s requires %s", label, #field); \
+            return 0; \
+        } \
+    } while (0)
+    RC_REQUIRE_PATH(RC_SUB_COMBAT | RC_SUB_DIALOGUE | RC_SUB_SHOPS
+                    | RC_SUB_SLAYER | RC_SUB_ENCOUNTER,
+                    npc_defs_path, "NPC-backed subsystem");
+    RC_REQUIRE_PATH(RC_SUB_EQUIPMENT | RC_SUB_INVENTORY | RC_SUB_CONSUMABLES
+                    | RC_SUB_SHOPS | RC_SUB_STORAGE,
+                    items_path, "item-backed subsystem");
+    RC_REQUIRE_PATH(RC_SUB_PRAYER, prayers_path, "prayer subsystem");
+    RC_REQUIRE_PATH(RC_SUB_QUESTS, quests_path, "quest subsystem");
+    RC_REQUIRE_PATH(RC_SUB_DIALOGUE, dialogue_path, "dialogue subsystem");
+    RC_REQUIRE_PATH(RC_SUB_SHOPS, shops_path, "shop subsystem");
+    RC_REQUIRE_PATH(RC_SUB_SLAYER, slayer_path, "slayer subsystem");
+    RC_REQUIRE_PATH(RC_SUB_TRAVERSAL, traversal_edges_path,
+                    "traversal subsystem");
+    if ((config->subsystems & RC_SUB_OBJECTS)
+            && ((!config->object_defs_path || !config->object_defs_path[0])
+                || (!config->object_behaviors_path
+                    || !config->object_behaviors_path[0]))) {
+        if (message && message_capacity > 0)
+            snprintf(message, message_capacity,
+                     "object subsystem requires definitions and behaviors");
+        return 0;
+    }
+    if ((config->subsystems & RC_SUB_REGIONS)
+            && ((!config->collision_tiles_path
+                 || !config->collision_tiles_path[0])
+                && (!config->area_flags_path
+                    || !config->area_flags_path[0]))) {
+        if (message && message_capacity > 0)
+            snprintf(message, message_capacity,
+                     "region subsystem requires collision or area data");
+        return 0;
+    }
+#undef RC_REQUIRE_PATH
+    return 1;
+}
+
 RcWorldConfig rc_preset_full_game(void) {
     return (RcWorldConfig){
         .subsystems = RC_SUB_COMBAT | RC_SUB_PRAYER | RC_SUB_EQUIPMENT
@@ -75,6 +147,7 @@ RcWorldConfig rc_preset_full_game(void) {
                     | RC_SUB_OBJECTS | RC_SUB_REGIONS | RC_SUB_STORAGE
                     | RC_SUB_TRAVERSAL,
         .seed            = 0,
+        .npc_capacity    = RC_WORLD_NPC_CAPACITY_FULL,
         .streaming       = rc_world_streaming_config_default(),
         .regions_dir     = DEFAULT_REGIONS,
         .npc_defs_path   = DEFAULT_NPC_DEFS,
@@ -121,6 +194,7 @@ RcWorldConfig rc_preset_combat_only(void) {
                     | RC_SUB_INVENTORY | RC_SUB_CONSUMABLES
                     | RC_SUB_ENCOUNTER,
         .seed            = 0,
+        .npc_capacity    = RC_WORLD_NPC_CAPACITY_SIM,
         .streaming       = rc_world_streaming_config_default(),
         .regions_dir     = DEFAULT_REGIONS,
         .npc_defs_path   = DEFAULT_NPC_DEFS,
@@ -146,6 +220,7 @@ RcWorldConfig rc_preset_skilling_only(void) {
         .subsystems = RC_SUB_SKILLS | RC_SUB_INVENTORY | RC_SUB_EQUIPMENT
                     | RC_SUB_OBJECTS | RC_SUB_REGIONS | RC_SUB_TRAVERSAL,
         .seed            = 0,
+        .npc_capacity    = RC_WORLD_NPC_CAPACITY_SIM,
         .streaming       = rc_world_streaming_config_default(),
         .regions_dir     = DEFAULT_REGIONS,
         .npc_defs_path   = DEFAULT_NPC_DEFS,
@@ -172,6 +247,7 @@ RcWorldConfig rc_preset_base_only(void) {
     return (RcWorldConfig){
         .subsystems      = 0,
         .seed            = 0,
+        .npc_capacity    = RC_WORLD_NPC_CAPACITY_BASE,
         .streaming       = rc_world_streaming_config_default(),
         .regions_dir     = DEFAULT_REGIONS,
         .npc_defs_path   = DEFAULT_NPC_DEFS,

@@ -45,6 +45,8 @@ void rc_traversal_reset_data_if_active(const RcTraversalData *data);
 const RcTraversalEdge *rc_traversal_edges_for(int kind, int source_id,
                                               int *count);
 const RcTraversalEdge *rc_traversal_edges_all(int *count);
+const RcTraversalEdge *rc_traversal_get(int idx);
+int rc_traversal_index_of(const RcTraversalEdge *edge);
 const RcTraversalEdge *rc_traversal_find(int kind, int source_id,
                                          int x, int y, int plane, int option);
 const RcTraversalEdge *rc_traversal_find_target(int kind, const char *target);

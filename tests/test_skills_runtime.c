@@ -84,17 +84,21 @@ int main(void) {
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world != NULL);
     assert(world->enabled & RC_SUB_SKILLS);
+    bronze = rc_recipe_find_output(2349);
+    assert(bronze != NULL);
     assert(rc_recipe_player_can_make(world, bronze) == 0);
     assert(rc_inv_add(world->player.inventory, 436, 1) >= 0);
     assert(rc_inv_add(world->player.inventory, 438, 1) >= 0);
     assert(rc_recipe_player_can_make(world, bronze) == 1);
     assert(rc_player_apply_recipe(world, bronze) == 1);
+    assert(rc_inv_find(world->player.inventory, 436) >= 0);
+    rc_world_tick(world);
     assert(rc_inv_find(world->player.inventory, 436) == -1);
     assert(rc_inv_find(world->player.inventory, 438) == -1);
     assert(rc_inv_find(world->player.inventory, 2349) >= 0);
     assert(world->player.skills.xp[SKILL_SMITHING] >= 6);
     assert(world->player.skill_action == 2349);
-    assert(world->player.skill_timer == bronze->ticks);
+    assert(world->player.skill_ready_tick == world->tick - 1 + bronze->ticks);
 
     const RcRecipe *helm = rc_recipe_find_output(1139);
     assert(helm != NULL);

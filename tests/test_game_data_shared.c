@@ -28,7 +28,8 @@ int main(void) {
     assert(stats->item_def_count > 30000);
     assert(stats->item_normalization_count > 30000);
     assert(stats->npc_normalization_count > 10000);
-    assert(stats->source_normalization_count > 5000);
+    // Exact duplicate source rows are collapsed at load time.
+    assert(stats->source_normalization_count > 4000);
     assert(stats->drop_table_count > 1000);
     assert(stats->prayer_count == 31);
     assert(stats->spell_count == 201);

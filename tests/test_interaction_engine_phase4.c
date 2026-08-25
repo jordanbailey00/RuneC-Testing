@@ -1,22 +1,29 @@
 #include "../rc-core/api.h"
 #include "../rc-core/npc.h"
+#include "runtime_test_fixture.h"
 
 #include <assert.h>
 #include <string.h>
 
-static int spawn_phase4_npc(RcWorld *world, int cache_id, int dx) {
-    int def_idx = g_npc_def_count++;
-    assert(def_idx < RC_MAX_NPC_DEFS);
-    memset(&g_npc_defs[def_idx], 0, sizeof(g_npc_defs[def_idx]));
-    g_npc_defs[def_idx].id = cache_id;
-    strcpy(g_npc_defs[def_idx].name, "Phase 4 Dummy");
-    g_npc_defs[def_idx].size = 1;
-    g_npc_defs[def_idx].combat_level = 2;
-    g_npc_defs[def_idx].hitpoints = 10;
-    g_npc_defs[def_idx].wander_range = 0;
-    strcpy(g_npc_defs[def_idx].options[0], "Talk-to");
-    strcpy(g_npc_defs[def_idx].options[1], "Attack");
-    int npc_idx = rc_npc_spawn(world, def_idx, world->player.x + dx,
+static RcWorld *phase4_world(int cache_id) {
+    g_npc_def_count = 1;
+    memset(&g_npc_defs[0], 0, sizeof(g_npc_defs[0]));
+    g_npc_defs[0].id = cache_id;
+    strcpy(g_npc_defs[0].name, "Phase 4 Dummy");
+    g_npc_defs[0].size = 1;
+    g_npc_defs[0].combat_level = 2;
+    g_npc_defs[0].hitpoints = 10;
+    strcpy(g_npc_defs[0].options[0], "Talk-to");
+    strcpy(g_npc_defs[0].options[1], "Attack");
+    RcWorldConfig cfg = rc_preset_base_only();
+    cfg.subsystems = RC_SUB_COMBAT;
+    RcWorld *world = rc_test_world_create_with_defs(&cfg, "interaction4", 0);
+    assert(world);
+    return world;
+}
+
+static int spawn_phase4_npc(RcWorld *world, int dx) {
+    int npc_idx = rc_npc_spawn(world, 0, world->player.x + dx,
                                world->player.y, world->player.plane);
     assert(npc_idx >= 0);
     return npc_idx;
@@ -30,17 +37,14 @@ static void tick_until_inactive(RcWorld *world, int max_ticks) {
 }
 
 static void test_route_face_and_dispatch_noncombat_npc(void) {
-    RcWorldConfig cfg = rc_preset_base_only();
-    cfg.subsystems = RC_SUB_COMBAT;
-    RcWorld *world = rc_world_create_config(&cfg);
-    assert(world);
-
-    int npc_idx = spawn_phase4_npc(world, 901400, 5);
+    RcWorld *world = phase4_world(901400);
+    int npc_idx = spawn_phase4_npc(world, 5);
     int uid = world->npcs[npc_idx].uid;
     int start_x = world->player.x;
 
     rc_player_interact_npc(world, uid, 0);
-    assert(rc_interaction_is_active(&world->player));
+    assert(!rc_interaction_is_active(&world->player));
+    assert(rc_player_pending_command_count(world) == 1);
     assert(world->player.interact_type == RC_INTERACT_NONE);
 
     rc_world_tick(world);
@@ -61,15 +65,11 @@ static void test_route_face_and_dispatch_noncombat_npc(void) {
 }
 
 static void test_attack_range_dispatch_and_stale_target_failure(void) {
-    RcWorldConfig cfg = rc_preset_base_only();
-    cfg.subsystems = RC_SUB_COMBAT;
-    RcWorld *world = rc_world_create_config(&cfg);
-    assert(world);
-
-    int npc_idx = spawn_phase4_npc(world, 901401, 1);
+    RcWorld *world = phase4_world(901401);
+    int npc_idx = spawn_phase4_npc(world, 1);
     int uid = world->npcs[npc_idx].uid;
     rc_player_interact_npc(world, uid, 1);
-    assert(rc_interaction_is_active(&world->player));
+    assert(!rc_interaction_is_active(&world->player));
     rc_world_tick(world);
     assert(!rc_interaction_is_active(&world->player));
     assert(world->player.attack_target == uid);

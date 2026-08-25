@@ -4,6 +4,7 @@
 #include "npc.h"
 #include "objects.h"
 #include "player_actions.h"
+#include "player_command.h"
 
 #include <string.h>
 
@@ -44,6 +45,12 @@ int rc_storage_kind_for_npc(const RcNpcDef *def, int option) {
 }
 
 int rc_player_open_storage_object(RcWorld *world, int obj_id, int option) {
+    if (rc_player_command_should_queue(world)) {
+        int args[8] = {obj_id, option, 0, 0, 0, 0, 0, 0};
+        return rc_player_command_submit(world,
+                                        RC_PLAYER_COMMAND_OPEN_STORAGE_OBJECT,
+                                        RC_ACTION_CATEGORY_NORMAL, args, 0);
+    }
     if (!world || !(world->enabled & RC_SUB_STORAGE)) return RC_STORAGE_NONE;
     if (!rc_player_action_allowed(world->enabled,
                                   RC_PLAYER_ACTION_INTERACT_OBJECT)) {
@@ -61,18 +68,18 @@ int rc_player_open_storage_object(RcWorld *world, int obj_id, int option) {
 }
 
 int rc_player_open_storage_npc(RcWorld *world, int npc_uid, int option) {
+    if (rc_player_command_should_queue(world)) {
+        int args[8] = {npc_uid, option, 0, 0, 0, 0, 0, 0};
+        return rc_player_command_submit(world,
+                                        RC_PLAYER_COMMAND_OPEN_STORAGE_NPC,
+                                        RC_ACTION_CATEGORY_NORMAL, args, 0);
+    }
     if (!world || !(world->enabled & RC_SUB_STORAGE)) return RC_STORAGE_NONE;
     if (!rc_player_action_allowed(world->enabled,
                                   RC_PLAYER_ACTION_INTERACT_NPC)) {
         return RC_STORAGE_NONE;
     }
-    RcNpc *npc = NULL;
-    for (int i = 0; i < world->npc_count; i++) {
-        if (world->npcs[i].active && world->npcs[i].uid == npc_uid) {
-            npc = &world->npcs[i];
-            break;
-        }
-    }
+    RcNpc *npc = rc_npc_resolve(world, npc_uid);
     const RcNpcDef *def = rc_npc_def_for_npc(npc);
     if (!npc || npc->is_dead || !def) {
         return RC_STORAGE_NONE;
@@ -89,6 +96,12 @@ int rc_player_open_storage_npc(RcWorld *world, int npc_uid, int option) {
 }
 
 int rc_player_close_storage(RcWorld *world) {
+    if (rc_player_command_should_queue(world)) {
+        int args[8] = {0};
+        return rc_player_command_submit(world,
+                                        RC_PLAYER_COMMAND_CLOSE_STORAGE,
+                                        RC_ACTION_CATEGORY_SOFT, args, 0);
+    }
     if (!world || !(world->enabled & RC_SUB_STORAGE)) return 0;
     world->player.storage_kind = RC_STORAGE_NONE;
     world->player.storage_target = -1;
@@ -172,6 +185,12 @@ int rc_bank_add_item_tab(RcWorld *world, int item_id, int quantity, int tab) {
 }
 
 int rc_bank_deposit_slot(RcWorld *world, int inv_slot, int quantity) {
+    if (rc_player_command_should_queue(world)) {
+        int args[8] = {inv_slot, quantity, 0, 0, 0, 0, 0, 0};
+        return rc_player_command_submit(world, RC_PLAYER_COMMAND_BANK_DEPOSIT,
+                                        RC_ACTION_CATEGORY_BACKGROUND,
+                                        args, 0);
+    }
     if (!world || !(world->enabled & RC_SUB_STORAGE)) return -1;
     if (world->player.storage_kind == RC_STORAGE_NONE
             || world->player.storage_kind == RC_STORAGE_COLLECTION) {
@@ -190,6 +209,13 @@ int rc_bank_deposit_slot(RcWorld *world, int inv_slot, int quantity) {
 }
 
 int rc_bank_withdraw_slot(RcWorld *world, int bank_slot, int quantity) {
+    if (rc_player_command_should_queue(world)) {
+        int args[8] = {bank_slot, quantity, 0, 0, 0, 0, 0, 0};
+        return rc_player_command_submit(world,
+                                        RC_PLAYER_COMMAND_BANK_WITHDRAW,
+                                        RC_ACTION_CATEGORY_BACKGROUND,
+                                        args, 0);
+    }
     if (!world || !(world->enabled & RC_SUB_STORAGE)) return -1;
     if (world->player.storage_kind != RC_STORAGE_BANK
             && world->player.storage_kind != RC_STORAGE_CONTAINER) {

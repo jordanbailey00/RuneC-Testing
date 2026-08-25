@@ -1,4 +1,5 @@
 #include "combat_formula.h"
+#include "player_command.h"
 
 #include "items.h"
 #include "npc.h"
@@ -408,6 +409,13 @@ void rc_refresh_player_combat_style(RcPlayer *p) {
 }
 
 void rc_player_set_attack_style(struct RcWorld *world, int style_idx) {
+    if (rc_player_command_should_queue(world)) {
+        int args[8] = {style_idx, 0, 0, 0, 0, 0, 0, 0};
+        (void)rc_player_command_submit(world,
+                                      RC_PLAYER_COMMAND_SET_ATTACK_STYLE,
+                                      RC_ACTION_CATEGORY_SOFT, args, 0);
+        return;
+    }
     if (!world) return;
     if (style_idx < 0) style_idx = 0;
     if (style_idx > 3) style_idx = 3;

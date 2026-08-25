@@ -12,9 +12,8 @@ static void whisperer_enter_shadow_realm(struct RcWorld *world, int enc_idx) {
     a->attack_count = 0;
     a->attack_special_toggle = 0;
     if (a->mechanic_progress == 0) a->mechanic_progress = 100;
-    for (int i = 0; i < world->npc_count; i++) {
-        RcNpc *npc = &world->npcs[i];
-        if (!npc->active || npc->uid != a->boss_id) continue;
+    RcNpc *npc = rc_npc_resolve(world, a->boss_id);
+    if (npc) {
         npc->current_hp += 140;
         const RcNpcDef *def = rc_npc_def_for_npc(npc);
         if (def) {
@@ -26,7 +25,6 @@ static void whisperer_enter_shadow_realm(struct RcWorld *world, int enc_idx) {
         world->player.x = npc->x + 6;
         world->player.y = npc->y;
         world->player.plane = npc->plane;
-        break;
     }
 }
 

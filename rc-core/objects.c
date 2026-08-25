@@ -954,14 +954,7 @@ const RcObjectDef *rc_object_def_get(int obj_id) {
     const RcObjectDef *defs = g_active_object_defs ? g_active_object_defs
                                                    : g_rc_object_defs;
     const RcObjectDef *def = &defs[obj_id];
-    if (defs != g_rc_object_defs && g_rc_object_defs[obj_id].loaded
-            && memcmp(def, &g_rc_object_defs[obj_id], sizeof(*def)) != 0) {
-        return &g_rc_object_defs[obj_id];
-    }
     if (def->loaded) return def;
-    if (defs != g_rc_object_defs && g_rc_object_defs[obj_id].loaded) {
-        return &g_rc_object_defs[obj_id];
-    }
     return NULL;
 }
 
@@ -994,17 +987,7 @@ const RcObjectBehavior *rc_object_behavior_get(int obj_id) {
                                       ? g_active_object_behaviors
                                       : g_rc_object_behaviors;
     const RcObjectBehavior *behavior = &behaviors[obj_id];
-    if (behaviors != g_rc_object_behaviors
-            && g_rc_object_behaviors[obj_id].loaded
-            && memcmp(behavior, &g_rc_object_behaviors[obj_id],
-                      sizeof(*behavior)) != 0) {
-        return &g_rc_object_behaviors[obj_id];
-    }
     if (behavior->loaded) return behavior;
-    if (behaviors != g_rc_object_behaviors
-            && g_rc_object_behaviors[obj_id].loaded) {
-        return &g_rc_object_behaviors[obj_id];
-    }
     return NULL;
 }
 

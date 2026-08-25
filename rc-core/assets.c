@@ -3,6 +3,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <stdint.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -25,6 +26,12 @@ typedef struct {
 } RcPackEntry;
 
 typedef struct {
+    RcPackEntry *entries;
+    size_t count;
+    size_t capacity;
+} RcPackCatalog;
+
+typedef struct {
     unsigned char *data;
     size_t size;
     size_t pos;
@@ -39,10 +46,12 @@ struct RcAssetReader {
 static RcPackEntry *g_entries;
 static size_t g_entry_count;
 static size_t g_entry_cap;
-static int g_initialized;
+static _Atomic int g_initialized;
+static atomic_flag g_asset_init_lock = ATOMIC_FLAG_INIT;
 static RcAssetBackend g_backend = RC_ASSET_BACKEND_AUTO;
 static char g_data_root[1024] = "data";
 static char g_pack_dir[1024] = "data/packs";
+static int g_pack_dir_explicit;
 
 typedef struct {
     uint32_t state[8];
@@ -244,39 +253,62 @@ static int rc_string_cmp(const void *a, const void *b) {
     return strcmp(*sa, *sb);
 }
 
-static void rc_entries_clear(void) {
-    for (size_t i = 0; i < g_entry_count; i++) {
-        free(g_entries[i].path);
-        free(g_entries[i].pack_path);
+static void rc_catalog_clear(RcPackCatalog *catalog) {
+    if (!catalog) return;
+    for (size_t i = 0; i < catalog->count; i++) {
+        free(catalog->entries[i].path);
+        free(catalog->entries[i].pack_path);
     }
-    free(g_entries);
+    free(catalog->entries);
+    memset(catalog, 0, sizeof(*catalog));
+}
+
+static void rc_entries_clear(void) {
+    RcPackCatalog catalog = {g_entries, g_entry_count, g_entry_cap};
+    rc_catalog_clear(&catalog);
     g_entries = NULL;
     g_entry_count = 0;
     g_entry_cap = 0;
 }
 
-void rc_asset_reset(void) {
-    rc_entries_clear();
-    g_initialized = 0;
-}
-
-void rc_asset_set_backend(RcAssetBackend backend) {
-    g_backend = backend;
-    rc_asset_reset();
-}
-
-void rc_asset_set_data_root(const char *root) {
-    if (root && root[0]) {
-        snprintf(g_data_root, sizeof(g_data_root), "%s", root);
-        if (strcmp(g_pack_dir, "data/packs") == 0)
-            snprintf(g_pack_dir, sizeof(g_pack_dir), "%s/packs", root);
+int rc_asset_reset(void) {
+    while (atomic_flag_test_and_set_explicit(&g_asset_init_lock,
+                                              memory_order_acquire)) {
     }
-    rc_asset_reset();
+    rc_entries_clear();
+    atomic_store_explicit(&g_initialized, 0, memory_order_release);
+    atomic_flag_clear_explicit(&g_asset_init_lock, memory_order_release);
+    return 1;
 }
 
-void rc_asset_set_pack_dir(const char *dir) {
-    if (dir && dir[0]) snprintf(g_pack_dir, sizeof(g_pack_dir), "%s", dir);
-    rc_asset_reset();
+int rc_asset_set_backend(RcAssetBackend backend) {
+    if (backend < RC_ASSET_BACKEND_AUTO || backend > RC_ASSET_BACKEND_PACK
+            || atomic_load_explicit(&g_initialized, memory_order_acquire) != 0) {
+        return 0;
+    }
+    g_backend = backend;
+    return 1;
+}
+
+int rc_asset_set_data_root(const char *root) {
+    if (!root || !root[0]
+            || atomic_load_explicit(&g_initialized, memory_order_acquire) != 0) {
+        return 0;
+    }
+    snprintf(g_data_root, sizeof(g_data_root), "%s", root);
+    if (!g_pack_dir_explicit)
+        snprintf(g_pack_dir, sizeof(g_pack_dir), "%s/packs", root);
+    return 1;
+}
+
+int rc_asset_set_pack_dir(const char *dir) {
+    if (!dir || !dir[0]
+            || atomic_load_explicit(&g_initialized, memory_order_acquire) != 0) {
+        return 0;
+    }
+    snprintf(g_pack_dir, sizeof(g_pack_dir), "%s", dir);
+    g_pack_dir_explicit = 1;
+    return 1;
 }
 
 static void rc_asset_apply_env(void) {
@@ -285,8 +317,10 @@ static void rc_asset_apply_env(void) {
     const char *pack_dir = getenv("RUNEC_PACK_DIR");
     if (pack_dir && pack_dir[0]) {
         snprintf(g_pack_dir, sizeof(g_pack_dir), "%s", pack_dir);
+        g_pack_dir_explicit = 1;
     } else if (root && root[0]) {
         snprintf(g_pack_dir, sizeof(g_pack_dir), "%s/packs", root);
+        g_pack_dir_explicit = 0;
     }
     if ((!pack_dir || !pack_dir[0]) && strcmp(g_data_root, "data") == 0
             && !rc_dir_exists_path(g_pack_dir)
@@ -301,16 +335,18 @@ static void rc_asset_apply_env(void) {
     }
 }
 
-static int rc_entries_add(const RcPackEntry *entry) {
-    if (g_entry_count == g_entry_cap) {
-        size_t next = g_entry_cap ? g_entry_cap * 2 : 256;
+static int rc_entries_add(RcPackCatalog *catalog, const RcPackEntry *entry) {
+    if (!catalog || !entry) return 0;
+    if (catalog->count == catalog->capacity) {
+        size_t next = catalog->capacity ? catalog->capacity * 2 : 256;
         RcPackEntry *new_entries =
-            (RcPackEntry *)realloc(g_entries, next * sizeof(*g_entries));
+            (RcPackEntry *)realloc(catalog->entries,
+                                   next * sizeof(*catalog->entries));
         if (!new_entries) return 0;
-        g_entries = new_entries;
-        g_entry_cap = next;
+        catalog->entries = new_entries;
+        catalog->capacity = next;
     }
-    g_entries[g_entry_count++] = *entry;
+    catalog->entries[catalog->count++] = *entry;
     return 1;
 }
 
@@ -320,9 +356,37 @@ static int rc_read_file_range(FILE *f, uint64_t offset, unsigned char *dst,
     return fread(dst, 1, size, f) == size;
 }
 
-static int rc_scan_one_pack(const char *pack_path) {
+static int rc_pack_logical_path_valid(const char *path) {
+    if (!path || !path[0] || path[0] == '/' || strchr(path, '\\')) return 0;
+    const char *segment = path;
+    for (const char *p = path;; p++) {
+        if (*p != '/' && *p != '\0') continue;
+        size_t length = (size_t)(p - segment);
+        if (length == 0 || (length == 1 && segment[0] == '.')
+                || (length == 2 && segment[0] == '.' && segment[1] == '.')) {
+            return 0;
+        }
+        if (*p == '\0') break;
+        segment = p + 1;
+    }
+    return 1;
+}
+
+static int rc_scan_one_pack(RcPackCatalog *catalog, const char *pack_path) {
     FILE *f = fopen(pack_path, "rb");
     if (!f) return 0;
+
+    if (fseeko(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        return 0;
+    }
+    off_t raw_file_size = ftello(f);
+    if (raw_file_size < RC_PACK_HEADER_SIZE
+            || fseeko(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        return 0;
+    }
+    uint64_t file_size = (uint64_t)raw_file_size;
 
     unsigned char header[RC_PACK_HEADER_SIZE];
     if (fread(header, 1, sizeof(header), f) != sizeof(header)
@@ -337,7 +401,11 @@ static int rc_scan_one_pack(const char *pack_path) {
     unsigned char expected_index_sha[32];
     memcpy(expected_index_sha, header + 32, sizeof(expected_index_sha));
 
-    if (index_size == 0 || index_size > (uint64_t)SIZE_MAX) {
+    if (index_size == 0 || index_size > (uint64_t)SIZE_MAX
+            || index_offset < RC_PACK_HEADER_SIZE
+            || index_offset > file_size
+            || index_size > file_size - index_offset
+            || index_offset + index_size != file_size) {
         fclose(f);
         return 0;
     }
@@ -382,7 +450,8 @@ static int rc_scan_one_pack(const char *pack_path) {
             break;
         }
         char *path = (char *)calloc((size_t)path_len + 1, 1);
-        if (!path || !rc_index_take(&r, path, path_len)) {
+        if (!path || !rc_index_take(&r, path, path_len)
+                || !rc_pack_logical_path_valid(path)) {
             free(path);
             ok = 0;
             break;
@@ -400,6 +469,15 @@ static int rc_scan_one_pack(const char *pack_path) {
             ok = 0;
             break;
         }
+        if (compression > 1 || offset < RC_PACK_HEADER_SIZE
+                || offset > index_offset
+                || packed_size > index_offset - offset
+                || size > (uint64_t)SIZE_MAX
+                || (compression == 0 && packed_size != size)) {
+            free(path);
+            ok = 0;
+            break;
+        }
 
         RcPackEntry entry = {
             .path = path,
@@ -410,13 +488,15 @@ static int rc_scan_one_pack(const char *pack_path) {
             .compression = compression,
         };
         memcpy(entry.sha256, sha, sizeof(entry.sha256));
-        if (!entry.pack_path || !rc_entries_add(&entry)) {
+        if (!entry.pack_path || !rc_entries_add(catalog, &entry)) {
             free(entry.path);
             free(entry.pack_path);
             ok = 0;
             break;
         }
     }
+
+    if (r.pos != r.size) ok = 0;
 
     free(index_data);
     return ok;
@@ -429,45 +509,90 @@ static int rc_name_ends_with(const char *name, const char *suffix) {
         && strcmp(name + name_len - suffix_len, suffix) == 0;
 }
 
-static void rc_scan_packs(void) {
+static int rc_scan_packs(RcPackCatalog *catalog) {
     DIR *dir = opendir(g_pack_dir);
-    if (!dir) return;
+    if (!dir) return g_backend != RC_ASSET_BACKEND_PACK;
 
     char **names = NULL;
     size_t count = 0, cap = 0;
     struct dirent *de;
+    int ok = 1;
     while ((de = readdir(dir)) != NULL) {
         if (!rc_name_ends_with(de->d_name, ".pak")) continue;
         if (count == cap) {
             size_t next = cap ? cap * 2 : 32;
             char **new_names = (char **)realloc(names, next * sizeof(*names));
-            if (!new_names) break;
+            if (!new_names) {
+                ok = 0;
+                break;
+            }
             names = new_names;
             cap = next;
         }
-        names[count++] = rc_asset_strdup(de->d_name);
+        names[count] = rc_asset_strdup(de->d_name);
+        if (!names[count]) {
+            ok = 0;
+            break;
+        }
+        count++;
     }
     closedir(dir);
     qsort(names, count, sizeof(*names), rc_string_cmp);
 
     for (size_t i = 0; i < count; i++) {
         char path[2048];
-        if (rc_join_path(path, sizeof(path), g_pack_dir, names[i]))
-            rc_scan_one_pack(path);
+        if (ok && (!rc_join_path(path, sizeof(path), g_pack_dir, names[i])
+                || !rc_scan_one_pack(catalog, path))) {
+            fprintf(stderr, "asset pack rejected: %s\n", names[i]);
+            ok = 0;
+        }
         free(names[i]);
     }
     free(names);
 
-    if (g_entry_count > 1)
-        qsort(g_entries, g_entry_count, sizeof(*g_entries), rc_entry_cmp);
+    if (!ok) return 0;
+    if (catalog->count > 1) {
+        qsort(catalog->entries, catalog->count,
+              sizeof(*catalog->entries), rc_entry_cmp);
+        for (size_t i = 1; i < catalog->count; i++) {
+            if (strcmp(catalog->entries[i - 1].path,
+                       catalog->entries[i].path) == 0) {
+                fprintf(stderr, "duplicate packed asset path: %s\n",
+                        catalog->entries[i].path);
+                return 0;
+            }
+        }
+    }
+    if (g_backend == RC_ASSET_BACKEND_PACK && catalog->count == 0) return 0;
+    return 1;
 }
 
-static void rc_asset_init(void) {
-    if (g_initialized) return;
+static int rc_asset_init(void) {
+    int initialized = atomic_load_explicit(&g_initialized,
+                                           memory_order_acquire);
+    if (initialized != 0) return initialized > 0;
+    while (atomic_flag_test_and_set_explicit(&g_asset_init_lock,
+                                              memory_order_acquire)) {
+    }
+    initialized = atomic_load_explicit(&g_initialized, memory_order_relaxed);
+    if (initialized != 0) {
+        atomic_flag_clear_explicit(&g_asset_init_lock, memory_order_release);
+        return initialized > 0;
+    }
     rc_asset_apply_env();
-    if (g_backend != RC_ASSET_BACKEND_LOOSE)
-        rc_scan_packs();
-    g_initialized = 1;
+    RcPackCatalog catalog = {0};
+    int ok = g_backend == RC_ASSET_BACKEND_LOOSE || rc_scan_packs(&catalog);
+    if (ok) {
+        g_entries = catalog.entries;
+        g_entry_count = catalog.count;
+        g_entry_cap = catalog.capacity;
+    } else {
+        rc_catalog_clear(&catalog);
+    }
+    atomic_store_explicit(&g_initialized, ok ? 1 : -1,
+                          memory_order_release);
+    atomic_flag_clear_explicit(&g_asset_init_lock, memory_order_release);
+    return ok;
 }
 
 static const RcPackEntry *rc_find_pack_entry(const char *logical) {
@@ -621,7 +746,7 @@ static RcAssetReader *rc_asset_reader_open_loose(const char *path) {
 }
 
 RcAssetReader *rc_asset_reader_open(const char *path) {
-    rc_asset_init();
+    if (!rc_asset_init()) return NULL;
     const char *logical = rc_asset_logical_path(path);
     char loose[2048];
     if (rc_asset_try_loose_first()
@@ -726,7 +851,7 @@ static RcAssetBytes rc_asset_read_pack(const RcPackEntry *entry) {
 }
 
 int rc_asset_exists(const char *path) {
-    rc_asset_init();
+    if (!rc_asset_init()) return 0;
     char loose[2048];
     if (rc_asset_try_loose_first()
             && rc_loose_path(loose, sizeof(loose), path)
@@ -741,7 +866,7 @@ int rc_asset_exists(const char *path) {
 
 int rc_asset_size(const char *path, uint64_t *out_size) {
     if (out_size) *out_size = 0;
-    rc_asset_init();
+    if (!rc_asset_init()) return 0;
     char loose[2048];
     if (rc_asset_try_loose_first()
             && rc_loose_path(loose, sizeof(loose), path)) {
@@ -776,7 +901,7 @@ int rc_asset_size(const char *path, uint64_t *out_size) {
 }
 
 FILE *rc_asset_fopen(const char *path, const char *mode) {
-    rc_asset_init();
+    if (!rc_asset_init()) return NULL;
     if (!mode || strchr(mode, 'w') || strchr(mode, 'a') || strchr(mode, '+'))
         return fopen(path, mode);
 
@@ -803,7 +928,7 @@ int rc_asset_close(FILE *f) {
 }
 
 RcAssetBytes rc_asset_read_all(const char *path) {
-    rc_asset_init();
+    if (!rc_asset_init()) return (RcAssetBytes){0};
     char loose[2048];
     if (rc_asset_try_loose_first() && rc_loose_path(loose, sizeof(loose), path)) {
         RcAssetBytes bytes = rc_asset_read_loose(loose);

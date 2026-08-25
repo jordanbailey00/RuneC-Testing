@@ -128,20 +128,8 @@ const RcSpellDef *rc_spell_def_get(int spell_idx) {
                            ? g_active_spell_defs : g_rc_spell_defs;
     int count = defs == g_rc_spell_defs ? g_rc_spell_count
                                         : g_active_spell_count;
-    if (defs != g_rc_spell_defs && spell_idx >= 0
-            && spell_idx < count && spell_idx < g_rc_spell_count
-            && g_rc_spell_defs[spell_idx].loaded
-            && memcmp(&defs[spell_idx], &g_rc_spell_defs[spell_idx],
-                      sizeof(defs[spell_idx])) != 0) {
-        return &g_rc_spell_defs[spell_idx];
-    }
     if (spell_idx >= 0 && spell_idx < count && defs[spell_idx].loaded) {
         return &defs[spell_idx];
-    }
-    if (defs != g_rc_spell_defs && spell_idx >= 0
-            && spell_idx < g_rc_spell_count
-            && g_rc_spell_defs[spell_idx].loaded) {
-        return &g_rc_spell_defs[spell_idx];
     }
     return NULL;
 }
@@ -153,18 +141,7 @@ int rc_spell_find(const char *name) {
     int count = defs == g_rc_spell_defs ? g_rc_spell_count
                                         : g_active_spell_count;
     for (int i = 0; i < count; i++) {
-        if (defs != g_rc_spell_defs && i < g_rc_spell_count
-                && g_rc_spell_defs[i].loaded
-                && memcmp(&defs[i], &g_rc_spell_defs[i], sizeof(defs[i])) != 0
-                && strcmp(g_rc_spell_defs[i].name, name) == 0) {
-            return i;
-        }
         if (strcmp(defs[i].name, name) == 0) return i;
-    }
-    if (defs != g_rc_spell_defs) {
-        for (int i = 0; i < g_rc_spell_count; i++) {
-            if (strcmp(g_rc_spell_defs[i].name, name) == 0) return i;
-        }
     }
     return -1;
 }

@@ -7,11 +7,7 @@ static RcNpc *raid_boss(struct RcWorld *world, int enc_idx) {
     if (!world || enc_idx < 0 || enc_idx >= RC_ENC_MAX_ACTIVE) return 0;
     RcActiveEncounter *a = &world->encounter.active[enc_idx];
     if (!a->active) return 0;
-    for (int i = 0; i < world->npc_count; i++) {
-        RcNpc *npc = &world->npcs[i];
-        if (npc->active && npc->uid == a->boss_id) return npc;
-    }
-    return 0;
+    return rc_npc_resolve(world, a->boss_id);
 }
 
 static void raid_enter_phase(struct RcWorld *world, int enc_idx,

@@ -51,6 +51,8 @@ static void test_drop_event_and_inventory_mutation(void) {
     int slot = rc_inv_add(world->player.inventory, 995, 1000);
     assert(slot >= 0);
     rc_player_drop_item(world, slot);
+    assert(spy.count == 0);
+    rc_world_tick(world);
 
     assert(spy.count == 1);
     assert(spy.last.item_id == 995);
@@ -71,6 +73,7 @@ static void test_tradeable_drop_reveals_then_despawns(void) {
     int slot = rc_inv_add(world->player.inventory, 995, 25);
     assert(slot >= 0);
     rc_player_drop_item(world, slot);
+    rc_world_tick(world);
 
     assert(world->ground_items[0].visibility == RC_GROUND_VIS_PRIVATE);
     assert(world->ground_items[0].reveal_timer == 100);
@@ -90,6 +93,7 @@ static void test_untradeable_drop_stays_private_until_despawn(void) {
     int slot = rc_inv_add(world->player.inventory, item_id, 1);
     assert(slot >= 0);
     rc_player_drop_item(world, slot);
+    rc_world_tick(world);
 
     assert(world->ground_item_count == 1);
     assert(world->ground_items[0].item_id == item_id);

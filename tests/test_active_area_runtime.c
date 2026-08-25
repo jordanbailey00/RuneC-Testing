@@ -9,6 +9,8 @@
 #include "pathfinding.h"
 
 #define NPC_PATH RC_TEST_SOURCE_DIR "/data/defs/npc_defs.bin"
+#define ODEF_PATH RC_TEST_SOURCE_DIR "/data/defs/object_defs.bin"
+#define OBHV_PATH RC_TEST_SOURCE_DIR "/data/defs/object_behaviors.bin"
 #define SPAWN_PATH \
     RC_TEST_SOURCE_DIR "/data/spawns/world.npc-spawns.indexed.bin"
 #define CTPI_PATH \
@@ -95,10 +97,13 @@ int main(void) {
     g_rc_collision_region_count = 0;
 
     RcWorldConfig cfg = rc_preset_base_only();
+    cfg.npc_capacity = RC_WORLD_NPC_CAPACITY_SIM;
     cfg.subsystems = RC_SUB_COMBAT | RC_SUB_REGIONS | RC_SUB_LOOT
                    | RC_SUB_OBJECTS;
     cfg.npc_defs_path = NPC_PATH;
     cfg.spawns_path = SPAWN_PATH;
+    cfg.object_defs_path = ODEF_PATH;
+    cfg.object_behaviors_path = OBHV_PATH;
     cfg.collision_tiles_path = CTPI_PATH;
     cfg.object_placements_path = OPLI_PATH;
     RcWorld *world = rc_world_create_config(&cfg);

@@ -103,8 +103,6 @@ void rc_game_data_retain(RcGameData *data);
 void rc_game_data_release(RcGameData *data);
 uint32_t rc_game_data_subsystems(const RcGameData *data);
 const RcGameDataStats *rc_game_data_stats(const RcGameData *data);
-void rc_game_data_activate_views(const RcGameData *data,
-                                 uint32_t subsystems);
 const RcNpcDef *rc_game_data_npc_defs(const RcGameData *data, int *count);
 const RcItemDef *rc_game_data_item_defs(const RcGameData *data, int *count);
 const RcDropData *rc_game_data_drop_data(const RcGameData *data);

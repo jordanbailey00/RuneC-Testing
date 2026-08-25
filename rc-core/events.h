@@ -31,6 +31,7 @@ enum {
     RC_EVT_PRAYER_TOGGLED,
     RC_EVT_PLAYER_ATTACK,
     RC_EVT_ITEM_DROPPED,
+    RC_EVT_PLAYER_DIED,
     RC_EVT_MAX
 };
 
@@ -50,7 +51,7 @@ int  rc_event_subscribe(struct RcWorld *world, int evt,
                         RcEventFn fn, void *ctx);
 int  rc_event_unsubscribe(struct RcWorld *world, int evt,
                           RcEventFn fn, void *ctx);
-void rc_event_fire(struct RcWorld *world, int evt, const void *payload);
+int  rc_event_fire(struct RcWorld *world, int evt, const void *payload);
 
 // Max handlers per event. Tune if you subscribe more than 8 handlers
 // to a single event in practice.
@@ -76,12 +77,12 @@ void rc_events_init(RcEventBus *bus);
 // handlers cast `payload` void* to the right struct per the event
 // enum value.
 typedef struct {
-    uint16_t npc_id;           // NPC handle (uid)
+    uint32_t npc_id;           // NPC handle (uid)
     uint32_t def_id;           // registry-keyable identifier
 } RcPayloadNpcEvent;           // RC_EVT_NPC_SPAWNED, RC_EVT_NPC_DIED
 
 typedef struct {
-    uint16_t source_npc_id;    // attacker uid, or 0xFFFF for player-self
+    uint32_t source_npc_id;    // attacker uid, or UINT32_MAX for player-self
     uint16_t damage;
     uint16_t current_hp;
     uint16_t max_hp;
@@ -89,8 +90,8 @@ typedef struct {
 } RcPayloadPlayerDamaged;      // RC_EVT_PLAYER_DAMAGED
 
 typedef struct {
-    uint16_t npc_id;           // defender uid
-    uint16_t source_npc_id;    // 0xFFFF for player / non-NPC source
+    uint32_t npc_id;           // defender uid
+    uint32_t source_npc_id;    // UINT32_MAX for player / non-NPC source
     uint16_t damage;
     uint16_t current_hp;
     uint16_t max_hp;
@@ -98,18 +99,18 @@ typedef struct {
 } RcPayloadNpcDamaged;         // RC_EVT_NPC_DAMAGED
 
 typedef struct {
-    uint16_t npc_id;           // boss uid
+    uint32_t npc_id;           // boss uid
     uint8_t old_phase;         // previous phase index
     uint8_t new_phase;         // next phase index
 } RcPayloadPhaseTransition;    // RC_EVT_PHASE_TRANSITION
 
 typedef struct {
-    uint16_t npc_id;           // attacker uid
+    uint32_t npc_id;           // attacker uid
     uint8_t style;             // RcCombatStyle
 } RcPayloadNpcAttack;          // RC_EVT_NPC_ATTACK
 
 typedef struct {
-    uint16_t target_npc_id;    // defender uid
+    uint32_t target_npc_id;    // defender uid
     uint8_t style;             // RcCombatStyle
 } RcPayloadPlayerAttack;       // RC_EVT_PLAYER_ATTACK
 
@@ -120,5 +121,35 @@ typedef struct {
 } RcPayloadItemEvent;          // RC_EVT_ITEM_PICKED_UP, RC_EVT_DROP_GRANTED,
                                // RC_EVT_ITEM_EQUIPPED, RC_EVT_ITEM_UNEQUIPPED,
                                // RC_EVT_ITEM_DROPPED
+
+typedef struct {
+    uint32_t transcript_id;
+    uint32_t node_id;
+    int32_t choice;
+} RcPayloadDialogueEvent;
+
+typedef struct {
+    uint32_t quest_id;
+    int32_t old_stage;
+    int32_t new_stage;
+} RcPayloadQuestStageChanged;
+
+typedef struct {
+    uint32_t spell_id;
+    uint32_t target_id;
+    uint8_t target_kind;
+} RcPayloadSpellCast;
+
+typedef struct {
+    uint16_t prayer_id;
+    uint8_t enabled;
+} RcPayloadPrayerToggled;
+
+typedef struct {
+    uint64_t tick;
+    int32_t x;
+    int32_t y;
+    int8_t plane;
+} RcPayloadPlayerDeath;
 
 #endif

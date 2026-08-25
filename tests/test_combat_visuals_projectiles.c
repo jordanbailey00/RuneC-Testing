@@ -9,6 +9,9 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
+
+#include "runtime_test_fixture.h"
 
 enum {
     TEST_BOW = 861,
@@ -18,6 +21,9 @@ enum {
     TEST_NPC_ID = 990001,
     TEST_JAD_ID = 3127,
 };
+
+static char g_npc_fixture_path[256];
+static char g_spell_fixture_path[256];
 
 static void reset_defs(void) {
     memset(g_item_defs, 0, sizeof(g_item_defs));
@@ -120,8 +126,14 @@ static void write_visuals_file(const char *path) {
 }
 
 static RcWorld *make_world(void) {
+    assert(rc_test_write_npc_defs(g_npc_fixture_path, g_npc_defs,
+                                  g_npc_def_count));
+    assert(rc_test_write_spell_defs(g_spell_fixture_path, g_rc_spell_defs,
+                                    g_rc_spell_count));
     RcWorldConfig cfg = rc_preset_base_only();
     cfg.subsystems = RC_SUB_COMBAT;
+    cfg.npc_defs_path = g_npc_fixture_path;
+    cfg.spells_path = g_spell_fixture_path;
     cfg.combat_profiles_path = NULL;
     cfg.seed = 42;
     RcWorld *world = rc_world_create_config(&cfg);
@@ -175,7 +187,7 @@ static void test_core_ranged_attack_emits_logical_event_only(void) {
     assert(events[0].weapon_item_id == TEST_BOW);
     assert(events[0].ammo_item_id == TEST_ARROW);
     assert(events[0].hit_delay == 2);
-    assert(world->npcs[npc_idx].pending_hits[0].ticks_remaining == 2);
+    assert(world->npcs[npc_idx].pending_hits[0].apply_tick == world->tick + 2);
 
     const RcCombatVisualDef *arrow =
         rc_combat_visual_for_item(TEST_ARROW, COMBAT_RANGED);
@@ -211,7 +223,7 @@ static void test_core_spell_profile_uses_spell_id_after_rename(void) {
     assert(strcmp(events[0].action_key_name, "Renamed Fire Blast") == 0);
     assert(events[0].spell_idx == 0);
     assert(events[0].hit_delay == 3);
-    assert(world->npcs[npc_idx].pending_hits[0].ticks_remaining == 3);
+    assert(world->npcs[npc_idx].pending_hits[0].apply_tick == world->tick + 3);
 
     assert(rc_combat_visual_for_spell("Renamed Fire Blast",
                                       COMBAT_MAGIC) == NULL);
@@ -243,7 +255,7 @@ static void test_core_npc_attack_event_is_backend_only(void) {
     assert(strcmp(events[0].action_key_name, "Projectile Target") == 0);
     assert(events[0].style == COMBAT_MAGIC);
     assert(events[0].hit_delay == 3);
-    assert(world->player.pending_hits[0].ticks_remaining == 3);
+    assert(world->player.pending_hits[0].apply_tick == world->tick + 3);
     rc_world_destroy(world);
 }
 
@@ -306,10 +318,16 @@ static void test_generated_visuals_still_load_in_viewer_module(void) {
 }
 
 int main(void) {
+    snprintf(g_npc_fixture_path, sizeof(g_npc_fixture_path),
+             "/tmp/runec_combat_visual_npcs_%ld.bin", (long)getpid());
+    snprintf(g_spell_fixture_path, sizeof(g_spell_fixture_path),
+             "/tmp/runec_combat_visual_spells_%ld.bin", (long)getpid());
     test_core_ranged_attack_emits_logical_event_only();
     test_core_spell_profile_uses_spell_id_after_rename();
     test_core_npc_attack_event_is_backend_only();
     test_viewer_visual_parser_owns_rich_projectile_metadata();
     test_generated_visuals_still_load_in_viewer_module();
+    assert(unlink(g_npc_fixture_path) == 0);
+    assert(unlink(g_spell_fixture_path) == 0);
     return 0;
 }

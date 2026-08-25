@@ -137,6 +137,10 @@ foreach(TEST_SRC ${TEST_SOURCES})
     endif()
 endforeach()
 
+if(TARGET test_runtime_foundation)
+    target_link_libraries(test_runtime_foundation pthread)
+endif()
+
 if(TARGET test_combat_visuals_projectiles)
     target_sources(test_combat_visuals_projectiles PRIVATE
         rc-viewer/combat_visuals.c
@@ -175,6 +179,15 @@ if(TARGET test_streaming_config)
         rc-viewer/streaming.c
     )
     target_include_directories(test_streaming_config PRIVATE
+        rc-viewer
+    )
+endif()
+
+if(TARGET test_tick_action_scheduling)
+    target_sources(test_tick_action_scheduling PRIVATE
+        rc-viewer/tick_pacing.c
+    )
+    target_include_directories(test_tick_action_scheduling PRIVATE
         rc-viewer
     )
 endif()

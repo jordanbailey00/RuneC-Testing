@@ -7,6 +7,7 @@
 #include "../rc-core/items.h"
 #include "../rc-core/objects.h"
 #include "../rc-core/pathfinding.h"
+#include "../rc-core/player_command.h"
 #include "../rc-core/npc.h"
 #include "../rc-core/spawn_index.h"
 #include "../rc-core/spells.h"
@@ -30,9 +31,11 @@
 #include "dev_validation.h"
 #include "minimap.h"
 #include "streaming.h"
+#include "tick_pacing.h"
 #include "streaming_async.h"
 #include <math.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -356,7 +359,8 @@ typedef struct {
     int camera_locked;
 
     // Tick
-    float tick_acc, tick_frac;
+    RcViewerTickPacing tick_pacing;
+    float tick_frac;
     int paused;
     float prev_player_x, prev_player_y;
 
@@ -2991,30 +2995,12 @@ static void viewer_clear_player_activity(ViewerState *v) {
     if (!v || !v->world)
         return;
     RcWorld *world = v->world;
-    RcPlayer *p = &world->player;
-    p->route_len = 0;
-    p->route_idx = 0;
-    p->interaction.active = false;
-    p->pending_traversal_active = 0;
-    p->pending_traversal_x = -1;
-    p->pending_traversal_y = -1;
-    p->pending_traversal_plane = -1;
-    p->action_lock_timer = 0;
+    rc_player_cancel_action(world, RC_ACTION_CANCEL_FRONTEND);
     v->player_action_anim_timer = 0;
     v->player_action_anim_id = -1;
     v->player_attack_anim_timer = 0;
     v->player_attack_anim_id = -1;
     v->combat_projectile_count = 0;
-    rc_combat_stop_actor(world, (RcCombatActorRef){RC_COMBAT_ACTOR_PLAYER, 0},
-                         RC_COMBAT_STATE_CANCELLED);
-    for (int i = 0; i < world->npc_count; i++) {
-        if (world->npcs[i].active) {
-            rc_combat_stop_actor(
-                world, (RcCombatActorRef){RC_COMBAT_ACTOR_NPC,
-                                          world->npcs[i].uid},
-                RC_COMBAT_STATE_CANCELLED);
-        }
-    }
     runec_ui_clear_selected_target(&v->ui);
     v->ui.context_open = 0;
     reset_viewer_context(v);
@@ -3112,17 +3098,16 @@ static void viewer_finish_dev_transport(ViewerState *v,
     int player_x = d->target_x;
     int player_y = d->target_y;
     viewer_dev_player_tile(v, d, &player_x, &player_y);
-    p->x = player_x;
-    p->y = player_y;
-    p->prev_x = player_x;
-    p->prev_y = player_y;
-    p->plane = clamp_plane(d->plane);
+    if (!rc_world_relocate_player(v->world, player_x, player_y,
+                                  clamp_plane(d->plane))) {
+        return;
+    }
     p->facing_entity = -1;
     p->facing_x = d->target_x;
     p->facing_y = d->target_y;
     v->prev_player_x = (float)player_x;
     v->prev_player_y = (float)player_y;
-    v->tick_acc = 0.0f;
+    rc_viewer_tick_pacing_reset(&v->tick_pacing);
     v->tick_frac = 0.0f;
     v->player_moving = 0;
     v->scene_plane_override = -1;
@@ -3208,11 +3193,7 @@ static void viewer_rollback_player_scene_transition(ViewerState *v) {
         return;
     }
     RcPlayer *p = &v->world->player;
-    p->x = x;
-    p->y = y;
-    p->prev_x = x;
-    p->prev_y = y;
-    p->plane = plane;
+    (void)rc_world_relocate_player(v->world, x, y, plane);
     v->prev_player_x = (float)x;
     v->prev_player_y = (float)y;
     v->tick_frac = 0.0f;
@@ -3279,11 +3260,7 @@ static void handle_player_scene_transition(ViewerState *v, int old_x,
         int blocked_x = p->x;
         int blocked_y = p->y;
         int blocked_plane = p->plane;
-        p->x = old_x;
-        p->y = old_y;
-        p->prev_x = old_x;
-        p->prev_y = old_y;
-        p->plane = old_plane;
+        (void)rc_world_relocate_player(v->world, old_x, old_y, old_plane);
         v->prev_player_x = (float)old_x;
         v->prev_player_y = (float)old_y;
         v->tick_frac = 0.0f;
@@ -6752,7 +6729,7 @@ static void debug_log_combat_attack_events(ViewerState *v) {
         const RcCombatAttackEvent *e = &events[i];
         if (!e->active) continue;
         fprintf(stderr,
-                "combat attack event: tick=%d source=%s:%d target=%s:%d "
+                "combat attack event: tick=%" PRIu64 " source=%s:%d target=%s:%d "
                 "style=%s action=%s:%d:%s hit_delay=%d "
                 "src=(%d,%d,%d) dst=(%d,%d,%d)\n",
                 e->world_tick,
@@ -8372,7 +8349,8 @@ static void handle_input(ViewerState *v, int ui_capture) {
         if (IsKeyPressed(KEY_F3)) v->show_grid = !v->show_grid;
         if (IsKeyPressed(KEY_C)) v->show_collision = !v->show_collision;
         if (IsKeyPressed(KEY_SPACE)) v->paused = !v->paused;
-        if (IsKeyPressed(KEY_R)) p->running = !p->running;
+        if (IsKeyPressed(KEY_R))
+            (void)rc_player_set_running(v->world, !p->running);
         if (IsKeyPressed(KEY_P)) pickup_current_tile(v);
         if (IsKeyPressed(KEY_PAGE_UP))
             viewer_set_scene_plane_delta(v, 1);
@@ -9122,6 +9100,7 @@ int main(int argc, char **argv) {
 
     RcWorldConfig cfg = rc_preset_base_only();
     cfg.streaming = backend_streaming;
+    cfg.npc_capacity = RC_WORLD_NPC_CAPACITY_FULL;
     cfg.subsystems = RC_SUB_INVENTORY | RC_SUB_EQUIPMENT | RC_SUB_LOOT |
                      RC_SUB_COMBAT | RC_SUB_PRAYER | RC_SUB_OBJECTS |
                      RC_SUB_REGIONS | RC_SUB_TRAVERSAL | RC_SUB_STORAGE |
@@ -9185,11 +9164,8 @@ int main(int argc, char **argv) {
     // rc-content/README.md for the engine/content split.
     rc_content_register_all(v.world);
 
-    v.world->player.x = g_player_start_x;
-    v.world->player.y = g_player_start_y;
-    v.world->player.prev_x = g_player_start_x;
-    v.world->player.prev_y = g_player_start_y;
-    v.world->player.plane = g_player_start_plane;
+    (void)rc_world_relocate_player(v.world, g_player_start_x,
+                                   g_player_start_y, g_player_start_plane);
     v.prev_player_x = (float)g_player_start_x;
     v.prev_player_y = (float)g_player_start_y;
     set_viewer_demo_stats(&v.world->player);
@@ -9488,7 +9464,7 @@ int main(int argc, char **argv) {
         viewer_sync_scene_plane_ui(&v);
         int ui_capture = runec_ui_handle_input(&v.ui, GetScreenWidth(), GetScreenHeight());
         if (v.ui.last_intent.kind == RUNEC_UI_INTENT_RUN_TOGGLE) {
-            p->running = !p->running;
+            (void)rc_player_set_running(v.world, !p->running);
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_BANK_WITHDRAW) {
             int quantity = runec_dev_validation_bank_withdraw_quantity(
                 v.world, v.ui.last_intent.primary);
@@ -9640,9 +9616,9 @@ int main(int argc, char **argv) {
 
         // Tick
         if (!v.paused) {
-            v.tick_acc += GetFrameTime() * TPS;
-            if (v.tick_acc >= 1.0f) {
-                v.tick_acc -= 1.0f;
+            int ticks_due = rc_viewer_tick_pacing_advance(
+                &v.tick_pacing, GetFrameTime(), 1.0 / TPS);
+            for (int tick_idx = 0; tick_idx < ticks_due; tick_idx++) {
                 v.prev_player_x = (float)v.world->player.x;
                 v.prev_player_y = (float)v.world->player.y;
 
@@ -9667,8 +9643,8 @@ int main(int argc, char **argv) {
                 handle_player_scene_transition(&v, old_x, old_y, old_plane);
                 v.tick_frac = 0.0f;
             }
-            v.tick_frac = v.tick_acc;
-            if (v.tick_frac > 1.0f) v.tick_frac = 1.0f;
+            v.tick_frac = (float)rc_viewer_tick_pacing_fraction(
+                &v.tick_pacing, 1.0 / TPS);
         }
         update_npc_render_motion(&v, v.paused ? 0.0f : GetFrameTime());
 

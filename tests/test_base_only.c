@@ -47,13 +47,18 @@ int main(void) {
     w->map.regions[0].tiles[0][5][5].collision_flags = COL_BLOCK_WALK;
     rc_player_walk_to(w, 5, 5);
     assert(w->player.route_len == 0);
+    rc_world_tick(w);
+    assert(w->player.route_len == 0);
     w->map.regions[0].tiles[0][5][5].collision_flags = 0;
     rc_player_walk_to(w, 7, 5);
+    assert(w->player.route_len == 0);
+    rc_world_tick(w);
     assert(w->player.route_len > 0);
     assert(w->player.route_x[w->player.route_len - 1] == 7);
     assert(w->player.route_y[w->player.route_len - 1] == 5);
     w->map.regions[0].tiles[0][8][5].collision_flags = COL_BLOCK_WALK;
     rc_player_walk_to(w, 8, 5);
+    rc_world_tick(w);
     assert(w->player.route_len == 0);
     w->player.x = 3213;
     w->player.y = 3428;
@@ -64,7 +69,7 @@ int main(void) {
     // state (determinism per README §13).
     RcWorld *w2 = rc_world_create_config(&cfg);
     assert(w2 != NULL);
-    for (int i = 0; i < 100; i++) {
+    for (int i = 0; i < w->tick; i++) {
         rc_world_tick(w2);
     }
     assert(w->tick == w2->tick);

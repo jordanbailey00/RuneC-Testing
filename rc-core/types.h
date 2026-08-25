@@ -26,6 +26,112 @@
 #define RC_MAX_COMBAT_ATTACKERS 8
 #define RC_SLAYER_BLOCK_SLOTS 8
 #define RC_SLAYER_PREFER_SLOTS 8
+#define RC_MAX_PLAYER_COMMANDS 32
+
+typedef uint64_t RcTick;
+
+typedef enum {
+    RC_PLAYER_COMMAND_NONE = 0,
+    RC_PLAYER_COMMAND_WALK_TO,
+    RC_PLAYER_COMMAND_RUN_TO,
+    RC_PLAYER_COMMAND_SET_RUNNING,
+    RC_PLAYER_COMMAND_ATTACK_NPC,
+    RC_PLAYER_COMMAND_SET_ATTACK_STYLE,
+    RC_PLAYER_COMMAND_TOGGLE_AUTO_RETALIATE,
+    RC_PLAYER_COMMAND_TOGGLE_SPECIAL,
+    RC_PLAYER_COMMAND_SET_PRAYER,
+    RC_PLAYER_COMMAND_SET_SPELLBOOK,
+    RC_PLAYER_COMMAND_SELECT_SPELL,
+    RC_PLAYER_COMMAND_SET_AUTOCAST,
+    RC_PLAYER_COMMAND_MOVE_INVENTORY,
+    RC_PLAYER_COMMAND_EQUIP,
+    RC_PLAYER_COMMAND_UNEQUIP,
+    RC_PLAYER_COMMAND_INTERACT_NPC,
+    RC_PLAYER_COMMAND_INTERACT_OBJECT,
+    RC_PLAYER_COMMAND_INTERACT_INVENTORY,
+    RC_PLAYER_COMMAND_INTERACT_EQUIPMENT,
+    RC_PLAYER_COMMAND_WIDGET_ACTION,
+    RC_PLAYER_COMMAND_USE_ITEM_ON_NPC,
+    RC_PLAYER_COMMAND_USE_ITEM_ON_ITEM,
+    RC_PLAYER_COMMAND_USE_ITEM_ON_OBJECT,
+    RC_PLAYER_COMMAND_USE_ITEM_ON_GROUND,
+    RC_PLAYER_COMMAND_USE_ITEM_ON_WIDGET,
+    RC_PLAYER_COMMAND_CAST_ON_NPC,
+    RC_PLAYER_COMMAND_CAST_ON_ITEM,
+    RC_PLAYER_COMMAND_CAST_ON_OBJECT,
+    RC_PLAYER_COMMAND_CAST_ON_GROUND,
+    RC_PLAYER_COMMAND_CAST_ON_WIDGET,
+    RC_PLAYER_COMMAND_OPEN_STORAGE_OBJECT,
+    RC_PLAYER_COMMAND_OPEN_STORAGE_NPC,
+    RC_PLAYER_COMMAND_CLOSE_STORAGE,
+    RC_PLAYER_COMMAND_BANK_DEPOSIT,
+    RC_PLAYER_COMMAND_BANK_WITHDRAW,
+    RC_PLAYER_COMMAND_APPLY_TRAVERSAL,
+    RC_PLAYER_COMMAND_APPLY_RECIPE,
+    RC_PLAYER_COMMAND_DROP_ITEM,
+    RC_PLAYER_COMMAND_PICKUP_ITEM,
+} RcPlayerCommandKind;
+
+typedef enum {
+    RC_ACTION_CATEGORY_SOFT = 0,
+    RC_ACTION_CATEGORY_BACKGROUND,
+    RC_ACTION_CATEGORY_NORMAL,
+    RC_ACTION_CATEGORY_STRONG,
+} RcActionCategory;
+
+typedef enum {
+    RC_COMMAND_RESULT_NONE = 0,
+    RC_COMMAND_RESULT_QUEUED,
+    RC_COMMAND_RESULT_EXECUTED,
+    RC_COMMAND_RESULT_REJECTED_INVALID,
+    RC_COMMAND_RESULT_REJECTED_FULL,
+    RC_COMMAND_RESULT_REJECTED_DEAD,
+    RC_COMMAND_RESULT_REJECTED_BUSY,
+    RC_COMMAND_RESULT_REJECTED_CANCELLED,
+} RcPlayerCommandResult;
+
+typedef enum {
+    RC_ACTION_OWNER_NONE = 0,
+    RC_ACTION_OWNER_MOVEMENT,
+    RC_ACTION_OWNER_INTERACTION,
+    RC_ACTION_OWNER_COMBAT,
+    RC_ACTION_OWNER_TRAVERSAL,
+    RC_ACTION_OWNER_SKILL,
+    RC_ACTION_OWNER_MODAL,
+} RcPlayerActionOwner;
+
+typedef enum {
+    RC_ACTION_CANCEL_NONE = 0,
+    RC_ACTION_CANCEL_REPLACED,
+    RC_ACTION_CANCEL_DEATH,
+    RC_ACTION_CANCEL_RELOCATED,
+    RC_ACTION_CANCEL_FRONTEND,
+} RcPlayerActionCancelReason;
+
+typedef struct {
+    uint8_t kind;
+    uint8_t category;
+    uint64_t sequence;
+    int args[8];
+    uint64_t key;
+} RcPlayerCommand;
+
+typedef struct {
+    uint8_t count;
+    uint64_t next_sequence;
+    uint64_t last_sequence;
+    RcPlayerCommandResult last_result;
+    uint64_t rejected_count;
+} RcPlayerCommandQueue;
+
+typedef struct {
+    bool active;
+    RcPlayerActionOwner owner;
+    RcActionCategory category;
+    RcTick started_tick;
+    RcTick ready_tick;
+    RcPlayerActionCancelReason last_cancel_reason;
+} RcPlayerActionState;
 
 // Tile / region constants
 #define RC_REGION_SIZE      64
@@ -254,12 +360,11 @@ typedef struct {
     int active;
     int damage;
     int max_hit;
-    int ticks_remaining;
-    int apply_tick;
+    RcTick apply_tick;
     int attack_style;       // RcCombatStyle
     int source_idx;         // -1 for player attacks on NPCs
     int prayer_snapshot;    // locked prayer at snapshot tick
-    int prayer_lock_tick;
+    RcTick prayer_lock_tick;
     uint8_t hit_type;
     uint8_t flags;
 } RcPendingHit;
@@ -308,8 +413,6 @@ typedef struct {
     bool active;
     RcCombatTargetRef target;
     uint32_t flags;
-    int attack_cooldown;
-    int action_delay;
     int attack_range;
     int distance_to_target;
     int line_of_sight;
@@ -337,8 +440,6 @@ typedef struct {
     int leash_state;
     bool retaliates;
     bool in_multi_combat;
-    RcPendingHit pending_hits[RC_MAX_PENDING_HITS];
-    int num_pending_hits;
     RcCombatRecentHit recent_hits[4];
     int recent_hit_count;
 } RcCombatActorState;
@@ -373,7 +474,7 @@ typedef struct {
     int ammo_item_id;
     int spell_idx;
     int stance_idx;
-    int world_tick;
+    RcTick world_tick;
 } RcCombatAttackEvent;
 
 // Inventory slot
@@ -432,6 +533,8 @@ typedef struct {
 
     // Combat
     int current_hp, max_hp;
+    bool is_dead;
+    RcTick death_tick;
     int attack_timer;
     int attack_target;      // NPC uid or -1
     int attack_target_def_id;
@@ -465,9 +568,8 @@ typedef struct {
     int potion_timer;
     int combo_timer;
     int ward_of_arceuus_timer;
-    int action_lock_timer;
     int pending_traversal_active;
-    int pending_traversal_tick;
+    RcTick pending_traversal_tick;
     int pending_traversal_x, pending_traversal_y, pending_traversal_plane;
 
     // Stats & items
@@ -489,7 +591,7 @@ typedef struct {
 
     // Skilling
     int skill_action;
-    int skill_timer;
+    RcTick skill_ready_tick;
     int skill_target_x, skill_target_y;
 
     // Regen
@@ -508,8 +610,10 @@ typedef struct {
     int venom_damage;
     int venom_tick_counter;
     int disease_tick_counter;
-    int teleblock_timer;
-    int freeze_timer;
+    RcTick teleblock_start_tick;
+    RcTick teleblock_expire_tick;
+    RcTick freeze_start_tick;
+    RcTick freeze_expire_tick;
     uint32_t slayer_unlocks;
     uint64_t slayer_progression_flags;
     uint32_t slayer_blocked_keys[RC_SLAYER_BLOCK_SLOTS];
@@ -641,6 +745,7 @@ typedef struct {
     int original_owner_uid;
     int reveal_timer;
     int despawn_timer;
+    RcTick timer_start_tick;
     uint8_t visibility;
     bool static_spawn;
     bool active;
@@ -654,8 +759,8 @@ typedef struct {
     int active_x, active_y, active_plane;
     uint8_t base_type, base_rotation;
     uint8_t active_type, active_rotation;
-    int respawn_tick;
-    int revert_tick;
+    RcTick respawn_tick;
+    RcTick revert_tick;
     uint8_t flags;
 } RcObjectState;
 
@@ -737,8 +842,10 @@ typedef struct {
 typedef struct RcWorld {
     // Base (always present, always valid)
     RcPlayer player;
-    RcNpc npcs[RC_MAX_NPCS];
+    RcNpc *npcs;
     int npc_count;
+    int npc_capacity;
+    int next_npc_uid;
     RcGroundItem ground_items[RC_MAX_GROUND_ITEMS];
     int ground_item_count;
     int next_ground_item_uid;
@@ -752,14 +859,18 @@ typedef struct RcWorld {
     int object_state_count;
     RcEncounterEffect encounter_effects[RC_ENC_MAX_EFFECTS];
     int encounter_effect_count;
-    int next_object_respawn_tick;
+    RcTick next_object_respawn_tick;
     int32_t varps[RC_MAX_VARPS];
     RcWorldMap map;
     RcActiveArea active_area;
     RcWorldStreamingConfig streaming;
     RcWorldStreamingTelemetry streaming_telemetry;
-    int tick;
+    RcTick tick;
+    bool in_tick;
+    RcPlayerActionState player_action;
+    RcPlayerCommandQueue player_commands;
     uint32_t rng_state;
+    uint32_t initial_seed;
     bool multi_combat;
     RcCombatContentHooks combat_hooks;
     RcCombatAttackEvent combat_attack_events[RC_MAX_COMBAT_ATTACK_EVENTS];
@@ -783,6 +894,7 @@ typedef struct RcWorld {
     RcEncounterState encounter;
 
     char npc_spawns_path[512];
+    RcPlayerCommand player_command_storage[RC_MAX_PLAYER_COMMANDS];
 } RcWorld;
 
 #endif

@@ -20,14 +20,11 @@ static void hunllef_engage(struct RcWorld *world, int enc_idx) {
     a->attack_count = 0;
     a->active_mechanic_idx = 0xFFu;
     a->active_mechanic_ticks = 0;
-    for (int i = 0; i < world->npc_count; i++) {
-        RcNpc *npc = &world->npcs[i];
-        if (npc->active && npc->uid == a->boss_id) {
-            npc->player_untargetable = false;
-            npc->attack_timer = 2;
-            npc->target_uid = 0;
-            break;
-        }
+    RcNpc *npc = rc_npc_resolve(world, a->boss_id);
+    if (npc) {
+        npc->player_untargetable = false;
+        npc->attack_timer = 2;
+        npc->target_uid = 0;
     }
 }
 

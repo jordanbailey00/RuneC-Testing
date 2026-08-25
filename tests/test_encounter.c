@@ -15,12 +15,16 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 #include "../rc-core/api.h"
 #include "../rc-core/config.h"
 #include "../rc-core/encounter.h"
 #include "../rc-core/npc.h"
 #include "../rc-core/events.h"
 #include "../rc-core/combat.h"
+#include "runtime_test_fixture.h"
+
+static char g_npc_fixture_path[256];
 
 // Install two stub NPC defs — one registered as an encounter boss,
 // one as a plain NPC.
@@ -123,9 +127,15 @@ static RcEncounterSpec make_stub_spec(void) {
 
 int main(void) {
     install_stub_defs();
+    snprintf(g_npc_fixture_path, sizeof(g_npc_fixture_path),
+             "/tmp/runec_encounter_npcs_%ld.bin", (long)getpid());
+    assert(rc_test_write_npc_defs(g_npc_fixture_path, g_npc_defs,
+                                  g_npc_def_count));
 
-    RcWorldConfig cfg = rc_preset_combat_only();
+    RcWorldConfig cfg = rc_preset_base_only();
+    cfg.subsystems = RC_SUB_COMBAT | RC_SUB_ENCOUNTER;
     cfg.seed = 42;
+    cfg.npc_defs_path = g_npc_fixture_path;
     cfg.encounters_path = NULL;
     RcWorld *w = rc_world_create_config(&cfg);
     assert(w != NULL);
@@ -157,7 +167,7 @@ int main(void) {
     assert(g_phase_enter_calls == 1);
 
     RcPayloadNpcAttack attack = {
-        .npc_id = (uint16_t)boss->uid,
+        .npc_id = (RcNpcId)boss->uid,
         .style = COMBAT_MAGIC,
     };
     rc_event_fire(w, RC_EVT_NPC_ATTACK, &attack);
@@ -204,6 +214,7 @@ int main(void) {
     assert(!w->encounter.active[0].active);
 
     rc_world_destroy(w);
+    assert(unlink(g_npc_fixture_path) == 0);
 
     printf("test_encounter: all encounter-subsystem checks passed.\n");
     return 0;

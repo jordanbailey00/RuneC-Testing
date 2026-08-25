@@ -34,6 +34,8 @@ static void test_stackable_drop_merges_and_reveals(void) {
     int slot = rc_inv_add(p->inventory, 995, 100);
     assert(slot >= 0);
     rc_player_drop_item(world, slot);
+    assert(active_ground_items(world, 995) == 0);
+    rc_world_tick(world);
     assert(active_ground_items(world, 995) == 1);
     assert(world->ground_items[0].quantity == 100);
     assert(world->ground_items[0].uid > 0);
@@ -46,6 +48,7 @@ static void test_stackable_drop_merges_and_reveals(void) {
     slot = rc_inv_add(p->inventory, 995, 200);
     assert(slot >= 0);
     rc_player_drop_item(world, slot);
+    rc_world_tick(world);
     assert(active_ground_items(world, 995) == 1);
     assert(world->ground_items[0].uid == uid);
     assert(world->ground_items[0].version == version + 1);
@@ -74,6 +77,7 @@ static void test_nonstackable_quantity_splits(void) {
     p->inventory[0].item_id = 1048;
     p->inventory[0].quantity = 3;
     rc_player_drop_item(world, 0);
+    rc_world_tick(world);
     assert(p->inventory[0].item_id == -1);
     assert(active_ground_items(world, 1048) == 3);
     assert(world->ground_item_count == 3);
@@ -110,6 +114,8 @@ static void test_stale_generation_cancels_pickup(void) {
     };
 
     rc_player_pickup_item(world, 0);
+    assert(!rc_interaction_is_active(p));
+    rc_world_tick(world);
     assert(rc_interaction_is_active(p));
     assert(p->interaction.target.entity_uid == 42);
     assert(p->interaction.target.entity_generation == 7);
@@ -145,6 +151,7 @@ static void test_private_foreign_item_is_not_pickable(void) {
     };
 
     rc_player_pickup_item(world, 0);
+    rc_world_tick(world);
     assert(world->ground_items[0].active);
     assert(rc_inv_find(p->inventory, 995) < 0);
 

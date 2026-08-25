@@ -112,6 +112,14 @@ int rc_load_normalization_into(const char *path,
         return -1;
     }
 
+    memset(item_defs, 0, (size_t)max_item_defs * sizeof(*item_defs));
+    memset(npc_defs, 0, (size_t)max_npc_defs * sizeof(*npc_defs));
+
+    uint64_t asset_size = 0;
+    if (!rc_asset_size(path, &asset_size)) {
+        fprintf(stderr, "normalization: can't size %s\n", path);
+        return -1;
+    }
     FILE *f = rc_asset_fopen(path, "rb");
     if (!f) {
         fprintf(stderr, "normalization: can't open %s\n", path);
@@ -136,14 +144,32 @@ int rc_load_normalization_into(const char *path,
         fprintf(stderr, "normalization: bad header\n");
         return -1;
     }
-    if (raw_source_count > (uint32_t)INT_MAX) {
+    if (raw_item_count > (uint32_t)max_item_defs
+            || raw_npc_count > (uint32_t)max_npc_defs
+            || raw_source_count > (uint32_t)INT_MAX) {
         rc_asset_close(f);
-        fprintf(stderr, "normalization: too many source rows\n");
+        fprintf(stderr, "normalization: row count exceeds capacity\n");
         return -1;
     }
-
-    memset(item_defs, 0, (size_t)max_item_defs * sizeof(*item_defs));
-    memset(npc_defs, 0, (size_t)max_npc_defs * sizeof(*npc_defs));
+    uint64_t expected_size = 20u;
+    if (raw_item_count > (UINT64_MAX - expected_size) / 22u
+            || (expected_size += (uint64_t)raw_item_count * 22u,
+                raw_npc_count > (UINT64_MAX - expected_size) / 14u)
+            || (expected_size += (uint64_t)raw_npc_count * 14u,
+                raw_source_count > (UINT64_MAX - expected_size) / 9u)) {
+        rc_asset_close(f);
+        fprintf(stderr, "normalization: size overflow\n");
+        return -1;
+    }
+    expected_size += (uint64_t)raw_source_count * 9u;
+    if (asset_size != expected_size) {
+        rc_asset_close(f);
+        fprintf(stderr,
+                "normalization: size mismatch (expected %llu, got %llu)\n",
+                (unsigned long long)expected_size,
+                (unsigned long long)asset_size);
+        return -1;
+    }
 
     RcSourceNormalization *sources = NULL;
     if (raw_source_count) {
@@ -173,21 +199,29 @@ int rc_load_normalization_into(const char *path,
                                   path, "item key")
                 || !rc_read_exact(f, &flags, sizeof(flags), 1,
                                   path, "item flags")) {
-            rc_asset_close(f);
-            free(sources);
-            return -1;
+            goto fail;
         }
-        if (item_id < (uint32_t)max_item_defs) {
-            item_defs[item_id] = (RcItemNormalization){
-                .canonical_id = id_or_missing(canonical_id),
-                .noted_id = id_or_missing(noted_id),
-                .placeholder_id = id_or_missing(placeholder_id),
-                .key_hash = key_hash,
-                .flags = flags,
-                .loaded = 1,
-            };
-            loaded_items++;
+        uint16_t legal = RC_NORM_ITEM_NOTED | RC_NORM_ITEM_PLACEHOLDER
+                       | RC_NORM_ITEM_NOTEABLE | RC_NORM_ITEM_VARIANT;
+        if (item_id >= (uint32_t)max_item_defs || item_defs[item_id].loaded
+                || canonical_id >= (uint32_t)max_item_defs
+                || (noted_id != UINT32_MAX
+                    && noted_id >= (uint32_t)max_item_defs)
+                || (placeholder_id != UINT32_MAX
+                    && placeholder_id >= (uint32_t)max_item_defs)
+                || (flags & ~legal) != 0 || key_hash == 0) {
+            fprintf(stderr, "normalization: invalid item row %u\n", i);
+            goto fail;
         }
+        item_defs[item_id] = (RcItemNormalization){
+            .canonical_id = id_or_missing(canonical_id),
+            .noted_id = id_or_missing(noted_id),
+            .placeholder_id = id_or_missing(placeholder_id),
+            .key_hash = key_hash,
+            .flags = flags,
+            .loaded = 1,
+        };
+        loaded_items++;
     }
 
     for (uint32_t i = 0; i < raw_npc_count; i++) {
@@ -200,19 +234,22 @@ int rc_load_normalization_into(const char *path,
                                   path, "npc key")
                 || !rc_read_exact(f, &flags, sizeof(flags), 1,
                                   path, "npc flags")) {
-            rc_asset_close(f);
-            free(sources);
-            return -1;
+            goto fail;
         }
-        if (npc_id < (uint32_t)max_npc_defs) {
-            npc_defs[npc_id] = (RcNpcNormalization){
-                .canonical_id = id_or_missing(canonical_id),
-                .key_hash = key_hash,
-                .flags = flags,
-                .loaded = 1,
-            };
-            loaded_npcs++;
+        if (npc_id >= (uint32_t)max_npc_defs || npc_defs[npc_id].loaded
+                || canonical_id >= (uint32_t)max_npc_defs
+                || (flags & ~RC_NORM_NPC_ALIAS_GROUP) != 0
+                || key_hash == 0) {
+            fprintf(stderr, "normalization: invalid NPC row %u\n", i);
+            goto fail;
         }
+        npc_defs[npc_id] = (RcNpcNormalization){
+            .canonical_id = id_or_missing(canonical_id),
+            .key_hash = key_hash,
+            .flags = flags,
+            .loaded = 1,
+        };
+        loaded_npcs++;
     }
     for (uint32_t i = 0; i < raw_source_count; i++) {
         RcSourceNormalization row;
@@ -222,11 +259,46 @@ int rc_load_normalization_into(const char *path,
                                   path, "source key")
                 || !rc_read_exact(f, &row.ref_id, sizeof(row.ref_id), 1,
                                   path, "source ref")) {
-            rc_asset_close(f);
-            free(sources);
-            return -1;
+            goto fail;
         }
+        if (row.kind < 1 || row.kind > 5 || row.key_hash == 0) {
+            fprintf(stderr, "normalization: invalid source row %u\n", i);
+            goto fail;
+        }
+        int duplicate = 0;
+        for (int j = 0; j < loaded_sources; j++) {
+            if (sources[j].kind == row.kind
+                    && sources[j].key_hash == row.key_hash
+                    && sources[j].ref_id == row.ref_id) {
+                duplicate = 1;
+                break;
+            }
+        }
+        if (duplicate) continue;
         sources[loaded_sources++] = row;
+    }
+
+    for (int i = 0; i < max_item_defs; i++) {
+        if (!item_defs[i].loaded) continue;
+        int refs[] = {item_defs[i].canonical_id, item_defs[i].noted_id,
+                      item_defs[i].placeholder_id};
+        for (size_t j = 0; j < sizeof(refs) / sizeof(refs[0]); j++) {
+            if (refs[j] >= 0 && !item_defs[refs[j]].loaded) {
+                fprintf(stderr,
+                        "normalization: item %d references missing item %d\n",
+                        i, refs[j]);
+                goto fail;
+            }
+        }
+    }
+    for (int i = 0; i < max_npc_defs; i++) {
+        if (npc_defs[i].loaded
+                && !npc_defs[npc_defs[i].canonical_id].loaded) {
+            fprintf(stderr,
+                    "normalization: NPC %d references missing NPC %d\n",
+                    i, npc_defs[i].canonical_id);
+            goto fail;
+        }
     }
 
     rc_asset_close(f);
@@ -235,6 +307,13 @@ int rc_load_normalization_into(const char *path,
     if (out_source_count) *out_source_count = loaded_sources;
     *source_defs = sources;
     return loaded_items + loaded_npcs + loaded_sources;
+
+fail:
+    rc_asset_close(f);
+    free(sources);
+    memset(item_defs, 0, (size_t)max_item_defs * sizeof(*item_defs));
+    memset(npc_defs, 0, (size_t)max_npc_defs * sizeof(*npc_defs));
+    return -1;
 }
 
 int rc_load_normalization(const char *path) {

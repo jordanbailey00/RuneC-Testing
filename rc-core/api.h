@@ -55,6 +55,7 @@ RcWorld *rc_world_create_config(const RcWorldConfig *cfg);
 RcWorld *rc_world_create_with_data(RcGameData *data,
                                    const RcWorldConfig *cfg);
 RcWorld *rc_world_create(uint32_t seed);
+int      rc_world_reset(RcWorld *world);
 void     rc_world_destroy(RcWorld *world);
 const RcGameData *rc_world_get_game_data(const RcWorld *world);
 
@@ -75,11 +76,22 @@ int rc_world_ensure_npc_near(RcWorld *world, int npc_id, int x, int y,
 
 // Tick
 void rc_world_tick(RcWorld *world);
+RcTick rc_world_get_tick(const RcWorld *world);
+
+// System-owned relocation and death handoff. These are not player input and
+// therefore apply immediately without entering the command queue.
+int rc_world_relocate_player(RcWorld *world, int x, int y, int plane);
+int rc_world_respawn_player(RcWorld *world, int x, int y, int plane);
+
+RcPlayerCommandResult rc_player_last_command_result(const RcWorld *world,
+                                                     uint64_t *sequence);
+int rc_player_pending_command_count(const RcWorld *world);
 
 // Player input (queued, processed next tick)
 void rc_player_walk_to(RcWorld *world, int tile_x, int tile_y);
 void rc_player_run_to(RcWorld *world, int tile_x, int tile_y);
-void rc_player_attack_npc(RcWorld *world, int npc_uid);
+int  rc_player_set_running(RcWorld *world, int enabled);
+int rc_player_attack_npc(RcWorld *world, int npc_uid);
 void rc_player_set_attack_style(RcWorld *world, int style_idx);
 void rc_player_set_prayer(RcWorld *world, int prayer_id);
 void rc_player_set_spellbook(RcWorld *world, int spellbook);

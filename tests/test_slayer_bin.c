@@ -31,12 +31,11 @@ static void write_bad_bins(void) {
     fclose(f);
 }
 
-static void append_stub_npc(int id, const char *name) {
-    int idx = g_npc_def_count++;
-    assert(idx < RC_MAX_NPC_DEFS);
-    memset(&g_npc_defs[idx], 0, sizeof(g_npc_defs[idx]));
-    g_npc_defs[idx].id = id;
-    strcpy(g_npc_defs[idx].name, name);
+static int loaded_npc_id(const char *name) {
+    int index = rc_npc_def_find_name(name);
+    const RcNpcDef *def = rc_npc_def_get(index);
+    assert(def != NULL);
+    return def->id;
 }
 
 int main(void) {
@@ -171,39 +170,41 @@ int main(void) {
     rc_event_fire(w, RC_EVT_NPC_DIED, &hit);
     assert(w->player.slayer_task_remaining == 0);
 
-    append_stub_npc(65000, "Dawn");
     assert(rc_slayer_start_task(w, "Duradel", "Gargoyles", 1) == 0);
-    RcPayloadNpcEvent alt = {.npc_id = 3, .def_id = 65000};
+    RcPayloadNpcEvent alt = {
+        .npc_id = 3,
+        .def_id = (uint32_t)loaded_npc_id("Dawn"),
+    };
     rc_event_fire(w, RC_EVT_NPC_DIED, &alt);
     assert(w->player.slayer_task_remaining == 0);
 
-    append_stub_npc(65001, "Calvar'ion");
     w->player.slayer_master_idx = duradel;
     w->player.slayer_task_idx = boss;
     w->player.slayer_task_remaining = 1;
     strcpy(w->player.slayer_boss_name, "Vet'ion");
-    RcPayloadNpcEvent boss_alt = {.npc_id = 4, .def_id = 65001};
+    RcPayloadNpcEvent boss_alt = {
+        .npc_id = 4,
+        .def_id = (uint32_t)loaded_npc_id("Calvar'ion"),
+    };
     rc_event_fire(w, RC_EVT_NPC_DIED, &boss_alt);
     assert(w->player.slayer_task_remaining == 0);
 
-    append_stub_npc(65002, "Ahrim the Blighted");
-    append_stub_npc(65003, "Dagannoth Rex");
-    append_stub_npc(65004, "Spindel");
-    append_stub_npc(65005, "Artio");
-    append_stub_npc(65006, "Deranged archaeologist");
     const char *groups[] = {
         "Barrows brothers", "Dagannoth Kings", "Venenatis",
         "Callisto", "Crazy archaeologist",
     };
-    int ids[] = {65002, 65003, 65004, 65005, 65006};
+    const char *npc_names[] = {
+        "Ahrim the Blighted", "Dagannoth Rex", "Spindel", "Artio",
+        "Deranged archaeologist",
+    };
     for (int i = 0; i < 5; i++) {
         w->player.slayer_master_idx = duradel;
         w->player.slayer_task_idx = boss;
         w->player.slayer_task_remaining = 1;
         strcpy(w->player.slayer_boss_name, groups[i]);
         RcPayloadNpcEvent evt = {
-            .npc_id = (uint16_t)(5 + i),
-            .def_id = (uint32_t)ids[i],
+            .npc_id = (RcNpcId)(5 + i),
+            .def_id = (uint32_t)loaded_npc_id(npc_names[i]),
         };
         rc_event_fire(w, RC_EVT_NPC_DIED, &evt);
         assert(w->player.slayer_task_remaining == 0);

@@ -1,4 +1,5 @@
 #include "traversal.h"
+#include "player_command.h"
 #include "config.h"
 #include "io.h"
 
@@ -212,6 +213,19 @@ const RcTraversalEdge *rc_traversal_edges_all(int *count) {
     return edge_count > 0 ? edges : NULL;
 }
 
+const RcTraversalEdge *rc_traversal_get(int idx) {
+    int count = 0;
+    const RcTraversalEdge *edges = rc_traversal_edges_all(&count);
+    return edges && idx >= 0 && idx < count ? &edges[idx] : NULL;
+}
+
+int rc_traversal_index_of(const RcTraversalEdge *edge) {
+    int count = 0;
+    const RcTraversalEdge *edges = rc_traversal_edges_all(&count);
+    if (!edge || !edges || edge < edges || edge >= edges + count) return -1;
+    return (int)(edge - edges);
+}
+
 const RcTraversalEdge *rc_traversal_find(int kind, int source_id,
                                          int x, int y, int plane, int option) {
     int count = 0;
@@ -246,6 +260,14 @@ const RcTraversalEdge *rc_traversal_find_target(int kind, const char *target) {
 }
 
 int rc_player_apply_traversal(RcWorld *world, const RcTraversalEdge *edge) {
+    if (rc_player_command_should_queue(world)) {
+        if (!edge) return 0;
+        int args[8] = {edge->dest_x, edge->dest_y, edge->dest_plane,
+                       0, 0, 0, 0, 0};
+        return rc_player_command_submit(world,
+                                        RC_PLAYER_COMMAND_APPLY_TRAVERSAL,
+                                        RC_ACTION_CATEGORY_STRONG, args, 0);
+    }
     if (!world || !edge || !(world->enabled & RC_SUB_TRAVERSAL)) return 0;
     world->player.prev_x = world->player.x;
     world->player.prev_y = world->player.y;

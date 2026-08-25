@@ -1,16 +1,30 @@
 #include "../rc-core/api.h"
 #include "../rc-core/combat.h"
 #include "../rc-core/npc.h"
+#include "runtime_test_fixture.h"
 
 #include <assert.h>
 #include <string.h>
 
 int main(void) {
+    g_npc_def_count = 1;
+    memset(&g_npc_defs[0], 0, sizeof(g_npc_defs[0]));
+    g_npc_defs[0].id = 900001;
+    g_npc_defs[0].size = 1;
+    g_npc_defs[0].combat_level = 2;
+    g_npc_defs[0].hitpoints = 5;
+    g_npc_defs[0].stats[1] = 1;
+    g_npc_defs[0].max_hit = 1;
+    g_npc_defs[0].attack_speed = 4;
+    g_npc_defs[0].attack_types = 0x04;
+    g_npc_defs[0].respawn_ticks = 8;
+    strcpy(g_npc_defs[0].options[1], "Attack");
+
     RcWorldConfig cfg = rc_preset_base_only();
     cfg.subsystems = RC_SUB_COMBAT;
     cfg.seed = 12345;
 
-    RcWorld *world = rc_world_create_config(&cfg);
+    RcWorld *world = rc_test_world_create_with_defs(&cfg, "combat_flow", 0);
     assert(world);
 
     RcPlayer *p = &world->player;
@@ -22,21 +36,7 @@ int main(void) {
     p->equipment_bonuses[EQ_STR] = 100;
     rc_player_set_attack_style(world, 0);
 
-    int def_idx = g_npc_def_count++;
-    assert(def_idx < RC_MAX_NPC_DEFS);
-    memset(&g_npc_defs[def_idx], 0, sizeof(g_npc_defs[def_idx]));
-    g_npc_defs[def_idx].id = 900001;
-    g_npc_defs[def_idx].size = 1;
-    g_npc_defs[def_idx].combat_level = 2;
-    g_npc_defs[def_idx].hitpoints = 5;
-    g_npc_defs[def_idx].stats[1] = 1;
-    g_npc_defs[def_idx].max_hit = 1;
-    g_npc_defs[def_idx].attack_speed = 4;
-    g_npc_defs[def_idx].attack_types = 0x04;
-    g_npc_defs[def_idx].respawn_ticks = 8;
-    strcpy(g_npc_defs[def_idx].options[1], "Attack");
-
-    int npc_idx = rc_npc_spawn(world, def_idx, p->x + 3, p->y, p->plane);
+    int npc_idx = rc_npc_spawn(world, 0, p->x + 3, p->y, p->plane);
     assert(npc_idx >= 0);
     int uid = world->npcs[npc_idx].uid;
 

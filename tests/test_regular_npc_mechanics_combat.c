@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "api.h"
 #include "activity_mechanics.h"
@@ -11,6 +12,7 @@
 #include "monster_mechanics.h"
 #include "npc.h"
 #include "prayer.h"
+#include "runtime_test_fixture.h"
 
 #define RC_TEST_REGULAR_NPC_MECH_BIN \
     RC_TEST_SOURCE_DIR "/data/defs/regular_npc_mechanics.bin"
@@ -104,6 +106,48 @@ int main(void) {
     npc_def(25, 2, "Aberrant spectre", 90);
     g_npc_def_count = 26;
 
+    g_npc_defs[2].attack_speed = 4;
+    g_npc_defs[2].attack_types = 0x08;
+    g_npc_defs[2].max_hit = 20;
+    g_npc_defs[2].stats[5] = 99;
+    g_npc_defs[5].attack_speed = 4;
+    g_npc_defs[5].attack_types = 0x10;
+    g_npc_defs[5].max_hit = 10;
+    g_npc_defs[5].stats[4] = 99;
+    g_npc_defs[7].attack_speed = 6;
+    g_npc_defs[7].attack_types = 0x01;
+    g_npc_defs[7].max_hit = 10;
+    g_npc_defs[7].stats[0] = 99;
+    g_npc_defs[9].attack_speed = 8;
+    g_npc_defs[9].attack_types = 0x19;
+    g_npc_defs[9].max_hit = 97;
+    g_npc_defs[9].stats[4] = 999;
+    g_npc_defs[9].stats[5] = 999;
+    g_npc_defs[10].attack_speed = 5;
+    g_npc_defs[10].attack_types = 0x08;
+    g_npc_defs[10].max_hit = 10;
+    g_npc_defs[10].stats[5] = 99;
+    g_npc_defs[12].attack_speed = 5;
+    g_npc_defs[12].attack_types = 0x01;
+    g_npc_defs[12].max_hit = 10;
+    g_npc_defs[12].stats[0] = 99;
+    g_npc_defs[14].attack_speed = 6;
+    g_npc_defs[14].attack_types = 0x01;
+    g_npc_defs[14].max_hit = 100;
+    g_npc_defs[14].stats[0] = 999;
+    g_npc_defs[18].attack_speed = 6;
+    g_npc_defs[18].attack_types = 0x01;
+    g_npc_defs[18].max_hit = 10;
+    g_npc_defs[18].stats[0] = 99;
+    g_npc_defs[22].attack_speed = 5;
+    g_npc_defs[22].attack_types = 0x01;
+    g_npc_defs[22].max_hit = 3;
+    g_npc_defs[22].stats[0] = 99;
+    g_npc_defs[23].attack_speed = 5;
+    g_npc_defs[23].attack_types = 0x01;
+    g_npc_defs[23].max_hit = 4;
+    g_npc_defs[23].stats[0] = 99;
+
     memset(g_rc_activity_mechanics, 0, sizeof(g_rc_activity_mechanics));
     g_rc_activity_mechanic_count = 17;
     activity_row(0, 13668,
@@ -172,9 +216,16 @@ int main(void) {
 
     assert(rc_load_monster_mechanics(RC_TEST_REGULAR_NPC_MECH_BIN) == 16);
 
-    RcWorldConfig cfg = rc_preset_combat_only();
+    char npc_fixture_path[256];
+    snprintf(npc_fixture_path, sizeof(npc_fixture_path),
+             "/tmp/runec_regular_mechanics_npcs_%ld.bin", (long)getpid());
+    assert(rc_test_write_npc_defs(npc_fixture_path, g_npc_defs,
+                                  g_npc_def_count));
+
+    RcWorldConfig cfg = rc_preset_base_only();
+    cfg.subsystems = RC_SUB_COMBAT;
+    cfg.npc_defs_path = npc_fixture_path;
     cfg.monster_mechanics_path = NULL;
-    cfg.encounters_path = NULL;
     RcWorld *w = rc_world_create_config(&cfg);
     assert(w != NULL);
     RcNpc pre_hook_turoth = { .def_id = 0, .current_hp = 60 };
@@ -253,10 +304,6 @@ int main(void) {
     w->player.equipment[EQUIP_HEAD].item_id = 12;
     assert(rc_combat_apply_regular_npc_attack_rules(w, &spectre, 10) == 10);
 
-    g_npc_defs[2].attack_speed = 4;
-    g_npc_defs[2].attack_types = 0x08;
-    g_npc_defs[2].max_hit = 20;
-    g_npc_defs[2].stats[5] = 99;
     dragon.active = true;
     dragon.target_uid = 0;
     dragon.x = w->player.x;
@@ -294,17 +341,13 @@ int main(void) {
     rc_queue_hit(w->player.pending_hits, &w->player.num_pending_hits,
                  8, 0, COMBAT_MAGIC, rev->uid, 0, w->tick);
     rc_resolve_player_hits(w);
-    assert(w->player.teleblock_timer == 500);
-    assert(w->player.freeze_timer == 10);
+    assert(rc_player_teleblock_ticks_remaining(w) == 500);
+    assert(rc_player_freeze_ticks_remaining(w) == 10);
     assert(rev->current_hp == 52);
 
     int shaman_idx = rc_npc_spawn(w, 5, w->player.x, w->player.y, 0);
     assert(shaman_idx >= 0);
     RcNpc *shaman = &w->npcs[shaman_idx];
-    g_npc_defs[5].attack_speed = 4;
-    g_npc_defs[5].attack_types = 0x10;
-    g_npc_defs[5].max_hit = 10;
-    g_npc_defs[5].stats[4] = 99;
     shaman->active = true;
     shaman->target_uid = 0;
     shaman->attack_count = 4;
@@ -337,10 +380,6 @@ int main(void) {
     assert(w->player.skills.boosted_level[SKILL_ATTACK] == 10);
     assert(araxxor->current_hp == 102);
 
-    g_npc_defs[7].attack_speed = 6;
-    g_npc_defs[7].attack_types = 0x01;
-    g_npc_defs[7].max_hit = 10;
-    g_npc_defs[7].stats[0] = 99;
     araxxor->active = true;
     araxxor->target_uid = 0;
     araxxor->attack_count = 4;
@@ -455,10 +494,6 @@ int main(void) {
     rc_resolve_player_hits(w);
     assert(w->player.current_hp == 440);
 
-    g_npc_defs[22].attack_speed = 5;
-    g_npc_defs[22].attack_types = 0x01;
-    g_npc_defs[22].max_hit = 3;
-    g_npc_defs[22].stats[0] = 99;
     brutus->active = true;
     brutus->target_uid = 0;
     brutus->attack_count = 4;
@@ -469,10 +504,6 @@ int main(void) {
     assert(w->player.num_pending_hits >= 2);
     assert(w->player.pending_hits[0].damage == 19);
 
-    g_npc_defs[23].attack_speed = 5;
-    g_npc_defs[23].attack_types = 0x01;
-    g_npc_defs[23].max_hit = 4;
-    g_npc_defs[23].stats[0] = 99;
     demonic->active = true;
     demonic->target_uid = 0;
     demonic->attack_count = 2;
@@ -535,10 +566,6 @@ int main(void) {
     rc_resolve_player_hits(w);
     assert(w->player.run_energy == 8000);
 
-    g_npc_defs[14].attack_speed = 6;
-    g_npc_defs[14].attack_types = 0x01;
-    g_npc_defs[14].max_hit = 100;
-    g_npc_defs[14].stats[0] = 999;
     dharok->active = true;
     dharok->target_uid = 0;
     dharok->current_hp = 10;
@@ -556,23 +583,21 @@ int main(void) {
     RcNpc *mal = &w->npcs[mal_idx];
     mal->current_hp = 50;
     mal->attack_count = 1;
-    w->player.freeze_timer = 0;
-    w->player.teleblock_timer = 0;
+    w->player.freeze_start_tick = 0;
+    w->player.freeze_expire_tick = 0;
+    w->player.teleblock_start_tick = 0;
+    w->player.teleblock_expire_tick = 0;
     rc_queue_hit(w->player.pending_hits, &w->player.num_pending_hits,
                  8, 0, COMBAT_MAGIC, mal->uid, 0, w->tick);
     rc_resolve_player_hits(w);
-    assert(w->player.freeze_timer == 10);
-    assert(w->player.teleblock_timer == 0);
+    assert(rc_player_freeze_ticks_remaining(w) == 10);
+    assert(rc_player_teleblock_ticks_remaining(w) == 0);
     mal->attack_count = 2;
     rc_queue_hit(w->player.pending_hits, &w->player.num_pending_hits,
                  20, 0, COMBAT_MAGIC, mal->uid, 0, w->tick);
     rc_resolve_player_hits(w);
     assert(mal->current_hp == 60);
 
-    g_npc_defs[10].attack_speed = 5;
-    g_npc_defs[10].attack_types = 0x08;
-    g_npc_defs[10].max_hit = 10;
-    g_npc_defs[10].stats[5] = 99;
     mal->active = true;
     mal->target_uid = 0;
     mal->attack_count = 2;
@@ -583,11 +608,6 @@ int main(void) {
     assert(w->player.num_pending_hits >= 2);
     assert(w->player.pending_hits[0].damage == 25);
 
-    g_npc_defs[9].attack_speed = 8;
-    g_npc_defs[9].attack_types = 0x19;
-    g_npc_defs[9].max_hit = 97;
-    g_npc_defs[9].stats[4] = 999;
-    g_npc_defs[9].stats[5] = 999;
     jad->active = true;
     jad->target_uid = 0;
     jad->attack_timer = 0;
@@ -605,10 +625,6 @@ int main(void) {
     assert(w->player.num_pending_hits == 1);
     assert(w->player.pending_hits[0].attack_style == COMBAT_MELEE_CRUSH);
 
-    g_npc_defs[12].attack_speed = 5;
-    g_npc_defs[12].attack_types = 0x01;
-    g_npc_defs[12].max_hit = 10;
-    g_npc_defs[12].stats[0] = 99;
     blood->active = true;
     blood->target_uid = 0;
     blood->attack_count = 5;
@@ -622,10 +638,6 @@ int main(void) {
     int gen_enrage_idx = rc_npc_spawn(w, 18, w->player.x, w->player.y, 0);
     assert(gen_enrage_idx >= 0);
     RcNpc *gen_enrage = &w->npcs[gen_enrage_idx];
-    g_npc_defs[18].attack_speed = 6;
-    g_npc_defs[18].attack_types = 0x01;
-    g_npc_defs[18].max_hit = 10;
-    g_npc_defs[18].stats[0] = 99;
     gen_enrage->active = true;
     gen_enrage->target_uid = 0;
     gen_enrage->current_hp = 20;
@@ -646,6 +658,7 @@ int main(void) {
     assert(w->player.skills.boosted_level[SKILL_ATTACK] == 9);
 
     rc_world_destroy(w);
+    assert(unlink(npc_fixture_path) == 0);
     printf("test_regular_npc_mechanics_combat: damage-rule consumers OK.\n");
     return 0;
 }

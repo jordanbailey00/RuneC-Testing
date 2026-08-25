@@ -89,12 +89,7 @@ static uint16_t activity_profile_for_def(int def_id) {
 }
 
 static RcNpc *find_npc_by_uid(RcWorld *world, int uid) {
-    if (!world || uid < 0) return NULL;
-    for (int i = 0; i < world->npc_count; i++) {
-        RcNpc *npc = &world->npcs[i];
-        if (npc->active && npc->uid == uid) return npc;
-    }
-    return NULL;
+    return rc_npc_resolve(world, uid);
 }
 
 static int find_npc_def_idx_exact(const char *name) {
@@ -422,16 +417,14 @@ static void regular_on_npc_hit_player(RcWorld *world,
                       (source->attack_count % 3) == 1;
     if (profile != RC_ACTIVITY_PROFILE_REVENANT_MALEDICTUS &&
             ((tags & RC_MONSTER_TAG_TELEBLOCK) != 0 ||
-             (activity & RC_ACTIVITY_BEHAVIOR_TELEBLOCK) != 0) &&
-            p->teleblock_timer < 500) {
-        p->teleblock_timer = 500;
+             (activity & RC_ACTIVITY_BEHAVIOR_TELEBLOCK) != 0)) {
+        rc_player_apply_teleblock(world, 500);
     }
     if ((rev_freeze ||
          (profile != RC_ACTIVITY_PROFILE_REVENANT_MALEDICTUS &&
           ((tags & RC_MONSTER_TAG_FREEZE) != 0 ||
-           (activity & RC_ACTIVITY_BEHAVIOR_FREEZE) != 0))) &&
-            p->freeze_timer < 10) {
-        p->freeze_timer = 10;
+           (activity & RC_ACTIVITY_BEHAVIOR_FREEZE) != 0)))) {
+        rc_player_apply_freeze(world, 10);
     }
 }
 

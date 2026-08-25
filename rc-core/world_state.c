@@ -179,8 +179,6 @@ static void apply_npc_state(RcNpc *npc,
     npc->last_hit_timer = 0;
     npc->num_pending_hits = 0;
     rc_combat_init_npc_state(npc);
-    npc->combat.attack_cooldown = npc->attack_timer;
-    npc->combat.action_delay = npc->attack_timer;
     npc->combat.hp_current = npc->current_hp;
     npc->combat.hp_max = npc->spawn_hp;
     npc->combat.attack_count = npc->attack_count;

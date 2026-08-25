@@ -8,6 +8,7 @@
 #include "drops.h"
 #include "items.h"
 #include "npc.h"
+#include "runtime_test_fixture.h"
 
 #define ITEM_PATH RC_TEST_SOURCE_DIR "/data/defs/items.bin"
 #define DROPS_PATH RC_TEST_SOURCE_DIR "/data/defs/drops.bin"
@@ -15,7 +16,16 @@
 #define GDT_PATH RC_TEST_SOURCE_DIR "/data/defs/gdt.bin"
 #define MRDT_PATH RC_TEST_SOURCE_DIR "/data/defs/mrdt.bin"
 
-static RcWorld *phase3_world(void) {
+static void install_npc_def(int npc_id) {
+    memset(g_npc_defs, 0, sizeof(g_npc_defs));
+    g_npc_def_count = 1;
+    g_npc_defs[0].id = npc_id;
+    g_npc_defs[0].hitpoints = 1;
+    g_npc_defs[0].size = 1;
+}
+
+static RcWorld *phase3_world(int npc_id) {
+    install_npc_def(npc_id);
     RcWorldConfig cfg = rc_preset_base_only();
     cfg.subsystems = RC_SUB_COMBAT | RC_SUB_INVENTORY | RC_SUB_LOOT;
     cfg.items_path = ITEM_PATH;
@@ -23,19 +33,10 @@ static RcWorld *phase3_world(void) {
     cfg.rdt_path = RDT_PATH;
     cfg.gdt_path = GDT_PATH;
     cfg.mrdt_path = MRDT_PATH;
-    RcWorld *world = rc_world_create_config(&cfg);
+    RcWorld *world = rc_test_world_create_with_defs(&cfg, "ground_phase3", 0);
     assert(world != NULL);
     world->rng_state = 1;
     return world;
-}
-
-static void install_npc_def(int npc_id) {
-    memset(g_npc_defs, 0, sizeof(g_npc_defs));
-    g_npc_def_count = 1;
-    g_npc_defs[0].id = npc_id;
-    g_npc_defs[0].hitpoints = 1;
-    g_npc_defs[0].size = 1;
-    g_npc_defs[0].respawn_ticks = 25;
 }
 
 static void kill_spawned_npc(RcWorld *world, int npc_idx) {
@@ -43,7 +44,7 @@ static void kill_spawned_npc(RcWorld *world, int npc_idx) {
     npc->current_hp = 1;
     npc->pending_hits[0] = (RcPendingHit){
         .damage = 1,
-        .ticks_remaining = 0,
+        .apply_tick = world->tick,
         .attack_style = COMBAT_MELEE_SLASH,
         .source_idx = -1,
         .active = true,
@@ -64,7 +65,7 @@ static int active_items_at(const RcWorld *world, int x, int y, int plane) {
 }
 
 static void test_roll_returns_obor_always_drops(void) {
-    RcWorld *world = phase3_world();
+    RcWorld *world = phase3_world(7416);
     RcLootDrop drops[RC_MAX_LOOT_DROPS];
     int count = rc_roll_npc_loot(world, 7416, drops, RC_MAX_LOOT_DROPS);
     assert(count >= 2);
@@ -77,7 +78,7 @@ static void test_roll_returns_obor_always_drops(void) {
 }
 
 static void test_roll_handles_variable_quantities(void) {
-    RcWorld *world = phase3_world();
+    RcWorld *world = phase3_world(1);
     int saw_range_drop = 0;
     for (int i = 0; i < 512 && !saw_range_drop; i++) {
         RcLootDrop drops[RC_MAX_LOOT_DROPS];
@@ -95,8 +96,7 @@ static void test_roll_handles_variable_quantities(void) {
 }
 
 static void test_npc_death_spawns_private_ground_loot(void) {
-    RcWorld *world = phase3_world();
-    install_npc_def(7416);
+    RcWorld *world = phase3_world(7416);
     int x = world->player.x + 1;
     int y = world->player.y;
     int idx = rc_npc_spawn(world, 0, x, y, world->player.plane);
@@ -114,14 +114,13 @@ static void test_npc_death_spawns_private_ground_loot(void) {
         assert(g->original_owner_uid == RC_GROUND_OWNER_LOCAL_PLAYER);
         assert(g->visibility == RC_GROUND_VIS_PRIVATE ||
                g->visibility == RC_GROUND_VIS_PRIVATE_PERMANENT);
-        assert(g->despawn_timer == 299);
+        assert(g->despawn_timer == 300);
     }
     rc_world_destroy(world);
 }
 
 static void test_npc_without_table_spawns_no_loot(void) {
-    RcWorld *world = phase3_world();
-    install_npc_def(999999);
+    RcWorld *world = phase3_world(999999);
     int idx = rc_npc_spawn(world, 0, world->player.x + 1, world->player.y,
                            world->player.plane);
     assert(idx >= 0);

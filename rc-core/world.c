@@ -22,6 +22,7 @@
 #include "normalization.h"
 #include "objects.h"
 #include "player_actions.h"
+#include "player_command.h"
 #include "prayer.h"
 #include "quests.h"
 #include "slayer.h"
@@ -121,8 +122,41 @@ static void init_player_defaults(RcPlayer *p) {
     }
 }
 
+static int init_world_state(RcWorld *world) {
+    if (!world || !world->game_data || !world->npcs
+            || world->npc_capacity <= 0) {
+        return 0;
+    }
+    world->rng_state = world->initial_seed;
+    world->tick = 0;
+    world->next_ground_item_uid = 0;
+    world->next_npc_uid = 0;
+    world->player_commands.next_sequence = 0;
+    world->player_commands.last_result = RC_COMMAND_RESULT_NONE;
+    rc_events_init(&world->events);
+    if ((world->enabled & RC_SUB_SLAYER) && rc_slayer_init(world) != 0)
+        return 0;
+    if (world->enabled & RC_SUB_ENCOUNTER) {
+        if (rc_encounter_init(world) != 0) return 0;
+        int spec_count = 0;
+        const RcEncounterSpec *specs =
+            rc_game_data_encounter_specs(world->game_data, &spec_count);
+        for (int i = 0; specs && i < spec_count; i++) {
+            if (rc_encounter_register(world, &specs[i]) < 0) return 0;
+        }
+    }
+    init_player_defaults(&world->player);
+    return 1;
+}
+
 RcWorld *rc_world_create_config(const RcWorldConfig *cfg) {
     if (!cfg) return NULL;
+
+    char config_error[256];
+    if (!rc_world_config_validate(cfg, config_error, sizeof(config_error))) {
+        fprintf(stderr, "rc-core: %s\n", config_error);
+        return NULL;
+    }
 
     RcGameDataLoadReport data_report;
     RcGameData *data = rc_game_data_load(cfg, &data_report);
@@ -139,6 +173,11 @@ RcWorld *rc_world_create_config(const RcWorldConfig *cfg) {
 RcWorld *rc_world_create_with_data(RcGameData *data,
                                    const RcWorldConfig *cfg) {
     if (!data || !cfg) return NULL;
+    char config_error[256];
+    if (!rc_world_config_validate(cfg, config_error, sizeof(config_error))) {
+        fprintf(stderr, "rc-core: %s\n", config_error);
+        return NULL;
+    }
     uint32_t data_subsystems = rc_game_data_subsystems(data);
     if ((cfg->subsystems & ~data_subsystems) != 0) {
         fprintf(stderr,
@@ -151,51 +190,26 @@ RcWorld *rc_world_create_with_data(RcGameData *data,
     // (see rc-core/README.md §10).
     RcWorld *world = calloc(1, sizeof(RcWorld));
     if (!world) return NULL;
+    world->npcs = calloc((size_t)cfg->npc_capacity, sizeof(*world->npcs));
+    if (!world->npcs) {
+        free(world);
+        return NULL;
+    }
+    world->npc_capacity = cfg->npc_capacity;
     world->game_data = data;
     rc_game_data_retain(data);
-    rc_game_data_activate_views(data, cfg->subsystems);
 
-    world->rng_state = cfg->seed;
-    world->tick = 0;
+    world->initial_seed = cfg->seed ? cfg->seed : RC_DEFAULT_SEED;
     world->enabled = cfg->subsystems;
     world->streaming = cfg->streaming;
     rc_world_streaming_config_sanitize(&world->streaming);
     copy_world_path(world->npc_spawns_path, sizeof(world->npc_spawns_path),
                     cfg->spawns_path);
 
-    rc_events_init(&world->events);
-    if (cfg->player_actions_path && g_rc_player_action_count == 0) {
-        rc_load_player_actions(cfg->player_actions_path);
+    if (!init_world_state(world)) {
+        rc_world_destroy(world);
+        return NULL;
     }
-    if ((cfg->subsystems & RC_SUB_COMBAT) && cfg->combat_profiles_path
-            && g_rc_combat_profile_count == 0) {
-        rc_load_combat_profiles(cfg->combat_profiles_path);
-    }
-    uint32_t mechanics_users = RC_SUB_COMBAT | RC_SUB_SLAYER
-                             | RC_SUB_ENCOUNTER;
-    if ((cfg->subsystems & mechanics_users) && cfg->monster_mechanics_path
-            && g_rc_monster_mechanic_family_count == 0) {
-        rc_load_monster_mechanics(cfg->monster_mechanics_path);
-    }
-    if ((cfg->subsystems & RC_SUB_SLAYER) && cfg->slayer_path
-            && g_rc_slayer_master_count == 0) {
-        rc_load_slayer(cfg->slayer_path);
-    }
-    if (cfg->subsystems & RC_SUB_SLAYER) {
-        rc_slayer_init(world);
-    }
-    // Only enabled subsystems subscribe to the event bus — keeps
-    // disabled-subsystem worlds event-free (README §7 + §8).
-    if (cfg->subsystems & RC_SUB_ENCOUNTER) {
-        rc_encounter_init(world);
-        int spec_count = 0;
-        const RcEncounterSpec *specs =
-            rc_game_data_encounter_specs(data, &spec_count);
-        for (int i = 0; specs && i < spec_count; i++) {
-            rc_encounter_register(world, &specs[i]);
-        }
-    }
-    init_player_defaults(&world->player);
     // Full world spawns stay explicit: callers load a world slice with
     // rc_load_npc_spawns_rect/near after choosing the active area.
 
@@ -214,7 +228,36 @@ void rc_world_destroy(RcWorld *world) {
     if (!world) return;
     rc_world_state_destroy(world);
     rc_game_data_release(world->game_data);
+    free(world->npcs);
     free(world);
+}
+
+int rc_world_reset(RcWorld *world) {
+    if (!world || !world->game_data || !world->npcs) return 0;
+
+    RcGameData *game_data = world->game_data;
+    RcNpc *npcs = world->npcs;
+    int npc_capacity = world->npc_capacity;
+    int next_npc_uid = world->next_npc_uid;
+    uint32_t initial_seed = world->initial_seed;
+    uint32_t enabled = world->enabled;
+    RcWorldStreamingConfig streaming = world->streaming;
+    char spawns_path[sizeof(world->npc_spawns_path)];
+    memcpy(spawns_path, world->npc_spawns_path, sizeof(spawns_path));
+
+    rc_world_state_destroy(world);
+    memset(npcs, 0, (size_t)npc_capacity * sizeof(*npcs));
+    memset(world, 0, sizeof(*world));
+    world->game_data = game_data;
+    world->npcs = npcs;
+    world->npc_capacity = npc_capacity;
+    world->initial_seed = initial_seed;
+    world->enabled = enabled;
+    world->streaming = streaming;
+    memcpy(world->npc_spawns_path, spawns_path, sizeof(spawns_path));
+    if (!init_world_state(world)) return 0;
+    world->next_npc_uid = next_npc_uid;
+    return 1;
 }
 
 const RcGameData *rc_world_get_game_data(const RcWorld *world) {
@@ -222,12 +265,52 @@ const RcGameData *rc_world_get_game_data(const RcWorld *world) {
 }
 
 const RcPlayer *rc_get_player(const RcWorld *world) {
-    return &world->player;
+    return world ? &world->player : NULL;
+}
+
+RcTick rc_world_get_tick(const RcWorld *world) {
+    return world ? world->tick : 0;
+}
+
+RcPlayerCommandResult rc_player_last_command_result(const RcWorld *world,
+                                                     uint64_t *sequence) {
+    if (sequence) {
+        *sequence = world ? world->player_commands.last_sequence : 0;
+    }
+    return world ? world->player_commands.last_result
+                 : RC_COMMAND_RESULT_REJECTED_INVALID;
+}
+
+int rc_player_pending_command_count(const RcWorld *world) {
+    return world ? world->player_commands.count : 0;
+}
+
+int rc_world_relocate_player(RcWorld *world, int x, int y, int plane) {
+    if (!world || x < 0 || y < 0 || plane < 0 || plane >= RC_MAX_PLANES) {
+        return 0;
+    }
+    rc_player_cancel_action(world, RC_ACTION_CANCEL_RELOCATED);
+    RcPlayer *player = &world->player;
+    player->prev_x = player->x;
+    player->prev_y = player->y;
+    player->x = x;
+    player->y = y;
+    player->plane = plane;
+    return 1;
+}
+
+int rc_world_respawn_player(RcWorld *world, int x, int y, int plane) {
+    if (!world || !world->player.is_dead) return 0;
+    if (!rc_world_relocate_player(world, x, y, plane)) return 0;
+    world->player.current_hp = world->player.max_hp;
+    world->player.is_dead = false;
+    world->player.death_tick = 0;
+    return 1;
 }
 
 const RcNpc *rc_get_npcs(const RcWorld *world, int *count) {
-    if (count) *count = world->npc_count;
-    return world->npcs;
+    if (count) *count = world ? world->npc_count : 0;
+    return world ? world->npcs : NULL;
 }
 
 static int valid_active_area_request(const RcActiveAreaRequest *request) {

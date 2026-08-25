@@ -2,6 +2,7 @@
 #include "../rc-core/combat.h"
 #include "../rc-core/combat_hit.h"
 #include "../rc-core/npc.h"
+#include "runtime_test_fixture.h"
 
 #include <assert.h>
 #include <string.h>
@@ -38,7 +39,7 @@ static RcWorld *phase7_world(void) {
     RcWorldConfig cfg = rc_preset_base_only();
     cfg.subsystems = RC_SUB_COMBAT;
     cfg.seed = 777;
-    RcWorld *world = rc_world_create_config(&cfg);
+    RcWorld *world = rc_test_world_create_with_defs(&cfg, "phase7", 0);
     assert(world);
     world->player.x = 3200;
     world->player.y = 3200;
@@ -55,9 +56,10 @@ static RcWorld *phase7_world(void) {
 }
 
 static void test_player_hit_causes_npc_retaliation_and_threat_tracking(void) {
-    RcWorld *world = phase7_world();
+    g_npc_def_count = 0;
     int def_idx = add_phase7_npc_def(9701, "Phase 7 Retaliator",
                                      30, 3, 4, false, 0);
+    RcWorld *world = phase7_world();
     int npc_idx = rc_npc_spawn(world, def_idx, 3201, 3200, 0);
     assert(npc_idx >= 0);
     RcNpc *npc = &world->npcs[npc_idx];
@@ -85,9 +87,10 @@ static void test_player_hit_causes_npc_retaliation_and_threat_tracking(void) {
 }
 
 static void test_single_combat_blocks_second_npc_until_multi_enabled(void) {
-    RcWorld *world = phase7_world();
+    g_npc_def_count = 0;
     int def_idx = add_phase7_npc_def(9702, "Phase 7 Single",
                                      30, 3, 4, false, 0);
+    RcWorld *world = phase7_world();
     int a_idx = rc_npc_spawn(world, def_idx, 3201, 3200, 0);
     int b_idx = rc_npc_spawn(world, def_idx, 3200, 3201, 0);
     assert(a_idx >= 0 && b_idx >= 0);
@@ -111,11 +114,12 @@ static void test_single_combat_blocks_second_npc_until_multi_enabled(void) {
 }
 
 static void test_aggressive_npc_acquires_target_and_respects_leash(void) {
-    RcWorld *world = phase7_world();
+    g_npc_def_count = 0;
     int aggro_def = add_phase7_npc_def(9703, "Phase 7 Aggressive",
                                        30, 2, 4, true, 4);
     int passive_def = add_phase7_npc_def(9704, "Phase 7 Passive",
                                          30, 2, 4, false, 4);
+    RcWorld *world = phase7_world();
     int aggro_idx = rc_npc_spawn(world, aggro_def, 3203, 3200, 0);
     int passive_idx = rc_npc_spawn(world, passive_def, 3203, 3201, 0);
     assert(aggro_idx >= 0 && passive_idx >= 0);
@@ -137,10 +141,11 @@ static void test_aggressive_npc_acquires_target_and_respects_leash(void) {
 }
 
 static void test_passive_wander_is_not_combat_leashed(void) {
-    RcWorld *world = phase7_world();
+    g_npc_def_count = 0;
     int def_idx = add_phase7_npc_def(9705, "Phase 7 Passive Wander",
                                      30, 0, 0, false, 4);
     g_npc_defs[def_idx].wander_range = 0;
+    RcWorld *world = phase7_world();
     int npc_idx = rc_npc_spawn(world, def_idx, 3202, 3200, 0);
     assert(npc_idx >= 0);
     RcNpc *npc = &world->npcs[npc_idx];

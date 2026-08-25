@@ -3,6 +3,7 @@
 #include "../rc-core/combat_hit.h"
 #include "../rc-core/events.h"
 #include "../rc-core/npc.h"
+#include "runtime_test_fixture.h"
 
 #include <assert.h>
 #include <stdint.h>
@@ -81,11 +82,14 @@ static void write_phase6_drop_file(const char *path, int npc_id) {
     fclose(f);
 }
 
-static RcWorld *phase6_world(uint32_t subsystems) {
+static RcWorld *phase6_world(uint32_t subsystems, int npc_id, int hp,
+                             int max_hit) {
+    g_npc_def_count = 0;
+    add_phase6_npc_def(npc_id, hp, max_hit);
     RcWorldConfig cfg = rc_preset_base_only();
     cfg.subsystems = subsystems;
     cfg.seed = 12345;
-    RcWorld *world = rc_world_create_config(&cfg);
+    RcWorld *world = rc_test_world_create_with_defs(&cfg, "phase6", 0);
     assert(world);
     for (int i = 0; i < SKILL_COUNT; i++) {
         world->player.skills.base_level[i] = 99;
@@ -106,7 +110,9 @@ static void test_npc_hit_pipeline_records_damage_hp_xp_death_and_loot(void) {
     cfg.subsystems = RC_SUB_COMBAT | RC_SUB_LOOT;
     cfg.seed = 12345;
     cfg.drops_path = drops;
-    RcWorld *world = rc_world_create_config(&cfg);
+    g_npc_def_count = 0;
+    add_phase6_npc_def(npc_id, 10, 0);
+    RcWorld *world = rc_test_world_create_with_defs(&cfg, "phase6_loot", 0);
     assert(world);
     for (int i = 0; i < SKILL_COUNT; i++) {
         world->player.skills.base_level[i] = 99;
@@ -120,8 +126,7 @@ static void test_npc_hit_pipeline_records_damage_hp_xp_death_and_loot(void) {
     assert(rc_event_subscribe(world, RC_EVT_NPC_DIED,
                               phase6_event_counter, &events) == 0);
 
-    int def_idx = add_phase6_npc_def(npc_id, 10, 0);
-    int npc_idx = rc_npc_spawn(world, def_idx,
+    int npc_idx = rc_npc_spawn(world, 0,
                                world->player.x + 1, world->player.y,
                                world->player.plane);
     assert(npc_idx >= 0);
@@ -136,7 +141,7 @@ static void test_npc_hit_pipeline_records_damage_hp_xp_death_and_loot(void) {
     assert(npc->is_dead);
     assert(npc->current_hp == 0);
     assert(npc->death_timer == 3);
-    assert(npc->respawn_timer == 9);
+    assert(npc->respawn_timer == 25);
     assert(npc->combat.hp_current == 0);
     assert(npc->combat.hp_max == 10);
     assert(npc->combat.recent_hit_count == 1);
@@ -156,13 +161,12 @@ static void test_npc_hit_pipeline_records_damage_hp_xp_death_and_loot(void) {
 }
 
 static void test_player_hit_pipeline_records_miss_and_damage_state(void) {
-    RcWorld *world = phase6_world(RC_SUB_COMBAT);
+    RcWorld *world = phase6_world(RC_SUB_COMBAT, 9602, 50, 10);
     Phase6Events events = {0};
     assert(rc_event_subscribe(world, RC_EVT_PLAYER_DAMAGED,
                               phase6_event_counter, &events) == 0);
 
-    int def_idx = add_phase6_npc_def(9602, 50, 10);
-    int npc_idx = rc_npc_spawn(world, def_idx,
+    int npc_idx = rc_npc_spawn(world, 0,
                                world->player.x + 1, world->player.y,
                                world->player.plane);
     assert(npc_idx >= 0);
@@ -202,10 +206,9 @@ static void test_player_hit_pipeline_records_miss_and_damage_state(void) {
 }
 
 static void test_force_max_hit_dummy_queues_max_player_damage(void) {
-    RcWorld *world = phase6_world(RC_SUB_COMBAT);
-    int def_idx = add_phase6_npc_def(9603, 1000000, 0);
+    RcWorld *world = phase6_world(RC_SUB_COMBAT, 9603, 1000000, 0);
     RcNpc *dummy = NULL;
-    int npc_idx = rc_npc_spawn(world, def_idx, world->player.x + 1,
+    int npc_idx = rc_npc_spawn(world, 0, world->player.x + 1,
                                world->player.y, world->player.plane);
     assert(npc_idx >= 0);
     dummy = &world->npcs[npc_idx];

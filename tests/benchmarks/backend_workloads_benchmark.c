@@ -241,15 +241,7 @@ static RcWorld *make_object_world(uint32_t seed) {
 }
 
 static void reset_door_world(RcWorld *world) {
-    world->player.x = 3197;
-    world->player.y = 3384;
-    world->player.plane = 0;
-    world->player.prev_x = world->player.x;
-    world->player.prev_y = world->player.y;
-    world->player.route_len = 0;
-    world->player.route_idx = 0;
-    world->player.action_lock_timer = 0;
-    world->player.interaction.active = 0;
+    (void)rc_world_relocate_player(world, 3197, 3384, 0);
     world->object_state_count = 0;
 }
 

@@ -90,6 +90,7 @@ void rc_skills_use_data(const RcSkillData *data);
 void rc_skills_reset_data_if_active(const RcSkillData *data);
 
 const RcRecipe *rc_recipe_get(int idx);
+int rc_recipe_index_of(const RcRecipe *recipe);
 const RcRecipe *rc_recipe_find_output(int item_id);
 const RcSkillDropSource *rc_skill_drop_source_find(const char *name);
 const RcSkillDrop *rc_skill_drops_for(const RcSkillDropSource *source,

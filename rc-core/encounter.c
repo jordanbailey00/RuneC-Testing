@@ -290,12 +290,7 @@ static bool group_is_dead(const RcWorld *world,
 }
 
 static RcNpc *find_npc_by_uid(RcWorld *world, RcNpcId uid) {
-    for (int i = 0; i < world->npc_count; i++) {
-        if (world->npcs[i].active && world->npcs[i].uid == uid) {
-            return &world->npcs[i];
-        }
-    }
-    return NULL;
+    return rc_npc_resolve(world, uid);
 }
 
 static uint32_t protect_prayer_for_style(uint8_t style) {
@@ -849,15 +844,7 @@ static void tick_active(RcWorld *world, RcActiveEncounter *a) {
     RcEncounterState *s = &world->encounter;
     const RcEncounterSpec *spec = &s->registry[a->spec_idx];
 
-    // Find the boss NPC — we reach into the base NPC array, which
-    // is part of the always-on base per rc-core/README.md §2.
-    RcNpc *boss = NULL;
-    for (int i = 0; i < world->npc_count; i++) {
-        if (world->npcs[i].active && world->npcs[i].uid == a->boss_id) {
-            boss = &world->npcs[i];
-            break;
-        }
-    }
+    RcNpc *boss = rc_npc_resolve(world, a->boss_id);
     if (!boss || boss->is_dead) return;   // finish handled by on_died.
 
     int active_idx = (int)(a - s->active);
@@ -926,21 +913,25 @@ static void tick_active(RcWorld *world, RcActiveEncounter *a) {
 
 // ---- Public API --------------------------------------------------------
 
-void rc_encounter_init(RcWorld *world) {
+int rc_encounter_init(RcWorld *world) {
+    if (!world) return -1;
     RcEncounterState *s = &world->encounter;
     memset(s, 0, sizeof(*s));
-    rc_event_subscribe(world, RC_EVT_NPC_SPAWNED,
-                       rc_encounter_on_npc_spawned, s);
-    rc_event_subscribe(world, RC_EVT_NPC_DIED,
-                       rc_encounter_on_npc_died, s);
-    rc_event_subscribe(world, RC_EVT_PLAYER_DAMAGED,
-                       rc_encounter_on_player_damaged, s);
-    rc_event_subscribe(world, RC_EVT_PHASE_TRANSITION,
-                       rc_encounter_on_phase_transition, s);
-    rc_event_subscribe(world, RC_EVT_NPC_ATTACK,
-                       rc_encounter_on_npc_attack, s);
-    rc_event_subscribe(world, RC_EVT_NPC_DAMAGED,
-                       rc_encounter_on_npc_damaged, s);
+    if (rc_event_subscribe(world, RC_EVT_NPC_SPAWNED,
+                           rc_encounter_on_npc_spawned, s) != 0
+            || rc_event_subscribe(world, RC_EVT_NPC_DIED,
+                                  rc_encounter_on_npc_died, s) != 0
+            || rc_event_subscribe(world, RC_EVT_PLAYER_DAMAGED,
+                                  rc_encounter_on_player_damaged, s) != 0
+            || rc_event_subscribe(world, RC_EVT_PHASE_TRANSITION,
+                                  rc_encounter_on_phase_transition, s) != 0
+            || rc_event_subscribe(world, RC_EVT_NPC_ATTACK,
+                                  rc_encounter_on_npc_attack, s) != 0
+            || rc_event_subscribe(world, RC_EVT_NPC_DAMAGED,
+                                  rc_encounter_on_npc_damaged, s) != 0) {
+        return -1;
+    }
+    return 0;
 }
 
 void rc_encounter_tick(RcWorld *world) {
@@ -1398,13 +1389,8 @@ void rc_encounter_on_npc_died(RcWorld *world, int evt,
     if (group && group->count > 0) {
         if (!group_is_dead(world, group)) {
             if (respawn_applies(respawn, a->def_id)) {
-                for (int i = 0; i < world->npc_count; i++) {
-                    RcNpc *npc = &world->npcs[i];
-                    if (npc->uid == p->npc_id) {
-                        npc->respawn_timer = respawn->cooldown_ticks;
-                        break;
-                    }
-                }
+                RcNpc *npc = rc_npc_resolve(world, p->npc_id);
+                if (npc) npc->respawn_timer = respawn->cooldown_ticks;
             }
             return;
         }
@@ -1441,7 +1427,7 @@ void rc_encounter_on_player_damaged(RcWorld *world, int evt,
     RcEncounterState *s = (RcEncounterState *)ctx;
     const RcPayloadPlayerDamaged *p = (const RcPayloadPlayerDamaged *)payload;
     if (!p) return;
-    if (p->source_npc_id == 0xFFFFu) return;      // non-NPC source
+    if (p->source_npc_id == UINT32_MAX) return;   // non-NPC source
 
     int slot = find_active_by_npc(s, p->source_npc_id);
     if (slot < 0) return;                         // not a tracked boss

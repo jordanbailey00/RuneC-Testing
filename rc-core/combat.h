@@ -99,7 +99,6 @@ int  rc_combat_start_npc_vs_player(struct RcWorld *world, int npc_uid,
                                    int player_uid);
 void rc_combat_stop_actor(struct RcWorld *world, RcCombatActorRef actor,
                           int reason);
-void rc_combat_tick_world(struct RcWorld *world);
 void rc_combat_set_player_style(struct RcWorld *world, int style_idx);
 void rc_combat_toggle_auto_retaliate(struct RcWorld *world);
 void rc_combat_toggle_special(struct RcWorld *world);
@@ -141,17 +140,22 @@ int rc_combat_apply_regular_npc_attack_rules(
 
 // Tick player-side combat statuses applied by regular NPC mechanics.
 void rc_combat_tick_player_status(struct RcWorld *world);
+void rc_player_apply_freeze(struct RcWorld *world, int ticks);
+void rc_player_apply_teleblock(struct RcWorld *world, int ticks);
+int rc_player_freeze_ticks_remaining(const struct RcWorld *world);
+int rc_player_teleblock_ticks_remaining(const struct RcWorld *world);
+bool rc_player_is_frozen(const struct RcWorld *world);
 
 // Queue a pending hit on the defender. `prayer_snapshot` is the
 // defender's prayer state AT QUEUE TIME — protection prayers active
 // now determine damage when the hit resolves, even if the defender
 // turns them off mid-flight (OSRS "prayer flick" semantics).
-void rc_queue_hit(RcPendingHit *hits, int *count, int damage, int delay,
-                  int style, int source_idx, uint32_t prayer_snapshot,
-                  int world_tick);
-void rc_queue_hit_flags(RcPendingHit *hits, int *count, int damage, int delay,
-                        int style, int source_idx, uint32_t prayer_snapshot,
-                        int world_tick, uint8_t flags);
+int rc_queue_hit(RcPendingHit *hits, int *count, int damage, int delay,
+                 int style, int source_idx, uint32_t prayer_snapshot,
+                 RcTick world_tick);
+int rc_queue_hit_flags(RcPendingHit *hits, int *count, int damage, int delay,
+                       int style, int source_idx, uint32_t prayer_snapshot,
+                       RcTick world_tick, uint8_t flags);
 
 // Resolve one tick of a pending-hit queue. Applies protection-prayer
 // damage scaling based on the snapshot, decrements timers, returns
@@ -160,7 +164,7 @@ void rc_queue_hit_flags(RcPendingHit *hits, int *count, int damage, int delay,
 //   true  → player is the defender (NPC hits player; full-block).
 //   false → NPC is the defender (player hits NPC; 50% reduction).
 int rc_resolve_pending(RcPendingHit *hits, int *count,
-                       bool is_player_defender);
+                       bool is_player_defender, RcTick current_tick);
 
 // Phase-0 compatibility wrappers around the legacy combat loop.
 // The new combat-state engine will replace these internals phase by

@@ -13,6 +13,7 @@
 
 #define SHOP_PATH RC_TEST_SOURCE_DIR "/data/defs/shops.bin"
 #define ITEM_PATH RC_TEST_SOURCE_DIR "/data/defs/items.bin"
+#define NPC_PATH RC_TEST_SOURCE_DIR "/data/defs/npc_defs.bin"
 #define ODEF_PATH RC_TEST_SOURCE_DIR "/data/defs/object_defs.bin"
 #define OBHV_PATH RC_TEST_SOURCE_DIR "/data/defs/object_behaviors.bin"
 #define BAD_PATH "/tmp/runec_bad_shop.bin"
@@ -34,6 +35,8 @@ int main(void) {
     RcWorldConfig shop_cfg = rc_preset_base_only();
     shop_cfg.subsystems = RC_SUB_SHOPS;
     shop_cfg.shops_path = SHOP_PATH;
+    shop_cfg.items_path = ITEM_PATH;
+    shop_cfg.npc_defs_path = NPC_PATH;
     RcWorld *shop_world = rc_world_create_config(&shop_cfg);
     assert(shop_world != NULL);
     assert(g_shop_count == 601);
@@ -80,6 +83,7 @@ int main(void) {
     cfg.subsystems = RC_SUB_INVENTORY | RC_SUB_SHOPS | RC_SUB_STORAGE
                    | RC_SUB_OBJECTS;
     cfg.items_path = ITEM_PATH;
+    cfg.npc_defs_path = NPC_PATH;
     cfg.shops_path = SHOP_PATH;
     cfg.object_defs_path = ODEF_PATH;
     cfg.object_behaviors_path = OBHV_PATH;
@@ -89,6 +93,7 @@ int main(void) {
     assert(world->enabled & RC_SUB_STORAGE);
 
     rc_player_interact_object(world, 10355, 1);
+    rc_world_tick(world);
     assert(world->player.storage_kind == RC_STORAGE_BANK);
     assert(world->player.interact_type == 3);
 
@@ -97,16 +102,19 @@ int main(void) {
     assert(world->player.inventory[1].item_id == 1351);
     assert(world->player.inventory[2].item_id == 1351);
     assert(rc_bank_deposit_slot(world, 0, 2) == 1);
+    rc_world_tick(world);
     assert(world->player.inventory[0].item_id == -1);
     assert(world->player.bank[0].item_id == 1351);
     assert(world->player.bank[0].quantity == 1);
     assert(world->player.bank_tab[0] == 0);
     assert(rc_bank_withdraw_slot(world, 0, 1) == 1);
+    rc_world_tick(world);
     assert(world->player.bank[0].item_id == -1);
     assert(world->player.bank_tab[0] == 0);
     world->player.bank[5].item_id = 995;
     world->player.bank[5].quantity = 10;
-    assert(rc_bank_withdraw_slot(world, 5, 4) == 4);
+    assert(rc_bank_withdraw_slot(world, 5, 4) == 1);
+    rc_world_tick(world);
     assert(world->player.bank[5].quantity == 6);
     int tab_slot = rc_bank_add_item_tab(world, 995, 10, 1);
     assert(tab_slot >= 0);
@@ -118,13 +126,20 @@ int main(void) {
     assert(world->player.bank_tab[other_tab_slot] == 2);
 
     rc_player_interact_object(world, 10529, 0);
+    rc_world_tick(world);
     assert(world->player.storage_kind == RC_STORAGE_DEPOSIT_BOX);
-    assert(rc_bank_withdraw_slot(world, 0, 1) == -1);
+    assert(rc_bank_withdraw_slot(world, 0, 1) == 1);
+    rc_world_tick(world);
+    assert(rc_player_last_command_result(world, NULL)
+           == RC_COMMAND_RESULT_REJECTED_INVALID);
     assert(rc_bank_deposit_slot(world, 0, 0) == 1);
+    rc_world_tick(world);
     assert(world->player.inventory[0].item_id == -1);
     assert(rc_bank_deposit_slot(world, 1, 0) == 1);
+    rc_world_tick(world);
     assert(world->player.inventory[1].item_id == -1);
     assert(rc_bank_deposit_slot(world, 2, 0) == 1);
+    rc_world_tick(world);
     assert(world->player.inventory[2].item_id == -1);
     int axe_bank_slot = -1;
     for (int i = 0; i < RC_BANK_SIZE; i++) {
@@ -137,21 +152,42 @@ int main(void) {
     assert(world->player.bank[axe_bank_slot].quantity == 3);
     assert(rc_bank_add_item(world, 4151, 1) >= 0);
     assert(rc_player_close_storage(world) == 1);
+    rc_world_tick(world);
     assert(world->player.storage_kind == RC_STORAGE_NONE);
+    assert(rc_player_open_storage_object(world, 10355, 1) == 1);
+    assert(world->player.storage_kind == RC_STORAGE_NONE);
+    rc_world_tick(world);
+    assert(world->player.storage_kind == RC_STORAGE_BANK);
+    assert(rc_player_close_storage(world) == 1);
+    rc_world_tick(world);
 
-    int def_idx = g_npc_def_count++;
-    assert(def_idx < RC_MAX_NPC_DEFS);
-    memset(&g_npc_defs[def_idx], 0, sizeof(g_npc_defs[def_idx]));
-    g_npc_defs[def_idx].id = 990001;
-    strcpy(g_npc_defs[def_idx].name, "Storage Banker");
-    g_npc_defs[def_idx].size = 1;
-    strcpy(g_npc_defs[def_idx].options[1], "Bank");
-    assert(rc_storage_kind_for_npc(&g_npc_defs[def_idx], 1)
-           == RC_STORAGE_BANK);
+    int def_count = 0;
+    const RcNpcDef *defs = rc_npc_defs_all(&def_count);
+    int def_idx = -1;
+    int bank_option = -1;
+    for (int i = 0; defs && i < def_count && def_idx < 0; i++) {
+        for (int option = 0; option < RC_NPC_OPTION_COUNT; option++) {
+            if (rc_storage_kind_for_npc(&defs[i], option)
+                    == RC_STORAGE_BANK) {
+                def_idx = i;
+                bank_option = option;
+                break;
+            }
+        }
+    }
+    assert(def_idx >= 0 && bank_option >= 0);
     int npc_idx = rc_npc_spawn(world, def_idx, world->player.x + 1,
                                world->player.y, world->player.plane);
     assert(npc_idx >= 0);
-    rc_player_interact_npc(world, world->npcs[npc_idx].uid, 1);
+    rc_player_interact_npc(world, world->npcs[npc_idx].uid, bank_option);
+    rc_world_tick(world);
+    assert(world->player.storage_kind == RC_STORAGE_BANK);
+    assert(world->player.storage_target == world->npcs[npc_idx].uid);
+    assert(rc_player_close_storage(world) == 1);
+    rc_world_tick(world);
+    assert(rc_player_open_storage_npc(
+        world, world->npcs[npc_idx].uid, bank_option) == 1);
+    assert(world->player.storage_kind == RC_STORAGE_NONE);
     rc_world_tick(world);
     assert(world->player.storage_kind == RC_STORAGE_BANK);
     assert(world->player.storage_target == world->npcs[npc_idx].uid);
@@ -161,8 +197,12 @@ int main(void) {
     RcWorld *base = rc_world_create_config(&base_cfg);
     assert(base != NULL);
     rc_player_interact_object(base, 10355, 1);
+    rc_world_tick(base);
     assert(base->player.storage_kind == RC_STORAGE_NONE);
-    assert(rc_bank_deposit_slot(base, 0, 1) == -1);
+    assert(rc_bank_deposit_slot(base, 0, 1) == 1);
+    rc_world_tick(base);
+    assert(rc_player_last_command_result(base, NULL)
+           == RC_COMMAND_RESULT_REJECTED_INVALID);
     rc_world_destroy(base);
     return 0;
 }

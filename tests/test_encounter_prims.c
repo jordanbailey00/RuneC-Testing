@@ -36,6 +36,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "../rc-core/api.h"
 #include "../rc-core/config.h"
@@ -47,8 +48,11 @@
 #include "../rc-core/objects.h"
 #include "../rc-core/prayer.h"
 #include "../rc-content/content.h"
+#include "runtime_test_fixture.h"
 
 #define RC_TEST_ENCOUNTERS_BIN RC_TEST_SOURCE_DIR "/data/defs/encounters.bin"
+
+static char g_npc_fixture_path[256];
 
 // Install the boss/minion defs needed by this test. Slot indices are
 // what rc_npc_spawn takes as def_idx, but the encounter subsystem
@@ -364,7 +368,8 @@ static int count_live_npcs_by_cache_id(const RcWorld *w, int npc_id) {
     int count = 0;
     for (int i = 0; i < w->npc_count; i++) {
         if (!w->npcs[i].active || w->npcs[i].is_dead) continue;
-        if (g_npc_defs[w->npcs[i].def_id].id == npc_id) count++;
+        const RcNpcDef *def = rc_npc_def_for_npc(&w->npcs[i]);
+        if (def && def->id == npc_id) count++;
     }
     return count;
 }
@@ -374,7 +379,8 @@ static int count_targetable_npcs_by_cache_id(const RcWorld *w, int npc_id) {
     for (int i = 0; i < w->npc_count; i++) {
         if (!w->npcs[i].active || w->npcs[i].is_dead) continue;
         if (w->npcs[i].player_untargetable) continue;
-        if (g_npc_defs[w->npcs[i].def_id].id == npc_id) count++;
+        const RcNpcDef *def = rc_npc_def_for_npc(&w->npcs[i]);
+        if (def && def->id == npc_id) count++;
     }
     return count;
 }
@@ -401,9 +407,15 @@ static int count_inventory_items(const RcPlayer *pl) {
 int main(void) {
     install_stubs();
     install_item_stubs();
+    snprintf(g_npc_fixture_path, sizeof(g_npc_fixture_path),
+             "/tmp/runec_encounter_prims_npcs_%ld.bin", (long)getpid());
+    assert(rc_test_write_npc_defs(g_npc_fixture_path, g_npc_defs,
+                                  g_npc_def_count));
 
-    RcWorldConfig cfg = rc_preset_combat_only();
+    RcWorldConfig cfg = rc_preset_base_only();
+    cfg.subsystems = RC_SUB_COMBAT | RC_SUB_ENCOUNTER;
     cfg.seed = 99;
+    cfg.npc_defs_path = g_npc_fixture_path;
     cfg.encounters_path = RC_TEST_ENCOUNTERS_BIN;
     RcWorld *w = rc_world_create_config(&cfg);
     assert(w && (w->enabled & RC_SUB_ENCOUNTER));
@@ -493,7 +505,7 @@ int main(void) {
     scurrius->mechanics[m_heal].prim(
         w, aidx, scurrius->mechanics[m_heal].param_block);
     assert(boss->current_hp > 100);
-    assert(boss->current_hp <= g_npc_defs[0].hitpoints);
+    assert(boss->current_hp <= rc_npc_def_for_npc(boss)->hitpoints);
 
     // ---- 6. Phase-enter event wiring auto-fires Food Heal ------------
     w->encounter.active[aidx].current_phase = 0;   // back to opening phase
@@ -569,7 +581,7 @@ int main(void) {
     int mole_x = mole_boss->x;
     int mole_y = mole_boss->y;
     RcPayloadNpcDamaged mole_hit = {
-        .npc_id = (uint16_t)mole_boss->uid,
+        .npc_id = (RcNpcId)mole_boss->uid,
         .source_npc_id = 0xFFFFu,
         .damage = 1,
         .style = COMBAT_MELEE_SLASH,
@@ -612,7 +624,7 @@ int main(void) {
     int finished_before = w->encounter.finished_count;
     w->npcs[graardor_npc_idx].is_dead = true;
     RcPayloadNpcEvent gra_dead = {
-        .npc_id = (uint16_t)w->npcs[graardor_npc_idx].uid,
+        .npc_id = (RcNpcId)w->npcs[graardor_npc_idx].uid,
         .def_id = 2215,
     };
     rc_event_fire(w, RC_EVT_NPC_DIED, &gra_dead);
@@ -621,7 +633,7 @@ int main(void) {
 
     w->npcs[steelwill_npc_idx].is_dead = true;
     RcPayloadNpcEvent steel_dead = {
-        .npc_id = (uint16_t)w->npcs[steelwill_npc_idx].uid,
+        .npc_id = (RcNpcId)w->npcs[steelwill_npc_idx].uid,
         .def_id = 2217,
     };
     rc_event_fire(w, RC_EVT_NPC_DIED, &steel_dead);
@@ -728,7 +740,7 @@ int main(void) {
     assert(rc_encounter_reveal_hidden_npcs(w, "Enormous Tentacle", -1) == 3);
     assert(count_targetable_npcs_by_cache_id(w, 5535) == 4);
     for (int i = 0; i < w->npc_count; i++) {
-        if (g_npc_defs[w->npcs[i].def_id].id == 5535) {
+        if (rc_npc_def_for_npc(&w->npcs[i])->id == 5535) {
             w->npcs[i].is_dead = true;
         }
     }
@@ -753,7 +765,7 @@ int main(void) {
         (RcPrimParamsSpawnLeechNpc *)corp->mechanics[m_core].param_block;
     core_params_mut->spawn_chance_denominator = 1;
     for (int i = 0; i < w->npc_count; i++) {
-        if (g_npc_defs[w->npcs[i].def_id].id == 388) {
+        if (rc_npc_def_for_npc(&w->npcs[i])->id == 388) {
             w->npcs[i].active = false;
         }
     }
@@ -763,7 +775,7 @@ int main(void) {
     w->player.current_hp = 990;
     corp_boss->current_hp = 1000;
     RcPayloadNpcDamaged corp_small_hit = {
-        .npc_id = (uint16_t)corp_boss->uid,
+        .npc_id = (RcNpcId)corp_boss->uid,
         .source_npc_id = 0xFFFFu,
         .damage = 31,
         .style = COMBAT_MELEE_STAB,
@@ -774,7 +786,7 @@ int main(void) {
     corp_large_hit.damage = 32;
     rc_event_fire(w, RC_EVT_NPC_DAMAGED, &corp_large_hit);
     assert(w->npc_count == core_pre + 1);
-    assert(g_npc_defs[w->npcs[core_pre].def_id].id == 388);
+    assert(rc_npc_def_for_npc(&w->npcs[core_pre])->id == 388);
     corp->mechanics[m_core].prim(
         w, corp_active, corp->mechanics[m_core].param_block);
     assert(w->npc_count == core_pre + 1);
@@ -802,7 +814,7 @@ int main(void) {
     core_pre = w->npc_count;
     corp_boss->current_hp = 999;
     RcPayloadNpcAttack corp_attack = {
-        .npc_id = (uint16_t)corp_boss->uid,
+        .npc_id = (RcNpcId)corp_boss->uid,
         .style = COMBAT_MAGIC,
     };
     rc_event_fire(w, RC_EVT_NPC_ATTACK, &corp_attack);
@@ -824,7 +836,7 @@ int main(void) {
     w->player.active_prayers = PRAYER_PROTECT_MELEE;
     w->player.current_prayer_points = 50;
     RcPayloadNpcAttack kril_attack = {
-        .npc_id = (uint16_t)w->npcs[kril_npc_idx].uid,
+        .npc_id = (RcNpcId)w->npcs[kril_npc_idx].uid,
         .style = COMBAT_MELEE_SLASH,
     };
     rc_event_fire(w, RC_EVT_NPC_ATTACK, &kril_attack);
@@ -878,7 +890,7 @@ int main(void) {
     assert(cerb_npc_idx >= 0 && cerb_active >= 0);
     w->player.num_pending_hits = 0;
     RcPayloadNpcAttack cerb_attack = {
-        .npc_id = (uint16_t)w->npcs[cerb_npc_idx].uid,
+        .npc_id = (RcNpcId)w->npcs[cerb_npc_idx].uid,
         .style = COMBAT_MAGIC,
     };
     rc_event_fire(w, RC_EVT_NPC_ATTACK, &cerb_attack);
@@ -886,9 +898,9 @@ int main(void) {
     assert(w->player.pending_hits[0].attack_style == COMBAT_MAGIC);
     assert(w->player.pending_hits[1].attack_style == COMBAT_RANGED);
     assert(w->player.pending_hits[2].attack_style == COMBAT_MELEE_CRUSH);
-    assert(w->player.pending_hits[0].ticks_remaining == 0);
-    assert(w->player.pending_hits[1].ticks_remaining == 2);
-    assert(w->player.pending_hits[2].ticks_remaining == 4);
+    assert(w->player.pending_hits[0].apply_tick == w->tick);
+    assert(w->player.pending_hits[1].apply_tick == w->tick + 2);
+    assert(w->player.pending_hits[2].apply_tick == w->tick + 4);
     w->player.num_pending_hits = 0;
     w->player.current_prayer_points = 90;
     w->player.active_prayers = PRAYER_PROTECT_MAGIC;
@@ -1048,14 +1060,14 @@ int main(void) {
     int spawn_before = w->npc_count;
     for (int i = 0; i < 7; i++) {
         RcPayloadNpcAttack atk = {
-            .npc_id = (uint16_t)w->npcs[vork_idx].uid,
+            .npc_id = (RcNpcId)w->npcs[vork_idx].uid,
             .style = COMBAT_MAGIC,
         };
         rc_event_fire(w, RC_EVT_NPC_ATTACK, &atk);
     }
     assert(w->npc_count == spawn_before + 1);
-    assert(g_npc_defs[w->npcs[spawn_before].def_id].id == 8062);
-    assert(w->player.freeze_timer == 24);
+    assert(rc_npc_def_for_npc(&w->npcs[spawn_before])->id == 8062);
+    assert(rc_player_freeze_ticks_remaining(w) == 24);
     assert(rc_encounter_scale_player_damage(
                w, w->npcs[vork_idx].uid, COMBAT_RANGED, 100) == 0);
     w->npcs[spawn_before].is_dead = true;
@@ -1065,7 +1077,7 @@ int main(void) {
     int acid_before = count_effects(w, RC_ENC_EFFECT_ACID_POOL);
     for (int i = 0; i < 7; i++) {
         RcPayloadNpcAttack atk = {
-            .npc_id = (uint16_t)w->npcs[vork_idx].uid,
+            .npc_id = (RcNpcId)w->npcs[vork_idx].uid,
             .style = COMBAT_MAGIC,
         };
         rc_event_fire(w, RC_EVT_NPC_ATTACK, &atk);
@@ -1108,7 +1120,7 @@ int main(void) {
         w, zul_active, zulrah->mechanics[z_dive].param_block);
     assert(count_effects(w, RC_ENC_EFFECT_FORM_DIVE) == dive_effects + 1);
     assert(w->npcs[zul_idx].player_untargetable);
-    assert(g_npc_defs[w->npcs[zul_idx].def_id].id == 2043);
+    assert(rc_npc_def_for_npc(&w->npcs[zul_idx])->id == 2043);
     for (int i = 0; i < 5; i++) rc_encounter_tick_effects(w);
     assert(!w->npcs[zul_idx].player_untargetable);
     w->encounter.active[vork_active].active = false;
@@ -1190,6 +1202,7 @@ int main(void) {
     assert(w->player.equipment_bonuses[EQ_SLASH_ATK] == 0);
 
     rc_world_destroy(w);
+    assert(unlink(g_npc_fixture_path) == 0);
     printf("test_encounter_prims: wilderness primitive slice OK.\n");
     return 0;
 }

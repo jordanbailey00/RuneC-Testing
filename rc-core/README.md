@@ -105,6 +105,8 @@ equipment + inventory + consumables + encounter**. Nothing else.
 ```c
 typedef struct {
     uint32_t subsystems;     // bitmask: RC_SUB_COMBAT | RC_SUB_PRAYER | ...
+    uint32_t seed;           // zero selects the documented deterministic default
+    int npc_capacity;        // dense active-NPC slots owned by this world
     RcWorldStreamingConfig streaming;
     const char *npc_defs_path;
     const char *items_path;
@@ -118,6 +120,18 @@ RcWorldConfig rc_preset_full_game(void);
 RcWorldConfig rc_preset_combat_only(void);   // Colosseum / Inferno sim
 RcWorldConfig rc_preset_skilling_only(void);
 ```
+
+Creation validates known subsystem bits, preset capacity, and required data
+paths before loading. Successfully loaded data determines the capabilities a
+world may claim; an enabled subsystem with missing required data fails at
+startup with a diagnostic instead of remaining partially initialized.
+
+The process publishes one immutable `RcGameData` authority and shares it among
+compatible worlds. Repeated loads with the same subsystem/path/backend identity
+retain that object. A different identity while worlds are live fails explicitly
+rather than switching global definition views underneath existing worlds.
+Callers that need another runtime-data identity must finish the current worlds
+or use a separate process.
 
 Gameplay area activation is explicit and backend-owned:
 
@@ -203,9 +217,9 @@ placement key into core. Placement-key APIs make dynamic loc state local to one
 exact placed object; tile/id APIs are compatibility paths for tests and tools
 that do not have placement identity.
 
-Config is consumed **once** at world creation. After that, no
-config-driven branching appears on the tick path. The enabled
-bitmask is checked only by the tick dispatcher:
+Config is consumed **once** at world creation. After that, no path or loader
+configuration appears on the tick path. The enabled bitmask gates the tick
+dispatcher and public subsystem entry points that must reject disabled work:
 
 ```c
 void rc_world_tick(RcWorld *w) {
@@ -220,22 +234,50 @@ void rc_world_tick(RcWorld *w) {
 Each `*_tick()` is a direct function call. No vtable. No dispatch
 cost beyond a cache-resident bitmask-AND.
 
+Public gameplay requests made outside `rc_world_tick` are admitted to one
+fixed 32-entry player-command queue. They execute in insertion order during the
+next tick's phase-1 input pass; they do not mutate authoritative gameplay state
+in the caller's render frame or headless control step. Admission and execution
+publish explicit queued, executed, invalid, full, dead, busy, or cancelled
+results. A full queue never falls back to immediate execution.
+
+`RcPlayerActionState` records the current movement, interaction, combat,
+traversal, skill, or modal owner. Soft/background commands can coexist, normal
+commands replace through `rc_player_cancel_action`, and an unexpired strong
+action rejects non-soft replacement. Central cancellation clears commands,
+routes, interactions, combat, manual casts, traversals, skills, and storage.
+Only `rc_world_tick` advances the complete world schedule.
+
+`RcTick` is a 64-bit monotonic cycle value. Delayed work stores an explicit
+start or absolute ready/expiry tick, so an N-tick delay has the same boundary
+meaning regardless of which phase created it. Pending-hit and command capacity
+failures are observable rather than silently dropping gameplay work.
+
+`rc_world_reset` is the supported in-place rollout reset. It keeps the world's
+immutable game data, allocated NPC storage, enabled subsystem set, streaming
+policy, configured spawn path, and initial seed, while destroying dormant and
+other owned mutable buffers and rebuilding initial gameplay state. Raw byte
+copies of `RcWorld` are not snapshots and are unsupported.
+
 ---
 
-## 4. State layout — arena, inline, per-world
+## 4. State layout — bounded mutable worlds, shared immutable data
 
-**All subsystem state lives inline inside `RcWorld`** at fixed
-offsets. Disabled subsystems' fields occupy memory but are never
-touched.
+Mutable gameplay state is world-owned. Most bounded state remains inline, but
+the dense active-NPC array and dormant persistence stores are owned dynamic
+buffers. NPC capacity is selected by the preset or caller: 64 slots for base,
+1,024 for simulation/skilling, and 4,096 for the full viewer by default.
+Disabled subsystem fields remain present but are not ticked.
 
 ```c
 typedef struct {
     // Base (always present, always valid)
     RcWorldMap map;
     RcPlayer player;
-    RcNpc npcs[RC_MAX_NPCS];
-    uint32_t tick;
-    uint64_t rng_state;
+    RcNpc *npcs;                 // npc_capacity dense slots
+    int npc_capacity;
+    RcTick tick;
+    uint32_t rng_state;
     uint32_t enabled;            // RcWorldConfig.subsystems
 
     // Subsystems (fields present always; only touched if enabled)
@@ -249,29 +291,28 @@ typedef struct {
 } RcWorld;
 ```
 
-**Rationale:**
-- A full world is one contiguous arena → `memcpy` rollback / snapshot
-  is O(sizeof(RcWorld)).
-- No per-world malloc fragmentation across thousands of parallel envs.
-- A "disabled" subsystem costs some wasted struct space (~kB total
-  across all subsystems) — trivial compared to the throughput win.
+The measured x86-64 budget is 2,572,728 bytes for the fixed world body. Including
+the active-NPC allocation, default base, simulation, and full worlds consume
+approximately 2.64 MB, 3.69 MB, and 7.03 MB respectively, before dormant state
+that exists only when populated. This replaces the previous 35.2 MB mandatory
+NPC allocation while retaining dense iteration.
 
-**Corollary:** no dynamic allocation of sub-buffers at world creation.
-Max counts are compile-time constants (`RC_MAX_NPCS`, `RC_MAX_GROUND_ITEMS`,
-`RC_MAX_PENDING_HITS`, etc.). Over-sizing is fine; allocation in the
-tick path is not.
+Allocation is permitted during create, reset, area activation, and destroy.
+It remains forbidden on the normal tick path. `RcGameData` owns definitions and
+other immutable runtime tables once per process rather than once per world.
 
 ---
 
 ## 5. Handles, not pointers, across subsystems
 
-When one subsystem references an entity in another, use an integer
-**handle** (index into the owning array) — never a `*` pointer.
+When one subsystem references an entity in another, use an integer handle,
+never a stored `*` pointer. NPC handles are world-local durable UIDs, not array
+indices; resolve them through `rc_npc_resolve` or `rc_npc_resolve_const`.
 
 ```c
-typedef uint16_t RcNpcId;
-typedef uint16_t RcItemSlot;
-typedef uint32_t RcGroundItemId;
+typedef uint32_t RcNpcId;
+typedef uint8_t RcItemSlot;
+typedef uint16_t RcGroundItemId;
 
 // GOOD — combat stores the target as a handle:
 typedef struct {
@@ -279,15 +320,14 @@ typedef struct {
     // ...
 } RcCombatState;
 
-// BAD — pointer into an array that may be compacted / memcpy'd:
+// BAD — pointer into an array that may be replaced or compacted:
 // RcNpc *target;
 ```
 
-**Rationale:**
-- `memcpy`-based snapshot/rollback works cleanly (pointers would
-  need fixup).
-- Arrays can be compacted / reordered without breaking references.
-- Handles are smaller than pointers (better cache utilization).
+NPC UIDs increase monotonically for the lifetime of a world and are not reset
+by `rc_world_reset`, so a stale UID cannot resolve to a replacement NPC after
+slot reuse. Item and ground-item slot handles retain their owner-specific
+contracts.
 
 Within a subsystem's own code, using `RcNpc *` transiently on the
 stack during one tick is fine. Just don't store it across ticks
@@ -349,8 +389,8 @@ enum {
     // ...
 };
 
-void rc_event_subscribe(RcWorld *w, int evt, RcEventFn fn);
-void rc_event_fire(RcWorld *w, int evt, const void *payload);
+int rc_event_subscribe(RcWorld *w, int evt, RcEventFn fn, void *ctx);
+int rc_event_fire(RcWorld *w, int evt, const void *payload);
 ```
 
 **Rules:**
@@ -358,8 +398,9 @@ void rc_event_fire(RcWorld *w, int evt, const void *payload);
   stage changes, dialogue transitions. Hundreds per second at most.
 - **Never** fire an event per tick per entity. NPC tick loop, combat
   damage resolve, pathfinding step — all direct calls.
-- Handlers may not re-enter `rc_event_fire` for the same event type
-  within the same dispatch (caught at dev-assert).
+- Null/duplicate registrations and same-event reentry fail in release builds.
+- Dispatch uses a stable handler snapshot. Subscriptions changed by a handler
+  take effect on the next event and cannot skip or add calls mid-dispatch.
 - A disabled subsystem never subscribes, so its handlers never fire
   and its code never runs.
 
@@ -394,7 +435,7 @@ a one-line config change instead of a month-long refactor.
 
 ---
 
-## 9. Binary loading — per-subsystem, lazy
+## 9. Binary loading — per-subsystem, immutable startup
 
 All runtime data paths resolve under the local ignored `data/` runtime install.
 The main RuneC repository owns loaders, runtime code, source content, schemas,
@@ -424,9 +465,12 @@ Each subsystem owns its binary(s):
 | active area | mapsquare-indexed collision, world NPC/static ground-item spawns, and object placements via `rc_world_activate_area`; lower-level NPC rect/near loaders remain available for tools/tests |
 | (audio → rc-viewer) | `music.bin` |
 
-If a subsystem is disabled in the config, its binaries are never
-opened. No "load everything just in case" — we pay only for what we
-run.
+If a subsystem is disabled in the config, its binaries are never opened. The
+selected tables are loaded and validated before the immutable `RcGameData` is
+published. Asset backend/root configuration is likewise startup-only after the
+first lookup. Pack discovery builds a temporary catalog and publishes it only
+after every pack, range, compression type, path, and duplicate check succeeds.
+`rc_asset_reset` exists only for explicitly single-threaded tests and tools.
 
 ---
 
@@ -438,8 +482,9 @@ Rules for every function on the tick path (`*_tick`):
 - **No file I/O, no syscalls** other than the tick clock read.
 - **No logging to stdout/stderr.** If logging is needed, write to an
   in-memory ring buffer drained by a separate thread (opt-in).
-- **No shared mutable globals.** All state lives on `RcWorld` or in
-  `_Thread_local` scratch.
+- **No mutable gameplay globals.** State lives on `RcWorld`; immutable
+  definition views come from the process `RcGameData`; scratch is
+  `_Thread_local`.
 - **No recursive event dispatch within one tick** (see §7).
 - **Scratch buffers** (pathfinding queues, visibility arrays, etc.)
   live in `_Thread_local` static arrays inside their owning function.
@@ -450,17 +495,13 @@ Rules for every function on the tick path (`*_tick`):
 
 ## 11. Types and headers
 
-- `types.h` contains **only** base types: `RcWorld` (partial, just
-  enough that subsystem headers can embed their structs in it),
-  `RcPoint`, `RcNpcId`, `RcItemSlot`, collision flag constants.
-- Each subsystem has its own header: `combat.h`, `prayer.h`,
-  `loot.h`, etc. — defining its state struct, its public API, and
-  the events it emits/consumes.
-- `RcWorld` is defined in `types.h` by including each subsystem's
-  state-struct header. Circular include is broken with forward
-  declarations + struct-by-value inclusion.
-- No subsystem header may transitively require another subsystem's
-  header to compile a base-only world.
+- `types.h` owns the shared world, player, NPC, map, interaction, and bounded
+  subsystem state layouts used across core. Small durable-handle definitions
+  live in `handles.h`.
+- Each subsystem header owns its public operations and specialized data types;
+  shared structs are not duplicated behind compatibility typedefs.
+- Header dependencies must remain acyclic enough for a base-only consumer to
+  compile and link without viewer or content dependencies.
 
 Enforcement: add a CMake target `test_base_only` that builds
 `rc-core` with every subsystem disabled, run a smoke test, and fail
@@ -470,16 +511,17 @@ if any subsystem's code is linked in.
 
 ## 12. Concurrency model
 
-- One `RcWorld` = one independent simulation. Worlds share nothing.
-- `rc-core` functions operate on the `RcWorld *` argument and must
-  not touch any global mutable state.
+- One `RcWorld` owns one independent mutable simulation. Compatible worlds
+  share one immutable `RcGameData` authority.
+- Tick functions operate on the `RcWorld *` argument and do not mutate shared
+  definition data.
 - Parallelism is the caller's responsibility: spawn N worlds across
   N threads; each runs independently.
 - Per-tick scratch uses `_Thread_local` (C11) so parallel worlds on
   separate threads never collide on scratch memory.
-- No locks inside `rc-core`. If a caller needs cross-world
-  coordination (e.g. RL rollout aggregator), it handles that
-  externally.
+- Startup publication and game-data reference ownership use a lifecycle lock
+  and atomic references. There are no locks on the tick path. Callers still own
+  cross-world scheduling and must not tick the same world concurrently.
 
 ---
 
@@ -493,6 +535,9 @@ world must produce byte-identical output state. Requirements:
 
 - RNG is a field on `RcWorld` (`rng_state`). No system calls like
   `rand()` or `time()` on the tick path.
+- A configured seed of zero maps to `RC_DEFAULT_SEED`; explicit nonzero seeds
+  remain reproducible. Bounded selection uses rejection sampling and defines
+  exclusive and inclusive bounds separately.
 - Iteration order over NPCs / items is fixed (by array index, not
   by insertion time or hash).
 - Floating point is avoided where possible; integer math + fixed-

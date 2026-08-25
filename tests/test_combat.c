@@ -26,25 +26,25 @@ int main(void) {
     rc_queue_hit(hits, &count, 15, 0, COMBAT_MELEE_SLASH, -1, 0u, 0);
     assert(count == 1);
     assert(hits[0].damage == 15);
-    int dmg = rc_resolve_pending(hits, &count, true);
+    int dmg = rc_resolve_pending(hits, &count, true, 0);
     assert(dmg == 15);
     assert(count == 0);
 
     // ---- Queue with delay (should not resolve immediately) ----
     count = 0;
     rc_queue_hit(hits, &count, 15, 2, COMBAT_RANGED, -1, 0u, 0);
-    dmg = rc_resolve_pending(hits, &count, true);
+    dmg = rc_resolve_pending(hits, &count, true, 0);
     assert(dmg == 0 && count == 1);     // still in flight
-    dmg = rc_resolve_pending(hits, &count, true);
+    dmg = rc_resolve_pending(hits, &count, true, 1);
     assert(dmg == 0 && count == 1);
-    dmg = rc_resolve_pending(hits, &count, true);
+    dmg = rc_resolve_pending(hits, &count, true, 2);
     assert(dmg == 15 && count == 0);    // resolved at tick 3
 
     // ---- Protection prayer: player blocks melee fully ----
     count = 0;
     rc_queue_hit(hits, &count, 50, 0, COMBAT_MELEE_CRUSH, -1,
                  PRAYER_PROTECT_MELEE, 0);
-    dmg = rc_resolve_pending(hits, &count, true /* player defender */);
+    dmg = rc_resolve_pending(hits, &count, true /* player defender */, 0);
     assert(dmg == 0);                   // fully blocked
     assert(count == 0);
 
@@ -52,7 +52,7 @@ int main(void) {
     count = 0;
     rc_queue_hit(hits, &count, 50, 0, COMBAT_MELEE_CRUSH, -1,
                  PRAYER_PROTECT_MELEE, 0);
-    dmg = rc_resolve_pending(hits, &count, false /* npc defender */);
+    dmg = rc_resolve_pending(hits, &count, false /* npc defender */, 0);
     assert(dmg == 25);
     assert(count == 0);
 
@@ -60,13 +60,15 @@ int main(void) {
     count = 0;
     rc_queue_hit(hits, &count, 50, 0, COMBAT_RANGED, -1,
                  PRAYER_PROTECT_MELEE, 0);
-    dmg = rc_resolve_pending(hits, &count, true);
+    dmg = rc_resolve_pending(hits, &count, true, 0);
     assert(dmg == 50);
 
     // ---- Queue cap ----
     count = 0;
     for (int i = 0; i < RC_MAX_PENDING_HITS + 3; i++) {
-        rc_queue_hit(hits, &count, 1, 0, COMBAT_MELEE_CRUSH, -1, 0u, 0);
+        int queued = rc_queue_hit(hits, &count, 1, 0,
+                                  COMBAT_MELEE_CRUSH, -1, 0u, 0);
+        assert(queued == (i < RC_MAX_PENDING_HITS));
     }
     assert(count == RC_MAX_PENDING_HITS);
 

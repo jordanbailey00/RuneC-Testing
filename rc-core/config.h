@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 // Subsystem bitmask — drives which tick functions run and which
 // binaries get loaded at rc_world_create() time. See rc-core/README.md
@@ -28,6 +29,13 @@ enum {
     RC_SUB_REGIONS      = 1u << 13,   // collision/area datasets
     RC_SUB_STORAGE      = 1u << 14,   // banks/deposit boxes/storage
     RC_SUB_TRAVERSAL    = 1u << 15,   // traversal edges/teleports
+    RC_SUB_ALL          = (1u << 16) - 1u,
+};
+
+enum {
+    RC_WORLD_NPC_CAPACITY_BASE = 64,
+    RC_WORLD_NPC_CAPACITY_SIM = 1024,
+    RC_WORLD_NPC_CAPACITY_FULL = 4096,
 };
 
 enum {
@@ -48,6 +56,7 @@ typedef struct {
 typedef struct {
     uint32_t subsystems;             // bitmask of RC_SUB_*
     uint32_t seed;                   // deterministic RNG seed
+    int npc_capacity;                // dense active NPC slots for this world
     RcWorldStreamingConfig streaming;
 
     // Asset paths. rc_world_create_config() loads each path only when
@@ -94,6 +103,8 @@ typedef struct {
 
 RcWorldStreamingConfig rc_world_streaming_config_default(void);
 void rc_world_streaming_config_sanitize(RcWorldStreamingConfig *config);
+int rc_world_config_validate(const RcWorldConfig *config,
+                             char *message, size_t message_capacity);
 
 // Config presets. Use these instead of zero-initialising; the
 // presets set sane defaults for the asset paths you typically want.
@@ -113,11 +124,5 @@ RcWorldConfig rc_preset_skilling_only(void);
 // Bare base: pathfinding + tiles + player position only. For
 // locomotion benchmarks or minimal-state RL.
 RcWorldConfig rc_preset_base_only(void);
-
-// Convenience: check if a subsystem is enabled on a world.
-static inline bool rc_subsystem_enabled(const void *world_enabled_ptr,
-                                        uint32_t sub) {
-    return (*(const uint32_t *)world_enabled_ptr & sub) != 0;
-}
 
 #endif

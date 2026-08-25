@@ -21,12 +21,14 @@ rc_add_tier1_suite(runtime_foundation
     test_game_data_validation
     test_modular_loading
     test_normalization_runtime
+    test_runtime_foundation
     test_streaming_config
 )
 
 # Tick-owned action progression, replacement, delayed effects, cleanup, and
 # deterministic ordering across integrated gameplay paths.
 rc_add_tier1_suite(tick_action_scheduling
+    test_tick_action_scheduling
     test_determinism
     test_headless_action_runtime
     test_interaction_engine_phase1

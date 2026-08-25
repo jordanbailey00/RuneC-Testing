@@ -38,7 +38,7 @@ static void create_minimal_manifest(const char *root, const char *extra) {
     fprintf(f,
             "{\n"
             "  \"format\": \"runec-data-manifest-v1\",\n"
-            "  \"data_version\": \"test\",\n"
+            "  \"data_version\": \"v1\",\n"
             "  \"required_logical_paths\": [\"defs/npc_defs.bin\"],\n"
             "  \"assets\": [{\"path\": \"defs/npc_defs.bin\"}]%s\n"
             "}\n",
@@ -62,13 +62,56 @@ int main(void) {
     write_file(missing_manifest,
                "{\n"
                "  \"format\": \"runec-data-manifest-v1\",\n"
-               "  \"data_version\": \"test\",\n"
+               "  \"data_version\": \"v1\",\n"
                "  \"required_logical_paths\": [\"defs/npc_defs.bin\"],\n"
                "  \"assets\": [{\"path\": \"defs/npc_defs.bin\"}]\n"
                "}\n");
     assert(rc_game_data_validate_install(missing_root, &report) == 0);
     assert(report.missing_required_paths == 1);
     assert(strstr(report.message, "defs/npc_defs.bin") != NULL);
+
+    assert(setenv("RUNEC_DATA_ROOT", missing_root, 1) == 0);
+    RcWorldConfig base = rc_preset_base_only();
+    RcGameDataLoadReport load_report;
+    RcGameData *base_data = rc_game_data_load(&base, &load_report);
+    assert(base_data != NULL);
+    assert(load_report.ok == 1);
+    rc_game_data_release(base_data);
+    assert(unsetenv("RUNEC_DATA_ROOT") == 0);
+
+    char wrong_version_root[128];
+    make_fixture_root(wrong_version_root, sizeof(wrong_version_root));
+    create_minimal_manifest(wrong_version_root, NULL);
+    char wrong_manifest[256];
+    snprintf(wrong_manifest, sizeof(wrong_manifest), "%s/manifest.json",
+             wrong_version_root);
+    write_file(wrong_manifest,
+               "{\"format\":\"runec-data-manifest-v1\","
+               "\"data_version\":\"v0\","
+               "\"required_logical_paths\":[\"defs/npc_defs.bin\"],"
+               "\"assets\":[{\"path\":\"defs/npc_defs.bin\"}]}");
+    assert(rc_game_data_validate_install(wrong_version_root, &report) == 0);
+    assert(strstr(report.message, "incompatible") != NULL);
+    assert(setenv("RUNEC_DATA_ROOT", wrong_version_root, 1) == 0);
+    RcWorldConfig wrong_base = rc_preset_base_only();
+    RcGameDataLoadReport wrong_load;
+    assert(rc_game_data_load(&wrong_base, &wrong_load) == NULL);
+    assert(strstr(wrong_load.message, "incompatible") != NULL);
+    assert(unsetenv("RUNEC_DATA_ROOT") == 0);
+
+    char nested_identity_root[128];
+    make_fixture_root(nested_identity_root, sizeof(nested_identity_root));
+    create_minimal_manifest(nested_identity_root, NULL);
+    char nested_manifest[256];
+    snprintf(nested_manifest, sizeof(nested_manifest), "%s/manifest.json",
+             nested_identity_root);
+    write_file(nested_manifest,
+               "{\"metadata\":{"
+               "\"format\":\"runec-data-manifest-v1\","
+               "\"data_version\":\"v1\"},"
+               "\"required_logical_paths\":[\"defs/npc_defs.bin\"],"
+               "\"assets\":[{\"path\":\"defs/npc_defs.bin\"}]}");
+    assert(rc_game_data_validate_install(nested_identity_root, &report) == 0);
 
     char pack_root[128];
     make_fixture_root(pack_root, sizeof(pack_root));

@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "api.h"
 #include "config.h"
@@ -8,7 +9,9 @@
 #include "npc.h"
 #include "objects.h"
 #include "pathfinding.h"
+#include "player_command.h"
 #include "spells.h"
+#include "runtime_test_fixture.h"
 
 #define ODEF_PATH RC_TEST_SOURCE_DIR "/data/defs/object_defs.bin"
 #define OPLI_PATH \
@@ -18,6 +21,10 @@
 #define TRAV_PATH RC_TEST_SOURCE_DIR "/data/defs/traversal_edges.bin"
 #define CTPI_PATH \
     RC_TEST_SOURCE_DIR "/data/regions/world.collision-tiles.indexed.bin"
+#define ITEM_PATH RC_TEST_SOURCE_DIR "/data/defs/items.bin"
+
+static char g_npc_fixture_path[256];
+static char g_spell_fixture_path[256];
 
 enum {
     TEST_NPC_ID = 990123,
@@ -59,6 +66,9 @@ static RcWorld *make_world(uint32_t seed) {
     cfg.object_transports_path = OTRP_PATH;
     cfg.traversal_edges_path = TRAV_PATH;
     cfg.collision_tiles_path = CTPI_PATH;
+    cfg.items_path = ITEM_PATH;
+    cfg.npc_defs_path = g_npc_fixture_path;
+    cfg.spells_path = g_spell_fixture_path;
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world != NULL);
     return world;
@@ -93,16 +103,26 @@ static void add_test_spell(void) {
 }
 
 int main(void) {
-    RcWorld *world = make_world(123);
-    init_single_region_map(world, 50, 53);
     add_test_npc_def();
     add_test_spell();
+    snprintf(g_npc_fixture_path, sizeof(g_npc_fixture_path),
+             "/tmp/runec_headless_npcs_%ld.bin", (long)getpid());
+    snprintf(g_spell_fixture_path, sizeof(g_spell_fixture_path),
+             "/tmp/runec_headless_spells_%ld.bin", (long)getpid());
+    assert(rc_test_write_npc_defs(g_npc_fixture_path, g_npc_defs,
+                                  g_npc_def_count));
+    assert(rc_test_write_spell_defs(g_spell_fixture_path, g_rc_spell_defs,
+                                    g_rc_spell_count));
+
+    RcWorld *world = make_world(123);
+    init_single_region_map(world, 50, 53);
 
     world->player.x = 3200;
     world->player.y = 3392;
     world->player.plane = 0;
     rc_player_walk_to(world, 3202, 3392);
-    assert(world->player.route_len > 0);
+    assert(world->player.route_len == 0);
+    assert(rc_player_pending_command_count(world) == 1);
     rc_world_tick(world);
     assert(world->player.x != 3200 || world->player.y != 3392);
 
@@ -121,7 +141,7 @@ int main(void) {
                                                &door_state) == 1);
     assert(door_state.flags & RC_OBJECT_STATE_OPEN);
     assert(door_state.placement_key == door.key);
-    world->player.action_lock_timer = 0;
+    rc_world_tick(world);
     rc_interaction_clear(&world->player);
 
     int npc_idx = rc_npc_spawn(world, 0, world->player.x + 1,
@@ -141,7 +161,8 @@ int main(void) {
     assert(rc_player_use_inventory_item_on_object_placement(
         world, 0, door_state.active_obj_id, door_state.active_x,
         door_state.active_y, door_state.active_plane, door.key) == 1);
-    assert(world->player.interaction.active);
+    assert(!world->player.interaction.active);
+    rc_world_tick(world);
     assert(world->player.interaction.source_item_id == TEST_SOURCE_ITEM);
     assert(world->player.interaction.target.placement_key == door.key);
 
@@ -149,7 +170,8 @@ int main(void) {
     assert(rc_player_cast_spell_on_object_placement(
         world, 0, door_state.active_obj_id, door_state.active_x,
         door_state.active_y, door_state.active_plane, door.key) == 1);
-    assert(world->player.interaction.active);
+    assert(!world->player.interaction.active);
+    rc_world_tick(world);
     assert(world->player.interaction.source_spell_id == 0);
     assert(world->player.interaction.target.placement_key == door.key);
 
@@ -157,9 +179,9 @@ int main(void) {
     world->player.x = npc->x - 1;
     world->player.y = npc->y;
     assert(rc_player_cast_spell_on_npc(world, 0, npc->uid) == 1);
-    assert(world->player.interaction.active);
-    assert(world->player.interaction.source_spell_id == 0);
+    assert(!world->player.interaction.active);
     rc_world_tick(world);
+    assert(world->player.interaction.source_spell_id == 0);
     assert(world->player.interact_type == RC_INTERACT_NPC_ATTACK);
 
     RcActiveAreaRequest area = {
@@ -187,6 +209,8 @@ int main(void) {
     assert(rc_world_activate_area(reloaded, &area, &stats) == 1);
     assert(reloaded->active_area.generation == 1);
     rc_world_destroy(reloaded);
+    assert(unlink(g_npc_fixture_path) == 0);
+    assert(unlink(g_spell_fixture_path) == 0);
 
     printf("test_headless_action_runtime: viewer-equivalent headless actions passed.\n");
     return 0;

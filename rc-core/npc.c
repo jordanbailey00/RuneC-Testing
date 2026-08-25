@@ -5,6 +5,7 @@
 #include "rng.h"
 #include "pathfinding.h"
 #include "spawn_index.h"
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -219,24 +220,12 @@ int rc_npc_def_find(int npc_id) {
                      : g_active_npc_def_by_id;
     if (npc_id >= 0 && npc_id < RC_MAX_NPC_ID && by_id) {
         int idx = by_id[npc_id];
-        if (defs != g_npc_defs && idx >= 0 && idx < count
-                && idx < g_npc_def_count && g_npc_defs[idx].id == npc_id
-                && memcmp(&defs[idx], &g_npc_defs[idx],
-                          sizeof(defs[idx])) != 0) {
-            return idx;
-        }
         if (idx >= 0 && idx < count && defs[idx].id == npc_id) {
             return idx;
         }
     }
-    // Tests may inject synthetic defs without rebuilding the ID index.
     for (int i = 0; i < count; i++) {
         if (defs[i].id == npc_id) return i;
-    }
-    if (defs != g_npc_defs) {
-        for (int i = 0; i < g_npc_def_count; i++) {
-            if (g_npc_defs[i].id == npc_id) return i;
-        }
     }
     return -1;
 }
@@ -254,17 +243,7 @@ const RcNpcDef *rc_npc_def_get(int def_idx) {
                                              : g_npc_defs;
     int count = defs == g_npc_defs ? g_npc_def_count
                                    : g_active_npc_def_count;
-    if (def_idx >= 0 && def_idx < count) {
-        if (defs != g_npc_defs && def_idx < g_npc_def_count
-                && memcmp(&defs[def_idx], &g_npc_defs[def_idx],
-                          sizeof(defs[def_idx])) != 0) {
-            return &g_npc_defs[def_idx];
-        }
-        return &defs[def_idx];
-    }
-    if (defs != g_npc_defs && def_idx >= 0 && def_idx < g_npc_def_count) {
-        return &g_npc_defs[def_idx];
-    }
+    if (def_idx >= 0 && def_idx < count) return &defs[def_idx];
     return NULL;
 }
 
@@ -279,11 +258,6 @@ int rc_npc_def_find_name(const char *name) {
     for (int i = 0; i < count; i++) {
         const RcNpcDef *def = rc_npc_def_get(i);
         if (def && strcmp(def->name, name) == 0) return i;
-    }
-    if (g_active_npc_defs != g_npc_defs) {
-        for (int i = 0; i < g_npc_def_count; i++) {
-            if (strcmp(g_npc_defs[i].name, name) == 0) return i;
-        }
     }
     return -1;
 }
@@ -474,14 +448,17 @@ int rc_load_npc_spawns_near(RcWorld *world, const char *path,
 }
 
 int rc_npc_spawn(RcWorld *world, int def_idx, int world_x, int world_y, int plane) {
-    if (world->npc_count >= RC_MAX_NPCS) return -1;
+    if (!world || !world->npcs || world->npc_count >= world->npc_capacity
+            || world->next_npc_uid < 0 || world->next_npc_uid == INT_MAX) {
+        return -1;
+    }
     const RcNpcDef *def = rc_npc_def_get(def_idx);
     if (!def) return -1;
 
     RcNpc *npc = &world->npcs[world->npc_count];
     memset(npc, 0, sizeof(RcNpc));
     npc->def_id = def_idx;
-    npc->uid = world->npc_count;
+    npc->uid = world->next_npc_uid++;
     npc->x = world_x;
     npc->y = world_y;
     npc->plane = plane;
@@ -507,12 +484,30 @@ int rc_npc_spawn(RcWorld *world, int def_idx, int world_x, int world_y, int plan
     // here. Fires regardless of enabled subsystems; no-op if nothing
     // subscribed (per README §7).
     RcPayloadNpcEvent payload = {
-        .npc_id = (uint16_t)npc->uid,
+        .npc_id = (uint32_t)npc->uid,
         .def_id = (uint32_t)def->id,
     };
     rc_event_fire(world, RC_EVT_NPC_SPAWNED, &payload);
 
     return idx;
+}
+
+RcNpc *rc_npc_resolve(RcWorld *world, RcNpcId uid) {
+    if (!world || uid == RC_NPC_NONE || uid > INT_MAX) return NULL;
+    for (int i = 0; i < world->npc_count; i++) {
+        RcNpc *npc = &world->npcs[i];
+        if (npc->active && npc->uid == (int)uid) return npc;
+    }
+    return NULL;
+}
+
+const RcNpc *rc_npc_resolve_const(const RcWorld *world, RcNpcId uid) {
+    if (!world || uid == RC_NPC_NONE || uid > INT_MAX) return NULL;
+    for (int i = 0; i < world->npc_count; i++) {
+        const RcNpc *npc = &world->npcs[i];
+        if (npc->active && npc->uid == (int)uid) return npc;
+    }
+    return NULL;
 }
 
 // Wander AI matches RSMod NpcWanderModeProcessor.
@@ -531,13 +526,18 @@ void rc_npc_tick(RcWorld *world, RcNpc *npc) {
     const RcNpcDef *def = rc_npc_def_get(npc->def_id);
     if (!def) return;
 
-    // Dead: decrement death timer, then start respawn timer
+    // Death-stage ticks run first. The respawn delay starts on the next tick,
+    // and the NPC returns on the tick that delay reaches zero.
     if (npc->is_dead) {
         if (npc->death_timer > 0) {
             npc->death_timer--;
-        } else if (npc->respawn_timer > 0) {
+            return;
+        }
+        if (npc->respawn_timer > 0) {
             npc->respawn_timer--;
-        } else {
+            if (npc->respawn_timer > 0) return;
+        }
+        {
             npc->x = npc->spawn_x;
             npc->y = npc->spawn_y;
             npc->plane = npc->spawn_plane;

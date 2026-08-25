@@ -731,7 +731,7 @@ static void on_npc_died(struct RcWorld *world, int evt,
     }
 }
 
-void rc_slayer_init(struct RcWorld *world) {
-    if (!world) return;
-    rc_event_subscribe(world, RC_EVT_NPC_DIED, on_npc_died, NULL);
+int rc_slayer_init(struct RcWorld *world) {
+    if (!world) return -1;
+    return rc_event_subscribe(world, RC_EVT_NPC_DIED, on_npc_died, NULL);
 }

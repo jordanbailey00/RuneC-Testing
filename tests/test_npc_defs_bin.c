@@ -58,6 +58,7 @@ int main(void) {
     path_join(spawns_path, sizeof(spawns_path),
               "data/spawns/world.npc-spawns.indexed.bin");
     RcWorldConfig spawn_cfg = rc_preset_base_only();
+    spawn_cfg.npc_capacity = RC_MAX_NPCS;
     RcWorld *spawn_world = rc_world_create_config(&spawn_cfg);
     assert(spawn_world != NULL);
     int spawned = rc_load_npc_spawns(spawn_world, spawns_path);

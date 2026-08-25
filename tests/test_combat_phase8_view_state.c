@@ -2,6 +2,7 @@
 #include "../rc-core/combat.h"
 #include "../rc-core/combat_hit.h"
 #include "../rc-core/npc.h"
+#include "runtime_test_fixture.h"
 
 #include <assert.h>
 #include <string.h>
@@ -27,10 +28,12 @@ static int add_phase8_npc_def(void) {
 }
 
 static RcWorld *phase8_world(void) {
+    g_npc_def_count = 0;
+    add_phase8_npc_def();
     RcWorldConfig cfg = rc_preset_base_only();
     cfg.subsystems = RC_SUB_COMBAT;
     cfg.seed = 888;
-    RcWorld *world = rc_world_create_config(&cfg);
+    RcWorld *world = rc_test_world_create_with_defs(&cfg, "phase8", 0);
     assert(world);
     world->player.x = 3200;
     world->player.y = 3200;
@@ -41,13 +44,13 @@ static RcWorld *phase8_world(void) {
         world->player.skills.boosted_level[i] = 99;
     }
     rc_combat_set_player_style(world, 2);
+    rc_world_tick(world);
     return world;
 }
 
 static void test_player_view_exposes_ui_combat_state_and_target_hits(void) {
     RcWorld *world = phase8_world();
-    int def_idx = add_phase8_npc_def();
-    int npc_idx = rc_npc_spawn(world, def_idx, 3201, 3200, 0);
+    int npc_idx = rc_npc_spawn(world, 0, 3201, 3200, 0);
     assert(npc_idx >= 0);
     RcNpc *npc = &world->npcs[npc_idx];
 
@@ -60,6 +63,7 @@ static void test_player_view_exposes_ui_combat_state_and_target_hits(void) {
     assert(view.target.kind == RC_COMBAT_ACTOR_NONE);
 
     rc_combat_toggle_special(world);
+    rc_world_tick(world);
     assert(rc_combat_start_player_vs_npc(world, 0, npc->uid));
     world->player.attack_timer = 99;
     npc->attack_timer = 99;
@@ -102,6 +106,7 @@ static void test_player_view_tracks_auto_retaliate_toggle(void) {
     assert(rc_combat_get_player_view(world, &view));
     assert(view.auto_retaliate == 1);
     rc_combat_toggle_auto_retaliate(world);
+    rc_world_tick(world);
     assert(rc_combat_get_player_view(world, &view));
     assert(view.auto_retaliate == 0);
     rc_world_destroy(world);

@@ -1,6 +1,7 @@
 #include "../rc-core/api.h"
 #include "../rc-core/npc.h"
 #include "../rc-core/objects.h"
+#include "runtime_test_fixture.h"
 
 #include <assert.h>
 #include <string.h>
@@ -160,29 +161,30 @@ static void test_structural_validation(void) {
 }
 
 static void test_existing_npc_api_populates_pending_state(void) {
+    g_npc_def_count = 1;
+    memset(&g_npc_defs[0], 0, sizeof(g_npc_defs[0]));
+    g_npc_defs[0].id = 900101;
+    strcpy(g_npc_defs[0].name, "Interaction Dummy");
+    g_npc_defs[0].size = 1;
+    g_npc_defs[0].combat_level = 2;
+    g_npc_defs[0].hitpoints = 10;
+    strcpy(g_npc_defs[0].options[0], "Talk-to");
+    strcpy(g_npc_defs[0].options[1], "Attack");
+
     RcWorldConfig cfg = rc_preset_base_only();
     cfg.subsystems = RC_SUB_COMBAT;
-    RcWorld *world = rc_world_create_config(&cfg);
+    RcWorld *world = rc_test_world_create_with_defs(&cfg, "interaction1", 0);
     assert(world);
 
-    int def_idx = g_npc_def_count++;
-    assert(def_idx < RC_MAX_NPC_DEFS);
-    memset(&g_npc_defs[def_idx], 0, sizeof(g_npc_defs[def_idx]));
-    g_npc_defs[def_idx].id = 900101;
-    strcpy(g_npc_defs[def_idx].name, "Interaction Dummy");
-    g_npc_defs[def_idx].size = 1;
-    g_npc_defs[def_idx].combat_level = 2;
-    g_npc_defs[def_idx].hitpoints = 10;
-    strcpy(g_npc_defs[def_idx].options[0], "Talk-to");
-    strcpy(g_npc_defs[def_idx].options[1], "Attack");
-
-    int npc_idx = rc_npc_spawn(world, def_idx, world->player.x + 1,
+    int npc_idx = rc_npc_spawn(world, 0, world->player.x + 1,
                                world->player.y, world->player.plane);
     assert(npc_idx >= 0);
     int uid = world->npcs[npc_idx].uid;
 
     rc_player_interact_npc(world, uid, 0);
-    assert(rc_interaction_is_active(&world->player));
+    assert(!rc_interaction_is_active(&world->player));
+    assert(rc_player_pending_command_count(world) == 1);
+    rc_world_tick(world);
     assert(world->player.interaction.target.kind == RC_INTERACTION_NPC);
     assert(world->player.interaction.target.entity_uid == uid);
     assert(world->player.interaction.op == RC_INTERACTION_OP1);
@@ -190,10 +192,11 @@ static void test_existing_npc_api_populates_pending_state(void) {
     assert(world->player.attack_target == -1);
 
     rc_player_interact_npc(world, uid, 1);
-    assert(rc_interaction_is_active(&world->player));
+    assert(!rc_interaction_is_active(&world->player));
+    rc_world_tick(world);
     assert(world->player.interaction.op == RC_INTERACTION_OP2);
     assert(strcmp(world->player.interaction.option_text, "Attack") == 0);
-    assert(world->player.attack_target == -1);
+    assert(world->player.attack_target == uid);
 
     rc_world_destroy(world);
 }
@@ -204,29 +207,23 @@ static void test_existing_object_api_with_coords_populates_pending_state(void) {
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world);
 
-    const int obj_id = 40001;
-    memset(&g_rc_object_defs[obj_id], 0, sizeof(g_rc_object_defs[obj_id]));
-    g_rc_object_defs[obj_id].id = obj_id;
-    g_rc_object_defs[obj_id].width = 1;
-    g_rc_object_defs[obj_id].length = 2;
-    g_rc_object_defs[obj_id].loaded = 1;
-    strcpy(g_rc_object_defs[obj_id].name, "Interaction Door");
-    strcpy(g_rc_object_defs[obj_id].actions[0], "Open");
-
-    memset(&g_rc_object_behaviors[obj_id], 0,
-           sizeof(g_rc_object_behaviors[obj_id]));
-    g_rc_object_behaviors[obj_id].action_mask = 1u << 0;
-    g_rc_object_behaviors[obj_id].loaded = 1;
+    const int obj_id = 11780;
+    const RcObjectDef *def = rc_object_def_get(obj_id);
+    assert(def && def->loaded && def->actions[0][0] != '\0');
 
     assert(rc_player_interact_object_at(world, obj_id, 3205, 3206, 0, 0));
+    assert(!rc_interaction_is_active(&world->player));
+    rc_world_tick(world);
     assert(rc_interaction_is_active(&world->player));
     assert(world->player.interaction.target.kind == RC_INTERACTION_OBJECT);
     assert(world->player.interaction.target.definition_id == obj_id);
     assert(world->player.interaction.target.tile_x == 3205);
     assert(world->player.interaction.target.tile_y == 3206);
-    assert(world->player.interaction.target.footprint_height == 2);
+    assert(world->player.interaction.target.footprint_height
+           == (def->length > 0 ? def->length : 1));
     assert(world->player.interaction.op == RC_INTERACTION_OP1);
-    assert(strcmp(world->player.interaction.option_text, "Open") == 0);
+    assert(strcmp(world->player.interaction.option_text,
+                  def->actions[0]) == 0);
 
     rc_world_destroy(world);
 }

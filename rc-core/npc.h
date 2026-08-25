@@ -95,6 +95,8 @@ int rc_load_npc_spawns_near(RcWorld *world, const char *path,
 
 // Spawn a single NPC. Returns NPC array index or -1.
 int rc_npc_spawn(RcWorld *world, int def_idx, int world_x, int world_y, int plane);
+RcNpc *rc_npc_resolve(RcWorld *world, RcNpcId uid);
+const RcNpc *rc_npc_resolve_const(const RcWorld *world, RcNpcId uid);
 
 // Per-tick NPC processing (wander AI, respawn, movement)
 void rc_npc_tick(RcWorld *world, RcNpc *npc);

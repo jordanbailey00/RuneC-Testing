@@ -94,6 +94,8 @@ int main(void) {
     int old_x = world->player.x;
     int old_y = world->player.y;
     assert(rc_player_apply_traversal(world, obj) == 1);
+    assert(world->player.x == old_x && world->player.y == old_y);
+    rc_world_tick(world);
     assert(world->player.prev_x == old_x);
     assert(world->player.prev_y == old_y);
     assert(world->player.x == obj->dest_x);
@@ -104,7 +106,10 @@ int main(void) {
     RcWorldConfig base_cfg = rc_preset_base_only();
     RcWorld *base = rc_world_create_config(&base_cfg);
     assert(base != NULL);
-    assert(rc_player_apply_traversal(base, obj) == 0);
+    assert(rc_player_apply_traversal(base, obj) == 1);
+    rc_world_tick(base);
+    assert(rc_player_last_command_result(base, NULL)
+           == RC_COMMAND_RESULT_REJECTED_INVALID);
     rc_world_destroy(base);
 
     return 0;

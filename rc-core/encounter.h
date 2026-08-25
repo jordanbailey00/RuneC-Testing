@@ -806,7 +806,7 @@ typedef struct {
 } RcEncounterState;
 
 // Lifecycle
-void rc_encounter_init(struct RcWorld *world);
+int rc_encounter_init(struct RcWorld *world);
 void rc_encounter_tick(struct RcWorld *world);
 
 // Event hooks — wired up at rc_encounter_init via rc_event_subscribe.

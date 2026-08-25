@@ -3,6 +3,7 @@
 #include "../rc-core/items.h"
 #include "../rc-core/npc.h"
 #include "../rc-core/spells.h"
+#include "runtime_test_fixture.h"
 
 #include <assert.h>
 #include <string.h>
@@ -16,17 +17,45 @@ enum {
     TEST_STAFF = 1006,
 };
 
-static RcWorld *phase4_world(void) {
+static RcWorld *phase4_world(int include_spells) {
+    memset(g_npc_defs, 0, sizeof(g_npc_defs));
+    g_npc_def_count = 1;
+    g_npc_defs[0].id = 940400;
+    strcpy(g_npc_defs[0].name, "Phase 4 Cooldown Guard");
+    g_npc_defs[0].size = 1;
+    g_npc_defs[0].combat_level = 2;
+    g_npc_defs[0].hitpoints = 200;
+    g_npc_defs[0].stats[1] = 1;
+    g_npc_defs[0].max_hit = 1;
+    g_npc_defs[0].attack_speed = 4;
+    g_npc_defs[0].attack_types = 0x04;
+    strcpy(g_npc_defs[0].options[1], "Attack");
     RcWorldConfig cfg = rc_preset_base_only();
     cfg.subsystems = RC_SUB_COMBAT;
     cfg.seed = 12345;
-    RcWorld *world = rc_world_create_config(&cfg);
+    RcWorld *world = rc_test_world_create_with_defs(
+        &cfg, "phase4", include_spells);
     assert(world);
     for (int i = 0; i < SKILL_COUNT; i++) {
         world->player.skills.base_level[i] = 99;
         world->player.skills.boosted_level[i] = 99;
     }
     return world;
+}
+
+static void apply_attack_style(RcWorld *world, int style) {
+    rc_player_set_attack_style(world, style);
+    rc_world_tick(world);
+}
+
+static void apply_selected_spell(RcWorld *world, int spell) {
+    rc_player_select_spell(world, spell);
+    rc_world_tick(world);
+}
+
+static void apply_autocast_spell(RcWorld *world, int spell, int defensive) {
+    rc_player_set_autocast_spell(world, spell, defensive);
+    rc_world_tick(world);
 }
 
 static void fake_weapon(int id, const char *name, int weapon_type,
@@ -94,11 +123,11 @@ static void add_phase4_spell(void) {
 }
 
 static void test_slash_sword_table_sets_style_stance_xp_and_metadata(void) {
-    RcWorld *world = phase4_world();
+    RcWorld *world = phase4_world(0);
     ensure_fake_weapons();
     equip_weapon(world, TEST_SLASH_SWORD);
 
-    rc_player_set_attack_style(world, 0);
+    apply_attack_style(world, 0);
     assert(world->player.combat_style == COMBAT_MELEE_SLASH);
     assert(world->player.attack_stance == RC_ATTACK_STANCE_ACCURATE);
     assert(world->player.combat_xp_mask == RC_COMBAT_XP_ATTACK);
@@ -108,7 +137,7 @@ static void test_slash_sword_table_sets_style_stance_xp_and_metadata(void) {
     assert(rc_player_attack_speed(&world->player) == 4);
     assert(rc_player_attack_range(&world->player) == 1);
 
-    rc_player_set_attack_style(world, 2);
+    apply_attack_style(world, 2);
     assert(world->player.combat_style == COMBAT_MELEE_STAB);
     assert(world->player.attack_stance == RC_ATTACK_STANCE_CONTROLLED);
     assert(world->player.combat_xp_mask == (RC_COMBAT_XP_ATTACK |
@@ -120,11 +149,11 @@ static void test_slash_sword_table_sets_style_stance_xp_and_metadata(void) {
 }
 
 static void test_ranged_table_applies_rapid_and_longrange_modifiers(void) {
-    RcWorld *world = phase4_world();
+    RcWorld *world = phase4_world(0);
     ensure_fake_weapons();
     equip_weapon(world, TEST_BOW);
 
-    rc_player_set_attack_style(world, 0);
+    apply_attack_style(world, 0);
     assert(world->player.combat_style == COMBAT_RANGED);
     assert(world->player.attack_stance == RC_ATTACK_STANCE_ACCURATE);
     assert(world->player.combat.combat_class == RC_COMBAT_CLASS_RANGED);
@@ -132,12 +161,12 @@ static void test_ranged_table_applies_rapid_and_longrange_modifiers(void) {
     assert(rc_player_attack_speed(&world->player) == 5);
     assert(rc_player_attack_range(&world->player) == 7);
 
-    rc_player_set_attack_style(world, 1);
+    apply_attack_style(world, 1);
     assert(world->player.attack_stance == RC_ATTACK_STANCE_RAPID);
     assert(rc_player_attack_speed(&world->player) == 4);
     assert(rc_player_attack_range(&world->player) == 7);
 
-    rc_player_set_attack_style(world, 2);
+    apply_attack_style(world, 2);
     assert(world->player.attack_stance == RC_ATTACK_STANCE_LONGRANGE);
     assert(world->player.combat_xp_mask == (RC_COMBAT_XP_RANGED |
                                             RC_COMBAT_XP_DEFENCE));
@@ -148,11 +177,11 @@ static void test_ranged_table_applies_rapid_and_longrange_modifiers(void) {
 }
 
 static void test_magic_table_uses_powered_staff_without_bonus_guessing(void) {
-    RcWorld *world = phase4_world();
+    RcWorld *world = phase4_world(0);
     ensure_fake_weapons();
     equip_weapon(world, TEST_POWERED_STAFF);
 
-    rc_player_set_attack_style(world, 0);
+    apply_attack_style(world, 0);
     assert(world->player.combat_style == COMBAT_MAGIC);
     assert(world->player.attack_stance == RC_ATTACK_STANCE_CAST);
     assert(world->player.combat.combat_class == RC_COMBAT_CLASS_MAGIC);
@@ -160,7 +189,7 @@ static void test_magic_table_uses_powered_staff_without_bonus_guessing(void) {
     assert(rc_player_attack_speed(&world->player) == 4);
     assert(rc_player_attack_range(&world->player) == 10);
 
-    rc_player_set_attack_style(world, 3);
+    apply_attack_style(world, 3);
     assert(world->player.attack_stance == RC_ATTACK_STANCE_DEFENSIVE_CAST);
     assert(world->player.combat_xp_mask == (RC_COMBAT_XP_MAGIC |
                                             RC_COMBAT_XP_DEFENCE));
@@ -169,36 +198,36 @@ static void test_magic_table_uses_powered_staff_without_bonus_guessing(void) {
 }
 
 static void test_staff_selected_spell_does_not_override_default_attack(void) {
-    RcWorld *world = phase4_world();
-    ensure_fake_weapons();
     add_phase4_spell();
+    RcWorld *world = phase4_world(1);
+    ensure_fake_weapons();
 
-    rc_player_set_autocast_spell(world, 0, 0);
+    apply_autocast_spell(world, 0, 0);
     assert(world->player.autocast_spell == -1);
 
     equip_weapon(world, TEST_STAFF);
 
-    rc_player_select_spell(world, 0);
+    apply_selected_spell(world, 0);
     assert(world->player.selected_spell == 0);
-    rc_player_set_attack_style(world, 0);
+    apply_attack_style(world, 0);
     assert(world->player.combat_style == COMBAT_MELEE_CRUSH);
     assert(world->player.attack_stance == RC_ATTACK_STANCE_ACCURATE);
     assert(rc_player_attack_range(&world->player) == 1);
 
-    rc_player_set_autocast_spell(world, 0, 0);
+    apply_autocast_spell(world, 0, 0);
     assert(world->player.autocast_spell == 0);
     assert(!world->player.defensive_autocast);
     assert(world->player.combat_style == COMBAT_MAGIC);
     assert(world->player.attack_stance == RC_ATTACK_STANCE_CAST);
     assert(rc_player_attack_range(&world->player) == 10);
 
-    rc_player_set_autocast_spell(world, 0, 1);
+    apply_autocast_spell(world, 0, 1);
     assert(world->player.autocast_spell == 0);
     assert(world->player.defensive_autocast);
     assert(world->player.combat_style == COMBAT_MAGIC);
     assert(world->player.attack_stance == RC_ATTACK_STANCE_DEFENSIVE_CAST);
 
-    rc_player_set_autocast_spell(world, -1, 0);
+    apply_autocast_spell(world, -1, 0);
     world->player.manual_spell_cast = 0;
     rc_refresh_player_combat_style(&world->player);
     assert(world->player.combat_style == COMBAT_MAGIC);
@@ -208,11 +237,11 @@ static void test_staff_selected_spell_does_not_override_default_attack(void) {
 }
 
 static void test_weapon_type_beats_bonus_guessing_for_loaded_weapons(void) {
-    RcWorld *world = phase4_world();
+    RcWorld *world = phase4_world(0);
     ensure_fake_weapons();
     equip_weapon(world, TEST_BONUS_TRAP_BOW);
 
-    rc_player_set_attack_style(world, 0);
+    apply_attack_style(world, 0);
     assert(world->player.combat_style == COMBAT_RANGED);
     assert(world->player.combat.weapon_category == 25);
     assert(world->player.combat.attack_type == RC_ATTACK_TYPE_RANGED);
@@ -221,20 +250,7 @@ static void test_weapon_type_beats_bonus_guessing_for_loaded_weapons(void) {
 }
 
 static int spawn_phase4_npc(RcWorld *world, int dx, int dy) {
-    int def_idx = g_npc_def_count++;
-    assert(def_idx < RC_MAX_NPC_DEFS);
-    memset(&g_npc_defs[def_idx], 0, sizeof(g_npc_defs[def_idx]));
-    g_npc_defs[def_idx].id = 940400;
-    strcpy(g_npc_defs[def_idx].name, "Phase 4 Cooldown Guard");
-    g_npc_defs[def_idx].size = 1;
-    g_npc_defs[def_idx].combat_level = 2;
-    g_npc_defs[def_idx].hitpoints = 200;
-    g_npc_defs[def_idx].stats[1] = 1;
-    g_npc_defs[def_idx].max_hit = 1;
-    g_npc_defs[def_idx].attack_speed = 4;
-    g_npc_defs[def_idx].attack_types = 0x04;
-    strcpy(g_npc_defs[def_idx].options[1], "Attack");
-    int idx = rc_npc_spawn(world, def_idx, world->player.x + dx,
+    int idx = rc_npc_spawn(world, 0, world->player.x + dx,
                            world->player.y + dy, world->player.plane);
     assert(idx >= 0);
     world->npcs[idx].wander_timer = 999999;
@@ -242,12 +258,12 @@ static int spawn_phase4_npc(RcWorld *world, int dx, int dy) {
 }
 
 static void test_attack_cycle_uses_selected_style_speed_for_cooldown(void) {
-    RcWorld *world = phase4_world();
+    RcWorld *world = phase4_world(0);
     ensure_fake_weapons();
     equip_weapon(world, TEST_BOW);
     world->player.equipment[EQUIP_AMMO] = (RcInvSlot){TEST_ARROW, 10};
     rc_recalc_bonuses(&world->player);
-    rc_player_set_attack_style(world, 1);
+    apply_attack_style(world, 1);
     int expected_speed = rc_player_attack_speed(&world->player);
     int npc_idx = spawn_phase4_npc(world, 3, 0);
     RcNpc *npc = &world->npcs[npc_idx];
@@ -263,10 +279,10 @@ static void test_attack_cycle_uses_selected_style_speed_for_cooldown(void) {
 }
 
 static void test_attack_cycle_does_not_queue_hits_during_cooldown(void) {
-    RcWorld *world = phase4_world();
+    RcWorld *world = phase4_world(0);
     ensure_fake_weapons();
     equip_weapon(world, TEST_SLASH_SWORD);
-    rc_player_set_attack_style(world, 0);
+    apply_attack_style(world, 0);
     int expected_speed = rc_player_attack_speed(&world->player);
     int npc_idx = spawn_phase4_npc(world, 1, 0);
     RcNpc *npc = &world->npcs[npc_idx];

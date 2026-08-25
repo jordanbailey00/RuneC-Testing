@@ -3,6 +3,7 @@
 #include "items.h"
 #include "npc.h"
 #include "spells.h"
+#include "runtime_test_fixture.h"
 
 #include <assert.h>
 #include <string.h>
@@ -87,10 +88,11 @@ static int add_target_def(void) {
 }
 
 static RcWorld *make_world(void) {
+    add_target_def();
     RcWorldConfig cfg = rc_preset_base_only();
     cfg.subsystems = RC_SUB_COMBAT;
     cfg.seed = 911;
-    RcWorld *world = rc_world_create_config(&cfg);
+    RcWorld *world = rc_test_world_create_with_defs(&cfg, "phase11", 1);
     assert(world != NULL);
     world->player.x = 3200;
     world->player.y = 3200;
@@ -107,8 +109,7 @@ static RcWorld *make_world(void) {
 }
 
 static int spawn_target(RcWorld *world) {
-    int def_idx = add_target_def();
-    int idx = rc_npc_spawn(world, def_idx, 3204, 3200, 0);
+    int idx = rc_npc_spawn(world, 0, 3204, 3200, 0);
     assert(idx >= 0);
     return idx;
 }

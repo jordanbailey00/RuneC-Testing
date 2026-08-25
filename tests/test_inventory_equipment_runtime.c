@@ -33,11 +33,14 @@ int main(void) {
     int whip = rc_inv_add(p->inventory, 4151, 1);
     assert(whip >= 0);
     rc_player_equip(world, whip);
+    assert(p->equipment[EQUIP_WEAPON].item_id == -1);
+    rc_world_tick(world);
     assert(p->equipment[EQUIP_WEAPON].item_id == 4151);
     assert(p->equipment_bonuses[EQ_SLASH_ATK] == 82);
     assert(p->equipment_bonuses[EQ_STR] == 82);
 
     rc_player_unequip(world, EQUIP_WEAPON);
+    rc_world_tick(world);
     assert(p->equipment[EQUIP_WEAPON].item_id == -1);
     assert(rc_inv_find(p->inventory, 4151) >= 0);
     assert(p->equipment_bonuses[EQ_STR] == 0);
@@ -45,11 +48,13 @@ int main(void) {
     int shield = rc_inv_add(p->inventory, 10352, 1);
     assert(shield >= 0);
     rc_player_equip(world, shield);
+    rc_world_tick(world);
     assert(p->equipment[EQUIP_SHIELD].item_id == 10352);
 
     int ags = rc_inv_add(p->inventory, 11802, 1);
     assert(ags >= 0);
     rc_player_equip(world, ags);
+    rc_world_tick(world);
     assert(p->equipment[EQUIP_WEAPON].item_id == 11802);
     assert(p->equipment[EQUIP_SHIELD].item_id == -1);
     assert(rc_inv_find(p->inventory, 10352) >= 0);
@@ -58,17 +63,20 @@ int main(void) {
     int old_to = rc_inv_free_slot(p->inventory);
     assert(old_from >= 0 && old_to >= 0);
     assert(rc_player_move_inventory_item(world, old_from, old_to));
+    rc_world_tick(world);
     assert(p->inventory[old_to].item_id == 1048);
     assert(p->inventory[old_from].item_id == -1);
 
     int drop_slot = rc_inv_find(p->inventory, 995);
     assert(drop_slot >= 0);
     rc_player_drop_item(world, drop_slot);
+    rc_world_tick(world);
     assert(p->inventory[drop_slot].item_id == -1);
     assert(world->ground_item_count == 1);
     assert(world->ground_items[0].active);
     assert(world->ground_items[0].item_id == 995);
     rc_player_pickup_item(world, 0);
+    rc_world_tick(world);
     assert(!world->ground_items[0].active);
     assert(rc_inv_find(p->inventory, 995) >= 0);
 
@@ -77,9 +85,11 @@ int main(void) {
     int low_whip = rc_inv_add(low->player.inventory, 4151, 1);
     assert(low_whip >= 0);
     rc_player_equip(low, low_whip);
+    rc_world_tick(low);
     assert(low->player.equipment[EQUIP_WEAPON].item_id == -1);
     low->player.skills.base_level[SKILL_ATTACK] = 70;
     rc_player_equip(low, low_whip);
+    rc_world_tick(low);
     assert(low->player.equipment[EQUIP_WEAPON].item_id == 4151);
     rc_world_destroy(low);
 

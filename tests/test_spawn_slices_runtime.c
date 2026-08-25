@@ -14,6 +14,7 @@ int main(void) {
     assert(rc_load_npc_defs(NPC_PATH) > 10000);
 
     RcWorldConfig cfg = rc_preset_base_only();
+    cfg.npc_capacity = RC_WORLD_NPC_CAPACITY_SIM;
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world != NULL);
     assert(rc_load_npc_spawns_rect(NULL, SPAWN_PATH, 0, 0, 1, 1, 0, 0) == -1);

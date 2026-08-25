@@ -13,6 +13,7 @@
 #include "pathfinding.h"
 #include "objects.h"
 #include "player_actions.h"
+#include "player_command.h"
 #include "spells.h"
 #include "storage.h"
 
@@ -27,9 +28,9 @@
 #define RC_BLOCK_ACCESS_SOUTH 0x4
 #define RC_BLOCK_ACCESS_WEST  0x8
 
-// Stub input processing — will be filled in as systems are built
 static void process_player_input(RcWorld *world) {
-    (void)world;
+    if (world && world->player_commands.count > 0)
+        rc_player_command_process(world);
 }
 
 static const RcNpcDef *npc_def_for(const RcNpc *npc) {
@@ -121,20 +122,19 @@ static void process_player_action_timers(RcWorld *world) {
         p->pending_traversal_x = -1;
         p->pending_traversal_y = -1;
         p->pending_traversal_plane = -1;
-        p->action_lock_timer = 0;
     }
-    if (p->action_lock_timer > 0)
-        p->action_lock_timer--;
 }
 
 static void process_player_movement(RcWorld *world) {
     if (!world) return;
     RcPlayer *p = &world->player;
+    if (p->route_idx >= p->route_len) return;
+    if (world->player_action.active
+            && world->player_action.category == RC_ACTION_CATEGORY_STRONG
+            && world->player_action.ready_tick > world->tick) return;
     p->prev_x = p->x;
     p->prev_y = p->y;
-    if (p->action_lock_timer > 0) return;
-    if (p->freeze_timer > 0) return;
-    if (p->route_idx >= p->route_len) return;
+    if (rc_player_is_frozen(world)) return;
     int steps = p->running ? 2 : 1;
     for (int s = 0; s < steps && p->route_idx < p->route_len; s++) {
         int nx = p->route_x[p->route_idx];
@@ -688,7 +688,7 @@ static int api_prepare_spatial_interaction(RcWorld *world) {
 }
 
 static void mark_object_depleted(RcWorld *world, RcObjectState *st,
-                                 int respawn_tick) {
+                                 RcTick respawn_tick) {
     st->flags |= RC_OBJECT_STATE_DEPLETED;
     st->respawn_tick = respawn_tick;
     if (world->next_object_respawn_tick <= 0
@@ -702,9 +702,8 @@ static void process_player_combat(RcWorld *world) {
 }
 
 static void process_player_skilling(RcWorld *world) {
-    if (!world || world->player.skill_timer <= 0) return;
-    world->player.skill_timer--;
-    if (world->player.skill_timer > 0 || world->player.skill_action <= 0) {
+    if (!world || world->player.skill_action <= 0
+            || world->player.skill_ready_tick > world->tick) {
         return;
     }
     if (world->player.skill_target_x >= 0 && world->player.skill_target_y >= 0
@@ -763,8 +762,7 @@ static void resolve_npc_hits(RcWorld *world, RcNpc *npc) {
     for (int i = 0; i < npc->num_pending_hits; i++) {
         RcPendingHit *h = &npc->pending_hits[i];
         if (!h->active) continue;
-        if (h->ticks_remaining > 0) {
-            h->ticks_remaining--;
+        if (world->tick < h->apply_tick) {
             if (w != i) npc->pending_hits[w] = *h;
             w++;
             continue;
@@ -809,9 +807,9 @@ static void resolve_npc_hits(RcWorld *world, RcNpc *npc) {
             }
         }
         RcPayloadNpcDamaged damaged = {
-            .npc_id = (uint16_t)npc->uid,
+            .npc_id = (uint32_t)npc->uid,
             .source_npc_id = h->source_idx >= 0
-                           ? (uint16_t)h->source_idx : 0xFFFFu,
+                           ? (uint32_t)h->source_idx : UINT32_MAX,
             .damage = (uint16_t)(damage & 0xFFFF),
             .current_hp = (uint16_t)(npc->current_hp & 0xFFFF),
             .max_hp = def ? (uint16_t)(def->hitpoints & 0xFFFF) : 0,
@@ -826,7 +824,7 @@ static void resolve_npc_hits(RcWorld *world, RcNpc *npc) {
     if (was_alive && npc->is_dead) {
         if (death_source < 0) spawn_npc_loot(world, npc);
         RcPayloadNpcEvent payload = {
-            .npc_id = (uint16_t)npc->uid,
+            .npc_id = (uint32_t)npc->uid,
             .def_id = def ? (uint32_t)def->id : 0,
         };
         rc_event_fire(world, RC_EVT_NPC_DIED, &payload);
@@ -834,10 +832,23 @@ static void resolve_npc_hits(RcWorld *world, RcNpc *npc) {
 }
 
 static void check_deaths(RcWorld *world) {
-    (void)world;
+    if (!world) return;
+    RcPlayer *player = &world->player;
+    if (player->current_hp > 0 || player->is_dead) return;
+    player->current_hp = 0;
+    player->is_dead = true;
+    player->death_tick = world->tick;
+    rc_player_cancel_action(world, RC_ACTION_CANCEL_DEATH);
+    RcPayloadPlayerDeath payload = {
+        .tick = world->tick,
+        .x = player->x,
+        .y = player->y,
+        .plane = player->plane,
+    };
+    rc_event_fire(world, RC_EVT_PLAYER_DIED, &payload);
 }
 
-static void schedule_object_state_tick(RcWorld *world, int tick) {
+static void schedule_object_state_tick(RcWorld *world, RcTick tick) {
     if (!world || tick <= 0) return;
     if (world->next_object_respawn_tick <= 0
             || tick < world->next_object_respawn_tick) {
@@ -863,7 +874,7 @@ static void tick_respawns(RcWorld *world) {
             || world->tick < world->next_object_respawn_tick) {
         return;
     }
-    int next = 0;
+    RcTick next = 0;
     for (int i = 0; i < world->object_state_count; i++) {
         RcObjectState *st = &world->object_states[i];
         if ((st->flags & RC_OBJECT_STATE_DYNAMIC) != 0
@@ -897,6 +908,7 @@ static void tick_ground_items(RcWorld *world) {
     for (int i = 0; i < world->ground_item_count; i++) {
         RcGroundItem *item = &world->ground_items[i];
         if (!item->active) continue;
+        if (world->tick < item->timer_start_tick) continue;
         if (item->visibility == RC_GROUND_VIS_PRIVATE &&
                 item->reveal_timer > 0) {
             item->reveal_timer--;
@@ -920,6 +932,8 @@ static void tick_ground_items(RcWorld *world) {
 // gated by a cache-resident bitmask-AND; the base (player position,
 // NPC position, pathfinding, tick counter) always runs.
 void rc_world_tick(RcWorld *world) {
+    if (!world || world->in_tick) return;
+    world->in_tick = true;
     const uint32_t on = world->enabled;
     rc_combat_clear_attack_events(world);
 
@@ -983,17 +997,13 @@ void rc_world_tick(RcWorld *world) {
     if (on & RC_SUB_LOOT)     tick_ground_items(world);
 
     world->tick++;
+    if (world->player_action.active) rc_player_action_refresh(world);
+    world->in_tick = false;
 }
 
-// Input stubs — filled in as we build each system
+// Player-input target construction and dispatch helpers.
 static RcNpc *api_find_npc_by_uid(RcWorld *world, int uid) {
-    if (!world) return NULL;
-    for (int i = 0; i < world->npc_count; i++) {
-        if (world->npcs[i].active && world->npcs[i].uid == uid) {
-            return &world->npcs[i];
-        }
-    }
-    return NULL;
+    return rc_npc_resolve(world, uid);
 }
 
 static RcInteractionTarget api_npc_interaction_target(const RcNpc *npc) {
@@ -1336,6 +1346,14 @@ static int action_allowed_if_loaded(RcWorld *world, int action_id) {
                      rc_player_action_allowed(world->enabled, action_id));
 }
 
+static int queue_player_command(RcWorld *world, RcPlayerCommandKind kind,
+                                RcActionCategory category,
+                                int a0, int a1, int a2, int a3,
+                                int a4, uint64_t key) {
+    int args[8] = {a0, a1, a2, a3, a4, 0, 0, 0};
+    return rc_player_command_submit(world, kind, category, args, key);
+}
+
 static void api_set_player_route(RcPlayer *p, const RcRoute *route) {
     if (!p) return;
     p->route_len = 0;
@@ -1352,9 +1370,17 @@ static void api_set_player_route(RcPlayer *p, const RcRoute *route) {
 
 static void start_player_action_lock(RcWorld *world, int lock_ticks) {
     if (!world) return;
-    RcPlayer *p = &world->player;
-    if (lock_ticks > p->action_lock_timer)
-        p->action_lock_timer = lock_ticks;
+    if (lock_ticks < 0) lock_ticks = 0;
+    RcPlayerActionState *action = &world->player_action;
+    RcTick ready_tick = world->tick + (RcTick)lock_ticks + 1;
+    if (!action->active || action->category < RC_ACTION_CATEGORY_STRONG
+            || ready_tick > action->ready_tick) {
+        action->active = true;
+        action->owner = RC_ACTION_OWNER_TRAVERSAL;
+        action->category = RC_ACTION_CATEGORY_STRONG;
+        action->started_tick = world->tick;
+        action->ready_tick = ready_tick;
+    }
 }
 
 static void schedule_player_traversal(RcWorld *world,
@@ -1373,14 +1399,18 @@ static void schedule_player_traversal(RcWorld *world,
     p->pending_traversal_plane = edge->dest_plane;
     p->route_len = 0;
     p->route_idx = 0;
-    if (p->action_lock_timer < delay_ticks + 1)
-        p->action_lock_timer = delay_ticks + 1;
+    start_player_action_lock(world, delay_ticks);
 }
 
 void rc_player_walk_to(RcWorld *world, int x, int y) {
+    if (rc_player_command_should_queue(world)) {
+        (void)queue_player_command(world, RC_PLAYER_COMMAND_WALK_TO,
+                                   RC_ACTION_CATEGORY_NORMAL,
+                                   x, y, 0, 0, 0, 0);
+        return;
+    }
     if (!action_allowed_if_loaded(world, RC_PLAYER_ACTION_WALK_TO)) return;
     RcPlayer *p = &world->player;
-    if (p->action_lock_timer > 0) return;
     RcRoute route = rc_find_path(&world->map, p->x, p->y, x, y,
                                  1, p->plane, false);
     api_set_player_route(p, &route);
@@ -1390,9 +1420,14 @@ void rc_player_walk_to(RcWorld *world, int x, int y) {
 }
 
 void rc_player_run_to(RcWorld *world, int x, int y) {
+    if (rc_player_command_should_queue(world)) {
+        (void)queue_player_command(world, RC_PLAYER_COMMAND_RUN_TO,
+                                   RC_ACTION_CATEGORY_NORMAL,
+                                   x, y, 0, 0, 0, 0);
+        return;
+    }
     if (!action_allowed_if_loaded(world, RC_PLAYER_ACTION_RUN_TO)) return;
     RcPlayer *p = &world->player;
-    if (p->action_lock_timer > 0) return;
     RcRoute route = rc_find_path(&world->map, p->x, p->y, x, y,
                                  1, p->plane, false);
     api_set_player_route(p, &route);
@@ -1401,27 +1436,49 @@ void rc_player_run_to(RcWorld *world, int x, int y) {
     rc_interaction_cancel(p, RC_INTERACTION_FAIL_CANCELLED);
 }
 
-void rc_player_attack_npc(RcWorld *world, int npc_uid) {
-    if (!action_allowed_if_loaded(world, RC_PLAYER_ACTION_ATTACK_NPC)) return;
-    if (world->player.action_lock_timer > 0) return;
+int rc_player_set_running(RcWorld *world, int enabled) {
+    if (rc_player_command_should_queue(world)) {
+        return queue_player_command(world, RC_PLAYER_COMMAND_SET_RUNNING,
+                                    RC_ACTION_CATEGORY_SOFT,
+                                    enabled != 0, 0, 0, 0, 0, 0);
+    }
+    if (!world) return 0;
+    world->player.running = enabled != 0;
+    return 1;
+}
+
+int rc_player_attack_npc(RcWorld *world, int npc_uid) {
+    if (rc_player_command_should_queue(world)) {
+        return queue_player_command(world, RC_PLAYER_COMMAND_ATTACK_NPC,
+                                    RC_ACTION_CATEGORY_NORMAL,
+                                    npc_uid, 0, 0, 0, 0, 0);
+    }
+    if (!action_allowed_if_loaded(world, RC_PLAYER_ACTION_ATTACK_NPC)) return 0;
     RcNpc *npc = api_find_npc_by_uid(world, npc_uid);
-    if (!npc || npc->is_dead || npc->player_untargetable) return;
-    if (npc->plane != world->player.plane) return;
+    if (!npc || npc->is_dead || npc->player_untargetable) return 0;
+    if (npc->plane != world->player.plane) return 0;
     const RcNpcDef *def = npc_def_for(npc);
-    if (!def) return;
+    if (!def) return 0;
     int opt = api_npc_attack_option_index(def);
-    if (opt < 0) return;
+    if (opt < 0) return 0;
     RcInteractionTarget target = api_npc_interaction_target(npc);
     target.content_group = RC_INTERACTION_CONTENT_GROUP_NPC_ATTACK;
     if (!rc_interaction_begin(&world->player, 0,
                               rc_interaction_op_from_option(opt),
                               rc_npc_def_option(def, opt), &target,
                               rc_player_attack_range(&world->player))) {
-        return;
+        return 0;
     }
     (void)api_prepare_spatial_interaction(world);
+    return 1;
 }
 void rc_player_set_prayer(RcWorld *world, int prayer_id) {
+    if (rc_player_command_should_queue(world)) {
+        (void)queue_player_command(world, RC_PLAYER_COMMAND_SET_PRAYER,
+                                   RC_ACTION_CATEGORY_SOFT,
+                                   prayer_id, 0, 0, 0, 0, 0);
+        return;
+    }
     if (!world || !rc_player_action_allowed(world->enabled,
                                             RC_PLAYER_ACTION_SET_PRAYER)) {
         return;
@@ -1432,6 +1489,12 @@ void rc_player_set_prayer(RcWorld *world, int prayer_id) {
     rc_prayer_toggle(&world->player, prayer_id);
 }
 void rc_player_set_spellbook(RcWorld *world, int spellbook) {
+    if (rc_player_command_should_queue(world)) {
+        (void)queue_player_command(world, RC_PLAYER_COMMAND_SET_SPELLBOOK,
+                                   RC_ACTION_CATEGORY_SOFT,
+                                   spellbook, 0, 0, 0, 0, 0);
+        return;
+    }
     if (!world || !spellbook_valid(spellbook)) return;
     RcPlayer *p = &world->player;
     if (p->current_spellbook == spellbook) return;
@@ -1443,6 +1506,12 @@ void rc_player_set_spellbook(RcWorld *world, int spellbook) {
     rc_refresh_player_combat_style(p);
 }
 void rc_player_select_spell(RcWorld *world, int spell_idx) {
+    if (rc_player_command_should_queue(world)) {
+        (void)queue_player_command(world, RC_PLAYER_COMMAND_SELECT_SPELL,
+                                   RC_ACTION_CATEGORY_SOFT,
+                                   spell_idx, 0, 0, 0, 0, 0);
+        return;
+    }
     if (!world || !rc_player_action_allowed(world->enabled,
                                             RC_PLAYER_ACTION_SELECT_SPELL)) {
         return;
@@ -1453,6 +1522,12 @@ void rc_player_select_spell(RcWorld *world, int spell_idx) {
 }
 void rc_player_set_autocast_spell(RcWorld *world, int spell_idx,
                                   int defensive) {
+    if (rc_player_command_should_queue(world)) {
+        (void)queue_player_command(world, RC_PLAYER_COMMAND_SET_AUTOCAST,
+                                   RC_ACTION_CATEGORY_SOFT,
+                                   spell_idx, defensive, 0, 0, 0, 0);
+        return;
+    }
     if (!world || !rc_player_action_allowed(world->enabled,
                                             RC_PLAYER_ACTION_SELECT_SPELL)) {
         return;
@@ -1476,8 +1551,13 @@ void rc_player_set_autocast_spell(RcWorld *world, int spell_idx,
 void rc_player_eat(RcWorld *world, int inv_slot) { (void)world; (void)inv_slot; }
 void rc_player_drink(RcWorld *world, int inv_slot) { (void)world; (void)inv_slot; }
 void rc_player_interact_npc(RcWorld *world, int npc_uid, int opt) {
+    if (rc_player_command_should_queue(world)) {
+        (void)queue_player_command(world, RC_PLAYER_COMMAND_INTERACT_NPC,
+                                   RC_ACTION_CATEGORY_NORMAL,
+                                   npc_uid, opt, 0, 0, 0, 0);
+        return;
+    }
     if (!action_allowed_if_loaded(world, RC_PLAYER_ACTION_INTERACT_NPC)) return;
-    if (world->player.action_lock_timer > 0) return;
     RcNpc *npc = api_find_npc_by_uid(world, npc_uid);
     if (!npc || npc->is_dead) return;
     if (npc->plane != world->player.plane) return;
@@ -2466,7 +2546,7 @@ static void apply_altar_effect(RcWorld *world, const RcObjectDef *def,
     }
     if (action && action[0] == 'O' && (world->enabled & RC_SUB_SKILLS)) {
         world->player.skill_action = obj_id;
-        world->player.skill_timer = 1;
+        world->player.skill_ready_tick = world->tick + 1;
     }
 }
 
@@ -2529,7 +2609,7 @@ static int api_apply_object_interaction(RcWorld *world, const RcObjectDef *def,
             obj_id, x, y, plane);
         if (node && (node->action_mask & (1u << opt))) {
             world->player.skill_action = obj_id;
-            world->player.skill_timer = 1;
+            world->player.skill_ready_tick = world->tick + 1;
             world->player.skill_target_x = x;
             world->player.skill_target_y = y;
         }
@@ -2549,7 +2629,7 @@ static int api_apply_object_interaction(RcWorld *world, const RcObjectDef *def,
             schedule_player_traversal(world, edge, 1);
         } else {
             rc_player_apply_traversal(world, edge);
-            world->player.action_lock_timer = 0;
+            world->player_action.ready_tick = world->tick;
         }
     }
     return 1;
@@ -2679,11 +2759,15 @@ int rc_player_interact_object_at(RcWorld *world, int obj_id, int x, int y,
 int rc_player_interact_object_placement(RcWorld *world, int obj_id, int x,
                                         int y, int plane,
                                         uint64_t placement_key, int opt) {
+    if (rc_player_command_should_queue(world)) {
+        return queue_player_command(world, RC_PLAYER_COMMAND_INTERACT_OBJECT,
+                                    RC_ACTION_CATEGORY_NORMAL,
+                                    obj_id, x, y, plane, opt, placement_key);
+    }
     if (!world || !rc_player_action_allowed(world->enabled,
                                             RC_PLAYER_ACTION_INTERACT_OBJECT)) {
         return 0;
     }
-    if (world->player.action_lock_timer > 0) return 0;
     if (x >= 0 && y >= 0 && plane >= 0
             && plane != world->player.plane) {
         return 0;
@@ -2737,6 +2821,12 @@ int rc_player_interact_object_placement(RcWorld *world, int obj_id, int x,
 
 int rc_player_interact_inventory_item(RcWorld *world, int inv_slot,
                                       int option) {
+    if (rc_player_command_should_queue(world)) {
+        return queue_player_command(world,
+                                    RC_PLAYER_COMMAND_INTERACT_INVENTORY,
+                                    RC_ACTION_CATEGORY_NORMAL,
+                                    inv_slot, option, 0, 0, 0, 0);
+    }
     if (!world || inv_slot < 0 || inv_slot >= RC_INVENTORY_SIZE) return 0;
     RcPlayer *p = &world->player;
     if (p->inventory[inv_slot].item_id < 0 ||
@@ -2756,6 +2846,12 @@ int rc_player_interact_inventory_item(RcWorld *world, int inv_slot,
 
 int rc_player_interact_equipment_item(RcWorld *world, int equip_slot,
                                       int option) {
+    if (rc_player_command_should_queue(world)) {
+        return queue_player_command(world,
+                                    RC_PLAYER_COMMAND_INTERACT_EQUIPMENT,
+                                    RC_ACTION_CATEGORY_NORMAL,
+                                    equip_slot, option, 0, 0, 0, 0);
+    }
     if (!world || equip_slot < 0 || equip_slot >= RC_EQUIP_COUNT) return 0;
     RcPlayer *p = &world->player;
     if (p->equipment[equip_slot].item_id < 0 ||
@@ -2775,6 +2871,12 @@ int rc_player_interact_equipment_item(RcWorld *world, int equip_slot,
 
 int rc_player_widget_action(RcWorld *world, int widget_id,
                             int component_id, int action) {
+    if (rc_player_command_should_queue(world)) {
+        return queue_player_command(world, RC_PLAYER_COMMAND_WIDGET_ACTION,
+                                    RC_ACTION_CATEGORY_NORMAL,
+                                    widget_id, component_id, action,
+                                    0, 0, 0);
+    }
     if (!world || (widget_id < 0 && component_id < 0) || action < 0) {
         return 0;
     }
@@ -2790,6 +2892,11 @@ int rc_player_widget_action(RcWorld *world, int widget_id,
 
 int rc_player_use_inventory_item_on_npc(RcWorld *world, int inv_slot,
                                         int npc_uid) {
+    if (rc_player_command_should_queue(world)) {
+        return queue_player_command(world, RC_PLAYER_COMMAND_USE_ITEM_ON_NPC,
+                                    RC_ACTION_CATEGORY_NORMAL,
+                                    inv_slot, npc_uid, 0, 0, 0, 0);
+    }
     if (!world || inv_slot < 0 || inv_slot >= RC_INVENTORY_SIZE) return 0;
     RcPlayer *p = &world->player;
     int item_id = p->inventory[inv_slot].item_id;
@@ -2808,6 +2915,11 @@ int rc_player_use_inventory_item_on_npc(RcWorld *world, int inv_slot,
 int rc_player_use_inventory_item_on_inventory_item(RcWorld *world,
                                                    int source_slot,
                                                    int target_slot) {
+    if (rc_player_command_should_queue(world)) {
+        return queue_player_command(world, RC_PLAYER_COMMAND_USE_ITEM_ON_ITEM,
+                                    RC_ACTION_CATEGORY_NORMAL,
+                                    source_slot, target_slot, 0, 0, 0, 0);
+    }
     if (!world || source_slot < 0 || source_slot >= RC_INVENTORY_SIZE
             || target_slot < 0 || target_slot >= RC_INVENTORY_SIZE) {
         return 0;
@@ -2839,6 +2951,13 @@ int rc_player_use_inventory_item_on_object(RcWorld *world, int inv_slot,
 int rc_player_use_inventory_item_on_object_placement(
     RcWorld *world, int inv_slot, int obj_id, int x, int y, int plane,
     uint64_t placement_key) {
+    if (rc_player_command_should_queue(world)) {
+        return queue_player_command(world,
+                                    RC_PLAYER_COMMAND_USE_ITEM_ON_OBJECT,
+                                    RC_ACTION_CATEGORY_NORMAL,
+                                    inv_slot, obj_id, x, y, plane,
+                                    placement_key);
+    }
     if (!world || inv_slot < 0 || inv_slot >= RC_INVENTORY_SIZE) return 0;
     RcPlayer *p = &world->player;
     int item_id = p->inventory[inv_slot].item_id;
@@ -2859,6 +2978,12 @@ int rc_player_use_inventory_item_on_object_placement(
 int rc_player_use_inventory_item_on_ground_item(RcWorld *world,
                                                 int inv_slot,
                                                 int ground_item_idx) {
+    if (rc_player_command_should_queue(world)) {
+        return queue_player_command(world,
+                                    RC_PLAYER_COMMAND_USE_ITEM_ON_GROUND,
+                                    RC_ACTION_CATEGORY_NORMAL,
+                                    inv_slot, ground_item_idx, 0, 0, 0, 0);
+    }
     if (!world || inv_slot < 0 || inv_slot >= RC_INVENTORY_SIZE ||
             ground_item_idx < 0 ||
             ground_item_idx >= world->ground_item_count) {
@@ -2882,6 +3007,13 @@ int rc_player_use_inventory_item_on_ground_item(RcWorld *world,
 
 int rc_player_use_inventory_item_on_widget(RcWorld *world, int inv_slot,
                                            int widget_id, int component_id) {
+    if (rc_player_command_should_queue(world)) {
+        return queue_player_command(world,
+                                    RC_PLAYER_COMMAND_USE_ITEM_ON_WIDGET,
+                                    RC_ACTION_CATEGORY_NORMAL,
+                                    inv_slot, widget_id, component_id,
+                                    0, 0, 0);
+    }
     if (!world || inv_slot < 0 || inv_slot >= RC_INVENTORY_SIZE
             || (widget_id < 0 && component_id < 0)) {
         return 0;
@@ -2900,6 +3032,11 @@ int rc_player_use_inventory_item_on_widget(RcWorld *world, int inv_slot,
 }
 
 int rc_player_cast_spell_on_npc(RcWorld *world, int spell_id, int npc_uid) {
+    if (rc_player_command_should_queue(world)) {
+        return queue_player_command(world, RC_PLAYER_COMMAND_CAST_ON_NPC,
+                                    RC_ACTION_CATEGORY_NORMAL,
+                                    spell_id, npc_uid, 0, 0, 0, 0);
+    }
     if (!world || spell_id < 0) return 0;
     if (!rc_spell_def_get(spell_id)) return 0;
     RcNpc *npc = api_find_npc_by_uid(world, npc_uid);
@@ -2917,6 +3054,11 @@ int rc_player_cast_spell_on_npc(RcWorld *world, int spell_id, int npc_uid) {
 
 int rc_player_cast_spell_on_inventory_item(RcWorld *world, int spell_id,
                                            int target_slot) {
+    if (rc_player_command_should_queue(world)) {
+        return queue_player_command(world, RC_PLAYER_COMMAND_CAST_ON_ITEM,
+                                    RC_ACTION_CATEGORY_NORMAL,
+                                    spell_id, target_slot, 0, 0, 0, 0);
+    }
     if (!world || spell_id < 0 || target_slot < 0
             || target_slot >= RC_INVENTORY_SIZE) {
         return 0;
@@ -2945,6 +3087,12 @@ int rc_player_cast_spell_on_object(RcWorld *world, int spell_id,
 int rc_player_cast_spell_on_object_placement(
     RcWorld *world, int spell_id, int obj_id, int x, int y, int plane,
     uint64_t placement_key) {
+    if (rc_player_command_should_queue(world)) {
+        return queue_player_command(world, RC_PLAYER_COMMAND_CAST_ON_OBJECT,
+                                    RC_ACTION_CATEGORY_NORMAL,
+                                    spell_id, obj_id, x, y, plane,
+                                    placement_key);
+    }
     if (!world || spell_id < 0) return 0;
     if (x >= 0 && y >= 0 && plane >= 0
             && plane != world->player.plane) {
@@ -2964,6 +3112,12 @@ int rc_player_cast_spell_on_object_placement(
 
 int rc_player_cast_spell_on_widget(RcWorld *world, int spell_id,
                                    int widget_id, int component_id) {
+    if (rc_player_command_should_queue(world)) {
+        return queue_player_command(world, RC_PLAYER_COMMAND_CAST_ON_WIDGET,
+                                    RC_ACTION_CATEGORY_NORMAL,
+                                    spell_id, widget_id, component_id,
+                                    0, 0, 0);
+    }
     if (!world || spell_id < 0 || (widget_id < 0 && component_id < 0)) {
         return 0;
     }
@@ -2979,6 +3133,11 @@ int rc_player_cast_spell_on_widget(RcWorld *world, int spell_id,
 
 int rc_player_cast_spell_on_ground_item(RcWorld *world, int spell_id,
                                         int ground_item_idx) {
+    if (rc_player_command_should_queue(world)) {
+        return queue_player_command(world, RC_PLAYER_COMMAND_CAST_ON_GROUND,
+                                    RC_ACTION_CATEGORY_NORMAL,
+                                    spell_id, ground_item_idx, 0, 0, 0, 0);
+    }
     if (!world || spell_id < 0 || ground_item_idx < 0 ||
             ground_item_idx >= world->ground_item_count) {
         return 0;
