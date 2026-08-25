@@ -334,6 +334,10 @@ static int load_npc_spawns_filtered(RcWorld *world, const char *path,
         uint8_t wander_range = spawn_read_u8(&p);
         uint8_t flags = spawn_read_u8(&p);
         (void)direction;
+        if (!rc_world_tile_valid(x, y, plane)) {
+            if (stats) stats->skipped_invalid++;
+            continue;
+        }
         if (use_filter && (x < min_x || x > max_x || y < min_y || y > max_y
                 || plane < min_plane || plane > max_plane)) {
             continue;
@@ -373,12 +377,14 @@ static int load_npc_spawns_filtered(RcWorld *world, const char *path,
             stats->skipped_capacity++;
         }
     }
-    if (stats && use_filter)
-        stats->skipped_filter = stats->total_rows - stats->matched_filter;
+    if (stats && use_filter) {
+        stats->skipped_filter = stats->total_rows - stats->matched_filter
+                              - stats->skipped_invalid;
+    }
     rc_spawn_index_slice_free(&slice);
     fprintf(stderr, "npc_spawns: spawned %d NPCs from %s"
             " (pages %d, rows %d/%d, matched %d, skipped %d filtered,"
-            " %d instance-only,"
+            " %d invalid, %d instance-only,"
             " %d missing-def, %d capacity)\n",
             stats ? stats->spawned : 0, path,
             stats ? stats->pages_loaded : 0,
@@ -386,6 +392,7 @@ static int load_npc_spawns_filtered(RcWorld *world, const char *path,
             stats ? stats->total_rows : 0,
             stats ? stats->matched_filter : 0,
             stats ? stats->skipped_filter : 0,
+            stats ? stats->skipped_invalid : 0,
             stats ? stats->skipped_instance : 0,
             stats ? stats->skipped_missing_def : 0,
             stats ? stats->skipped_capacity : 0);
@@ -402,7 +409,8 @@ int rc_load_npc_spawns_rect(RcWorld *world, const char *path,
                             int min_x, int min_y, int max_x, int max_y,
                             int min_plane, int max_plane) {
     if (!world || !path || min_x > max_x || min_y > max_y
-            || min_plane > max_plane) {
+            || min_plane > max_plane || !rc_plane_valid(min_plane)
+            || !rc_plane_valid(max_plane)) {
         return -1;
     }
     RcNpcSpawnLoadStats stats;
@@ -416,7 +424,8 @@ int rc_load_npc_spawns_rect_stats(RcWorld *world, const char *path,
                                   int min_plane, int max_plane,
                                   RcNpcSpawnLoadStats *stats) {
     if (!world || !path || !stats || min_x > max_x || min_y > max_y
-            || min_plane > max_plane) {
+            || min_plane > max_plane || !rc_plane_valid(min_plane)
+            || !rc_plane_valid(max_plane)) {
         return -1;
     }
     return load_npc_spawns_filtered(world, path, 1, min_x, min_y, max_x,
@@ -430,7 +439,8 @@ int rc_load_npc_spawns_rect_stats_flags(RcWorld *world, const char *path,
                                         uint32_t load_flags,
                                         RcNpcSpawnLoadStats *stats) {
     if (!world || !path || !stats || min_x > max_x || min_y > max_y
-            || min_plane > max_plane) {
+            || min_plane > max_plane || !rc_plane_valid(min_plane)
+            || !rc_plane_valid(max_plane)) {
         return -1;
     }
     return load_npc_spawns_filtered(world, path, 1, min_x, min_y, max_x,
@@ -441,19 +451,29 @@ int rc_load_npc_spawns_rect_stats_flags(RcWorld *world, const char *path,
 int rc_load_npc_spawns_near(RcWorld *world, const char *path,
                             int center_x, int center_y, int radius,
                             int plane) {
-    if (radius < 0) return -1;
-    return rc_load_npc_spawns_rect(world, path, center_x - radius,
-                                   center_y - radius, center_x + radius,
-                                   center_y + radius, plane, plane);
+    RcTileRect rect;
+    if (!rc_plane_valid(plane)
+            || !rc_tile_rect_around(center_x, center_y, radius, &rect)) {
+        return -1;
+    }
+    return rc_load_npc_spawns_rect(world, path, rect.min_x, rect.min_y,
+                                   rect.max_x, rect.max_y, plane, plane);
 }
 
 int rc_npc_spawn(RcWorld *world, int def_idx, int world_x, int world_y, int plane) {
     if (!world || !world->npcs || world->npc_count >= world->npc_capacity
-            || world->next_npc_uid < 0 || world->next_npc_uid == INT_MAX) {
+            || world->next_npc_uid < 0 || world->next_npc_uid == INT_MAX
+            || !rc_world_tile_valid(world_x, world_y, plane)) {
         return -1;
     }
     const RcNpcDef *def = rc_npc_def_get(def_idx);
     if (!def) return -1;
+    RcTileBounds footprint;
+    int size = def->size > 0 ? def->size : 1;
+    if (!rc_tile_bounds_from_origin_size(world_x, world_y, size, size,
+                                         plane, &footprint)) {
+        return -1;
+    }
 
     RcNpc *npc = &world->npcs[world->npc_count];
     memset(npc, 0, sizeof(RcNpc));

@@ -6,7 +6,7 @@
 #define RC_RECIPE_MAX_REQS 8
 #define RC_RECIPE_MAX_INPUTS 16
 #define RC_RECIPE_MAX_TOOLS 8
-#define RC_SKILL_NODE_REGION_COUNT 65536
+#define RC_SKILL_NODE_REGION_COUNT RC_MAPSQUARE_COUNT
 
 typedef struct {
     uint8_t skill, level;

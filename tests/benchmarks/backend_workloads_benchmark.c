@@ -296,7 +296,10 @@ static void bench_edge_actions(int envs, int ops, int warmup) {
         exit(1);
     }
     for (int i = 0; i < envs; i++) {
-        path_worlds[i] = make_region_world(6000u + (uint32_t)i);
+        path_worlds[i] = make_object_world(6000u + (uint32_t)i);
+        path_worlds[i]->player.x = 3213;
+        path_worlds[i]->player.y = 3428;
+        path_worlds[i]->player.plane = 0;
         object_worlds[i] = make_object_world(7000u + (uint32_t)i);
         reset_door_world(object_worlds[i]);
     }

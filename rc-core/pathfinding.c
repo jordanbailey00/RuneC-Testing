@@ -46,7 +46,7 @@ static const RcRegion *map_region_at(const RcWorldMap *map, int region_x,
 }
 
 uint32_t rc_get_flags(const RcWorldMap *map, int x, int y, int plane) {
-    if (x < 0 || y < 0 || plane < 0 || plane >= RC_MAX_PLANES) {
+    if (!rc_world_tile_valid(x, y, plane)) {
         return COL_BLOCK_WALK;
     }
     // Convert world coords to region + local coords
@@ -74,7 +74,13 @@ bool rc_tile_blocked(const RcWorldMap *map, int x, int y, int plane) {
 // For each direction, check the DESTINATION tile for the appropriate composite block flag.
 // Diagonals also check the two adjacent cardinal tiles.
 bool rc_can_move(const RcWorldMap *map, int x, int y, int dx, int dy, int plane) {
+    if (!rc_world_tile_valid(x, y, plane)
+            || dx < -1 || dx > 1 || dy < -1 || dy > 1
+            || (dx == 0 && dy == 0)) {
+        return false;
+    }
     int nx = x + dx, ny = y + dy;
+    if (!rc_world_coord_valid(nx) || !rc_world_coord_valid(ny)) return false;
 
     // Cardinals: check destination tile only
     if (dx == 0 && dy == 1)  // North
@@ -108,6 +114,10 @@ bool rc_can_move(const RcWorldMap *map, int x, int y, int dx, int dy, int plane)
 }
 
 bool rc_has_los(const RcWorldMap *map, int x0, int y0, int x1, int y1, int plane) {
+    if (!rc_world_tile_valid(x0, y0, plane)
+            || !rc_world_tile_valid(x1, y1, plane)) {
+        return false;
+    }
     // Bresenham line — check proj blocker flags
     int dx = abs(x1 - x0), dy = abs(y1 - y0);
     int sx = x0 < x1 ? 1 : -1;
@@ -128,9 +138,16 @@ bool rc_has_los(const RcWorldMap *map, int x0, int y0, int x1, int y1, int plane
 RcRoute rc_find_path(const RcWorldMap *map, int start_x, int start_y,
                      int dest_x, int dest_y, int entity_size, int plane,
                      bool allow_alternative) {
-    (void)entity_size; // TODO: multi-size entity pathfinding
-
     RcRoute route = {0};
+    RcTileBounds start_bounds;
+    if (!map || entity_size <= 0
+            || !rc_tile_bounds_from_origin_size(start_x, start_y,
+                                                entity_size, entity_size,
+                                                plane, &start_bounds)
+            || !rc_world_tile_valid(dest_x, dest_y, plane)) {
+        return route;
+    }
+    (void)start_bounds; // Multi-size routing remains movement-audit scope.
 
     // BFS on collision grid
     // Search area: 512x512 centered on start. The viewer streams a 320x320
@@ -173,9 +190,6 @@ RcRoute rc_find_path(const RcWorldMap *map, int start_x, int start_y,
     int best_x = sx, best_y = sy;
     int best_dist = abs(dx - sx) + abs(dy - sy);
 
-    int dirs_x[] = {0, 1, 0, -1, 1, 1, -1, -1};
-    int dirs_y[] = {1, 0, -1, 0, 1, -1, -1, 1};
-
     while (head < tail) {
         int cx = queue_x[head];
         int cy = queue_y[head];
@@ -183,19 +197,30 @@ RcRoute rc_find_path(const RcWorldMap *map, int start_x, int start_y,
 
         if (cx == dx && cy == dy) { found = true; break; }
 
-        for (int d = 0; d < 8; d++) {
-            int nx = cx + dirs_x[d];
-            int ny = cy + dirs_y[d];
+        static const RcDirection route_order[] = {
+            RC_DIRECTION_NORTH, RC_DIRECTION_EAST,
+            RC_DIRECTION_SOUTH, RC_DIRECTION_WEST,
+            RC_DIRECTION_NORTH_EAST, RC_DIRECTION_SOUTH_EAST,
+            RC_DIRECTION_SOUTH_WEST, RC_DIRECTION_NORTH_WEST,
+        };
+        for (size_t d = 0; d < sizeof(route_order) / sizeof(route_order[0]);
+             d++) {
+            RcDirection direction = route_order[d];
+            int step_x = rc_direction_dx[direction];
+            int step_y = rc_direction_dy[direction];
+            int nx = cx + step_x;
+            int ny = cy + step_y;
             if (nx < 0 || nx >= SEARCH_SIZE || ny < 0 || ny >= SEARCH_SIZE) continue;
             if (visited[nx][ny]) continue;
 
             int world_x = cx + origin_x;
             int world_y = cy + origin_y;
-            if (!rc_can_move(map, world_x, world_y, dirs_x[d], dirs_y[d], plane)) continue;
+            if (!rc_can_move(map, world_x, world_y,
+                             step_x, step_y, plane)) continue;
 
             visited[nx][ny] = 1;
-            dir_x[nx][ny] = (int8_t)-dirs_x[d];
-            dir_y[nx][ny] = (int8_t)-dirs_y[d];
+            dir_x[nx][ny] = (int8_t)-step_x;
+            dir_y[nx][ny] = (int8_t)-step_y;
             queue_x[tail] = (uint16_t)nx;
             queue_y[tail] = (uint16_t)ny;
             tail++;

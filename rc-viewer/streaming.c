@@ -76,7 +76,9 @@ int viewer_streaming_plan_mapsquares(
     int tile_y,
     ViewerMapsquareCoord *out,
     int capacity) {
-    if (!config || !out || capacity <= 0 || tile_x < 0 || tile_y < 0)
+    if (!config || !out || capacity <= 0
+            || !rc_world_coord_valid(tile_x)
+            || !rc_world_coord_valid(tile_y))
         return -1;
 
     int center_x = tile_x / VIEWER_STREAMING_MAPSQUARE_SIZE;
@@ -87,6 +89,7 @@ int viewer_streaming_plan_mapsquares(
 
     int radius = max_int(config->scene_radius_regions,
                          config->preload_radius_regions);
+    if (radius >= RC_MAPSQUARE_AXIS) return -1;
     int min_x = max_int(0, center_x - radius);
     int min_y = max_int(0, center_y - radius);
     int max_x = min_int(VIEWER_STREAMING_MAX_MAPSQUARE_COORD,
@@ -212,10 +215,9 @@ int viewer_streaming_mapsquare_path(char *out, size_t capacity,
                                     int region_y, int plane,
                                     const char *suffix) {
     if (!out || capacity == 0 || !directory || !directory[0] || !suffix
-            || !suffix[0] || region_x < 0 || region_y < 0
-            || region_x > VIEWER_STREAMING_MAX_MAPSQUARE_COORD
-            || region_y > VIEWER_STREAMING_MAX_MAPSQUARE_COORD
-            || plane < 0 || plane > 3)
+            || !suffix[0] || !rc_mapsquare_coord_valid(region_x)
+            || !rc_mapsquare_coord_valid(region_y)
+            || !rc_plane_valid(plane))
         return 0;
     int n = snprintf(out, capacity, "%s/%d_%d.p%d%s", directory,
                      region_x, region_y, plane, suffix);
@@ -257,7 +259,8 @@ int viewer_streaming_chunk_retained(const ViewerMapsquareCoord *plan,
 int viewer_streaming_same_window(int first_x, int first_y, int first_plane,
                                  int second_x, int second_y,
                                  int second_plane) {
-    if (first_x < 0 || first_y < 0 || second_x < 0 || second_y < 0)
+    if (!rc_world_tile_valid(first_x, first_y, first_plane)
+            || !rc_world_tile_valid(second_x, second_y, second_plane))
         return 0;
     return first_plane == second_plane
         && first_x / VIEWER_STREAMING_MAPSQUARE_SIZE
@@ -274,8 +277,13 @@ int viewer_streaming_predict_prefetch_center(
     int active_region_x, int active_region_y,
     int player_x, int player_y, int target_x, int target_y,
     int edge_distance, int *center_x, int *center_y) {
-    if (!center_x || !center_y || active_region_x < 0 || active_region_y < 0
-            || player_x < 0 || player_y < 0 || target_x < 0 || target_y < 0
+    if (!center_x || !center_y
+            || !rc_mapsquare_coord_valid(active_region_x)
+            || !rc_mapsquare_coord_valid(active_region_y)
+            || !rc_world_coord_valid(player_x)
+            || !rc_world_coord_valid(player_y)
+            || !rc_world_coord_valid(target_x)
+            || !rc_world_coord_valid(target_y)
             || edge_distance < 0) {
         return 0;
     }
@@ -313,7 +321,8 @@ int viewer_streaming_predict_prefetch_center(
             && next_region_y == active_region_y) {
         return 0;
     }
-    if (next_region_x < 0 || next_region_y < 0)
+    if (!rc_mapsquare_coord_valid(next_region_x)
+            || !rc_mapsquare_coord_valid(next_region_y))
         return 0;
     *center_x = next_region_x * VIEWER_STREAMING_MAPSQUARE_SIZE
               + VIEWER_STREAMING_MAPSQUARE_SIZE / 2;
@@ -328,6 +337,12 @@ void viewer_streaming_player_transition_begin(
     int destination_x, int destination_y, int destination_plane) {
     if (!transition)
         return;
+    memset(transition, 0, sizeof(*transition));
+    if (!rc_world_tile_valid(source_x, source_y, source_plane)
+            || !rc_world_tile_valid(destination_x, destination_y,
+                                    destination_plane)) {
+        return;
+    }
     *transition = (ViewerStreamingPlayerTransition){
         .active = 1,
         .source_x = source_x,
@@ -342,7 +357,10 @@ void viewer_streaming_player_transition_begin(
 int viewer_streaming_player_transition_source(
     const ViewerStreamingPlayerTransition *transition,
     int *x, int *y, int *plane) {
-    if (!transition || !transition->active || !x || !y || !plane)
+    if (!transition || !transition->active || !x || !y || !plane
+            || !rc_world_tile_valid(transition->source_x,
+                                    transition->source_y,
+                                    transition->source_plane))
         return 0;
     *x = transition->source_x;
     *y = transition->source_y;
@@ -353,7 +371,10 @@ int viewer_streaming_player_transition_source(
 int viewer_streaming_player_transition_commit(
     ViewerStreamingPlayerTransition *transition,
     int *x, int *y, int *plane) {
-    if (!transition || !transition->active || !x || !y || !plane)
+    if (!transition || !transition->active || !x || !y || !plane
+            || !rc_world_tile_valid(transition->destination_x,
+                                    transition->destination_y,
+                                    transition->destination_plane))
         return 0;
     *x = transition->destination_x;
     *y = transition->destination_y;

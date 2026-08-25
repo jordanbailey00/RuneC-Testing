@@ -36,6 +36,7 @@ typedef struct {
     int total_rows;
     int matched_filter;
     int skipped_filter;
+    int skipped_invalid;
     int skipped_instance;
     int skipped_missing_def;
     int skipped_capacity;

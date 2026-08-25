@@ -47,6 +47,7 @@ rc_add_tier1_suite(tick_action_scheduling
 # Mapsquare, world-tile, local-tile, plane, collision, and placement coordinate
 # contracts from generated data through runtime queries.
 rc_add_tier1_suite(coordinates_world_primitives
+    test_coordinates_world_primitives
     test_region_sets
     test_mapsquare_exports
     test_spawn_index
@@ -61,6 +62,7 @@ rc_add_tier1_suite(coordinates_world_primitives
     test_pathfinding
     test_plane_contracts_runtime
     test_spawn_slices_runtime
+    test_streaming_config
     test_traversal_runtime
 )
 

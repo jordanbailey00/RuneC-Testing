@@ -55,58 +55,57 @@ int rc_combat_apply_regular_npc_attack_rules(
 
 // ---- Auto-attack tick --------------------------------------------------
 
-// Chebyshev distance (tile-space range check).
-static int chebyshev(int x1, int y1, int x2, int y2) {
-    int dx = x1 > x2 ? x1 - x2 : x2 - x1;
-    int dy = y1 > y2 ? y1 - y2 : y2 - y1;
-    return dx > dy ? dx : dy;
-}
-
-static void nearest_npc_tile_to_point(const RcNpc *npc, int px, int py,
-                                      int *tx, int *ty) {
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
-    int size = def && def->size > 0 ? def->size : 1;
-    int min_x = npc->x;
-    int min_y = npc->y;
-    int max_x = npc->x + size - 1;
-    int max_y = npc->y + size - 1;
-    if (px < min_x) *tx = min_x;
-    else if (px > max_x) *tx = max_x;
-    else *tx = px;
-    if (py < min_y) *ty = min_y;
-    else if (py > max_y) *ty = max_y;
-    else *ty = py;
-}
-
 static int npc_footprint_size(const RcNpc *npc);
 
-static void npc_projectile_source_tile(const RcNpc *npc,
-                                       const RcPlayer *target,
-                                       RcCombatStyle style,
-                                       int *sx,
-                                       int *sy) {
-    if (!npc || !target || !sx || !sy)
-        return;
-    (void)style;
-    nearest_npc_tile_to_point(npc, target->x, target->y, sx, sy);
+static int npc_tile_bounds(const RcNpc *npc, RcTileBounds *bounds) {
+    if (!npc || !bounds) return 0;
+    int size = npc_footprint_size(npc);
+    return rc_tile_bounds_from_origin_size(
+        npc->x, npc->y, size, size, npc->plane, bounds);
+}
+
+static int nearest_npc_tile_to_point(const RcNpc *npc, int px, int py,
+                                     int *tx, int *ty) {
+    RcTileBounds bounds;
+    if (!tx || !ty || !npc_tile_bounds(npc, &bounds)) return 0;
+    return rc_tile_rect_closest_point(&bounds.rect, px, py, tx, ty);
 }
 
 static int point_in_npc_footprint(const RcNpc *npc, int x, int y) {
-    if (!npc) return 0;
-    int size = npc_footprint_size(npc);
-    return x >= npc->x && x < npc->x + size &&
-           y >= npc->y && y < npc->y + size;
+    RcTileBounds bounds;
+    return npc_tile_bounds(npc, &bounds)
+        && rc_tile_rect_contains(&bounds.rect, x, y);
 }
 
 static int distance_player_to_npc(const RcPlayer *p, const RcNpc *npc) {
-    int tx, ty;
-    nearest_npc_tile_to_point(npc, p->x, p->y, &tx, &ty);
-    return chebyshev(p->x, p->y, tx, ty);
+    int target_x, target_y;
+    if (!p || !npc || p->plane != npc->plane
+            || !nearest_npc_tile_to_point(
+                npc, p->x, p->y, &target_x, &target_y)) {
+        return INT_MAX;
+    }
+    int distance = rc_tile_distance(p->x, p->y, p->plane,
+                                    target_x, target_y, npc->plane);
+    return distance >= 0 ? distance : INT_MAX;
+}
+
+static int npc_projectile_source_tile(const RcNpc *npc,
+                                      const RcPlayer *target,
+                                      RcCombatStyle style,
+                                      int *sx,
+                                      int *sy) {
+    if (!npc || !target || !sx || !sy)
+        return 0;
+    (void)style;
+    return nearest_npc_tile_to_point(npc, target->x, target->y, sx, sy);
 }
 
 static void face_player_to_npc(RcPlayer *p, const RcNpc *npc) {
     int tx, ty;
-    nearest_npc_tile_to_point(npc, p->x, p->y, &tx, &ty);
+    if (!p || !nearest_npc_tile_to_point(npc, p->x, p->y, &tx, &ty)) {
+        if (p) p->facing_entity = -1;
+        return;
+    }
     p->facing_entity = npc->uid;
     p->facing_x = tx;
     p->facing_y = ty;
@@ -417,6 +416,11 @@ static void emit_player_attack_event(
     int hit_delay
 ) {
     if (!world || !p || !target || !profiles) return;
+    int target_x, target_y;
+    if (!nearest_npc_tile_to_point(target, p->x, p->y,
+                                   &target_x, &target_y)) {
+        return;
+    }
     RcCombatAttackEvent *event = next_attack_event_slot(world);
     if (!event) return;
     memset(event, 0, sizeof(*event));
@@ -431,8 +435,8 @@ static void emit_player_attack_event(
     event->target_definition_id = target_def ? target_def->id : -1;
     event->source_x = p->x;
     event->source_y = p->y;
-    nearest_npc_tile_to_point(target, p->x, p->y,
-                              &event->target_x, &event->target_y);
+    event->target_x = target_x;
+    event->target_y = target_y;
     event->plane = p->plane;
     event->hit_delay = hit_delay;
     event->weapon_item_id = weapon_id;
@@ -467,6 +471,11 @@ static void emit_npc_attack_event(
     int hit_delay
 ) {
     if (!world || !npc || !def || !target) return;
+    int source_x, source_y;
+    if (!npc_projectile_source_tile(npc, target, style,
+                                    &source_x, &source_y)) {
+        return;
+    }
     RcCombatAttackEvent *event = next_attack_event_slot(world);
     if (!event) return;
     memset(event, 0, sizeof(*event));
@@ -478,8 +487,8 @@ static void emit_npc_attack_event(
     event->target_uid = 0;
     event->source_definition_id = def->id;
     event->target_definition_id = -1;
-    npc_projectile_source_tile(npc, target, style,
-                               &event->source_x, &event->source_y);
+    event->source_x = source_x;
+    event->source_y = source_y;
     event->target_x = target->x;
     event->target_y = target->y;
     event->plane = npc->plane;
@@ -544,7 +553,7 @@ static int has_player_attack_los(const RcWorld *world, const RcPlayer *p,
         return 1;
     }
     int tx, ty;
-    nearest_npc_tile_to_point(npc, p->x, p->y, &tx, &ty);
+    if (!nearest_npc_tile_to_point(npc, p->x, p->y, &tx, &ty)) return 0;
     return rc_has_los(&world->map, p->x, p->y, tx, ty, p->plane);
 }
 
@@ -577,29 +586,37 @@ static int choose_player_attack_tile(const RcWorld *world, const RcPlayer *p,
                                      const RcNpc *npc, int range,
                                      RcCombatStyle style,
                                      RcRoute *out_route) {
-    int size = npc_footprint_size(npc);
-    int min_x = npc->x;
-    int min_y = npc->y;
-    int max_x = npc->x + size - 1;
-    int max_y = npc->y + size - 1;
+    RcTileBounds target_bounds;
+    if (!world || !p || !out_route || range < 0
+            || range >= RC_WORLD_SIZE
+            || !npc_tile_bounds(npc, &target_bounds)) {
+        return 0;
+    }
     int scan = range > 1 ? range : 1;
+    RcTileRect scan_bounds;
+    if (!rc_tile_rect_intersect_world(
+            target_bounds.rect.min_x - scan,
+            target_bounds.rect.min_y - scan,
+            target_bounds.rect.max_x + scan,
+            target_bounds.rect.max_y + scan, &scan_bounds)) {
+        return 0;
+    }
     int best_score = 0x7FFFFFFF;
     RcRoute best_route;
     memset(&best_route, 0, sizeof(best_route));
     int found = 0;
-    for (int y = min_y - scan; y <= max_y + scan; y++) {
-        for (int x = min_x - scan; x <= max_x + scan; x++) {
-            if (x >= min_x && x <= max_x && y >= min_y && y <= max_y) {
+    for (int y = scan_bounds.min_y; y <= scan_bounds.max_y; y++) {
+        for (int x = scan_bounds.min_x; x <= scan_bounds.max_x; x++) {
+            if (rc_tile_rect_contains(&target_bounds.rect, x, y)) {
                 continue;
             }
             int tx, ty;
-            if (x < min_x) tx = min_x;
-            else if (x > max_x) tx = max_x;
-            else tx = x;
-            if (y < min_y) ty = min_y;
-            else if (y > max_y) ty = max_y;
-            else ty = y;
-            int dist = chebyshev(x, y, tx, ty);
+            if (!rc_tile_rect_closest_point(&target_bounds.rect, x, y,
+                                            &tx, &ty)) {
+                return 0;
+            }
+            int dist = rc_tile_distance(x, y, p->plane,
+                                        tx, ty, p->plane);
             if (dist > range) continue;
             if (style_is_melee(style) && dist != 1) continue;
             if (rc_tile_blocked(&world->map, x, y, p->plane)) continue;
@@ -619,7 +636,10 @@ static int choose_player_attack_tile(const RcWorld *world, const RcPlayer *p,
                 route.success = true;
                 route.length = 0;
             }
-            int score = route.length * 4 + chebyshev(p->x, p->y, x, y);
+            int player_distance = rc_tile_distance(
+                p->x, p->y, p->plane, x, y, p->plane);
+            if (player_distance < 0) continue;
+            int score = route.length * 4 + player_distance;
             if (score < best_score) {
                 best_score = score;
                 best_route = route;
@@ -649,8 +669,10 @@ static int npc_can_attack_player_now(const RcWorld *world, const RcNpc *npc,
                                      RcCombatStyle style, int *distance,
                                      int *los) {
     int tx, ty;
-    nearest_npc_tile_to_point(npc, p->x, p->y, &tx, &ty);
-    int dist = chebyshev(p->x, p->y, tx, ty);
+    if (!nearest_npc_tile_to_point(npc, p->x, p->y, &tx, &ty)) return 0;
+    int dist = rc_tile_distance(p->x, p->y, p->plane,
+                                tx, ty, npc->plane);
+    if (dist < 0) return 0;
     int line = style_needs_los(style)
                ? rc_has_los(&world->map, tx, ty, p->x, p->y, npc->plane)
                : 1;
@@ -662,7 +684,7 @@ static int npc_can_attack_player_now(const RcWorld *world, const RcNpc *npc,
 static void step_npc_toward_player(RcWorld *world, RcNpc *npc,
                                    const RcPlayer *p) {
     int tx, ty;
-    nearest_npc_tile_to_point(npc, p->x, p->y, &tx, &ty);
+    if (!nearest_npc_tile_to_point(npc, p->x, p->y, &tx, &ty)) return;
     int sx = 0, sy = 0;
     if (p->x > tx) sx = 1;
     else if (p->x < tx) sx = -1;

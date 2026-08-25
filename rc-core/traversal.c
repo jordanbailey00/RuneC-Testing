@@ -1,6 +1,8 @@
 #include "traversal.h"
+#include "api.h"
 #include "player_command.h"
 #include "config.h"
+#include "coordinates.h"
 #include "io.h"
 
 #include <stdio.h>
@@ -38,6 +40,17 @@ static int read_str8(FILE *f, char *out, int cap,
 static int valid_key(int kind, uint32_t source_id) {
     return kind > 0 && kind < RC_TRAVERSAL_KIND_COUNT
         && source_id < RC_TRAVERSAL_MAX_SOURCE_ID;
+}
+
+static int valid_edge_coordinates(const RcTraversalEdge *edge) {
+    if (!edge || !rc_world_tile_valid(edge->dest_x, edge->dest_y,
+                                      edge->dest_plane)) {
+        return 0;
+    }
+    int no_source = edge->start_x == NO_TILE && edge->start_y == NO_TILE
+                 && edge->start_plane == UINT8_MAX;
+    return no_source || rc_world_tile_valid(edge->start_x, edge->start_y,
+                                            edge->start_plane);
 }
 
 void rc_traversal_data_init(RcTraversalData *data) {
@@ -131,12 +144,15 @@ int rc_load_traversal_edges_into(const char *path, RcTraversalData *data) {
         }
         row->start_plane = (uint8_t)((planes >> 8) & 0xFF);
         row->dest_plane = (uint8_t)(planes & 0xFF);
-        if (valid_key(row->kind, row->source_id)) {
-            RcTraversalRange *idx =
-                &data->index[row->kind][row->source_id];
-            if (idx->first == UINT32_MAX) idx->first = i;
-            idx->count++;
+        if (!valid_key(row->kind, row->source_id)
+                || !valid_edge_coordinates(row)) {
+            free(rows);
+            rc_asset_close(f);
+            return -1;
         }
+        RcTraversalRange *idx = &data->index[row->kind][row->source_id];
+        if (idx->first == UINT32_MAX) idx->first = i;
+        idx->count++;
     }
 
     rc_asset_close(f);
@@ -228,6 +244,12 @@ int rc_traversal_index_of(const RcTraversalEdge *edge) {
 
 const RcTraversalEdge *rc_traversal_find(int kind, int source_id,
                                          int x, int y, int plane, int option) {
+    if ((x < -1 || x >= RC_WORLD_SIZE)
+            || (y < -1 || y >= RC_WORLD_SIZE)
+            || (plane < -1 || plane >= RC_MAX_PLANES)
+            || (option < -1 || option > UINT8_MAX)) {
+        return NULL;
+    }
     int count = 0;
     const RcTraversalEdge *rows = rc_traversal_edges_for(kind, source_id, &count);
     for (int i = 0; rows && i < count; i++) {
@@ -235,9 +257,9 @@ const RcTraversalEdge *rc_traversal_find(int kind, int source_id,
         if (row->kind != (uint8_t)kind || row->source_id != (uint32_t)source_id)
             continue;
         if (option >= 0 && row->option != (uint8_t)option) continue;
-        if (x >= 0 && row->start_x != (uint16_t)x) continue;
-        if (y >= 0 && row->start_y != (uint16_t)y) continue;
-        if (plane >= 0 && row->start_plane != (uint8_t)plane) continue;
+        if (x >= 0 && row->start_x != x) continue;
+        if (y >= 0 && row->start_y != y) continue;
+        if (plane >= 0 && row->start_plane != plane) continue;
         return row;
     }
     return NULL;
@@ -249,7 +271,8 @@ const RcTraversalEdge *rc_traversal_find_target(int kind, const char *target) {
                                  : g_rc_traversal_edges;
     int edge_count = g_active_traversal_edges ? g_active_traversal_edge_count
                                               : g_rc_traversal_edge_count;
-    if (!target || !edges) return NULL;
+    if (!target || !edges || kind <= 0 || kind >= RC_TRAVERSAL_KIND_COUNT)
+        return NULL;
     for (int i = 0; i < edge_count; i++) {
         const RcTraversalEdge *row = &edges[i];
         if (row->kind == (uint8_t)kind && strcmp(row->target, target) == 0) {
@@ -260,21 +283,17 @@ const RcTraversalEdge *rc_traversal_find_target(int kind, const char *target) {
 }
 
 int rc_player_apply_traversal(RcWorld *world, const RcTraversalEdge *edge) {
+    if (!world || !edge || !valid_edge_coordinates(edge)) return 0;
     if (rc_player_command_should_queue(world)) {
-        if (!edge) return 0;
         int args[8] = {edge->dest_x, edge->dest_y, edge->dest_plane,
                        0, 0, 0, 0, 0};
         return rc_player_command_submit(world,
                                         RC_PLAYER_COMMAND_APPLY_TRAVERSAL,
                                         RC_ACTION_CATEGORY_STRONG, args, 0);
     }
-    if (!world || !edge || !(world->enabled & RC_SUB_TRAVERSAL)) return 0;
-    world->player.prev_x = world->player.x;
-    world->player.prev_y = world->player.y;
-    world->player.x = edge->dest_x;
-    world->player.y = edge->dest_y;
-    world->player.plane = edge->dest_plane;
-    world->player.route_len = 0;
-    world->player.route_idx = 0;
-    return 1;
+    if (!(world->enabled & RC_SUB_TRAVERSAL)) {
+        return 0;
+    }
+    return rc_world_relocate_player(world, edge->dest_x, edge->dest_y,
+                                    edge->dest_plane);
 }

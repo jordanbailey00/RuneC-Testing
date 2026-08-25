@@ -155,9 +155,13 @@ static int execute_command(RcWorld *world, const RcPlayerCommand *command) {
     const int *a = command->args;
     switch ((RcPlayerCommandKind)command->kind) {
     case RC_PLAYER_COMMAND_WALK_TO:
-        rc_player_walk_to(world, a[0], a[1]); return 1;
+        if (!rc_world_coord_valid(a[0]) || !rc_world_coord_valid(a[1]))
+            return 0;
+        return rc_player_walk_to(world, a[0], a[1]);
     case RC_PLAYER_COMMAND_RUN_TO:
-        rc_player_run_to(world, a[0], a[1]); return 1;
+        if (!rc_world_coord_valid(a[0]) || !rc_world_coord_valid(a[1]))
+            return 0;
+        return rc_player_run_to(world, a[0], a[1]);
     case RC_PLAYER_COMMAND_SET_RUNNING:
         return rc_player_set_running(world, a[0]);
     case RC_PLAYER_COMMAND_ATTACK_NPC:
@@ -228,9 +232,7 @@ static int execute_command(RcWorld *world, const RcPlayerCommand *command) {
         return rc_bank_withdraw_slot(world, a[0], a[1]) >= 0;
     case RC_PLAYER_COMMAND_APPLY_TRAVERSAL: {
         if (!(world->enabled & RC_SUB_TRAVERSAL)
-                || a[0] < 0 || a[0] > UINT16_MAX
-                || a[1] < 0 || a[1] > UINT16_MAX
-                || a[2] < 0 || a[2] > 3) {
+                || !rc_world_tile_valid(a[0], a[1], a[2])) {
             return 0;
         }
         RcPlayer *player = &world->player;

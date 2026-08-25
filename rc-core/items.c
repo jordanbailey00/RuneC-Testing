@@ -732,7 +732,10 @@ static int spawn_ground_item_quantity(RcWorld *world, int item_id,
                                       int visibility, int reveal_timer,
                                       int despawn_timer, int static_spawn,
                                       uint64_t spawn_key) {
-    if (!world || item_id < 0 || quantity <= 0) return 0;
+    if (!world || item_id < 0 || quantity <= 0
+            || !rc_world_tile_valid(x, y, plane)) {
+        return 0;
+    }
     int stackable = ground_item_is_stackable(item_id, quantity);
     if (stackable) {
         return spawn_ground_item_one(world, item_id, quantity, x, y, plane,
@@ -797,7 +800,8 @@ int rc_load_ground_item_spawns_rect_stats(RcWorld *world, const char *path,
                                           RcGroundItemSpawnLoadStats *stats) {
     if (stats) memset(stats, 0, sizeof(*stats));
     if (!world || !path || !path[0] || min_x > max_x || min_y > max_y
-            || min_plane > max_plane) {
+            || min_plane > max_plane || !rc_plane_valid(min_plane)
+            || !rc_plane_valid(max_plane)) {
         return -1;
     }
     RcSpawnIndexSlice slice = {0};
@@ -838,6 +842,10 @@ int rc_load_ground_item_spawns_rect_stats(RcWorld *world, const char *path,
         int32_t x = (int32_t)x_u;
         int32_t y = (int32_t)y_u;
         (void)flags;
+        if (!rc_world_tile_valid(x, y, plane)) {
+            if (stats) stats->skipped_invalid++;
+            continue;
+        }
         if ((int)plane < min_plane || (int)plane > max_plane) {
             continue;
         }
@@ -864,6 +872,7 @@ int rc_load_ground_item_spawns_rect_stats(RcWorld *world, const char *path,
     if (stats) {
         stats->skipped_filtered = stats->total_rows
                                 - stats->skipped_plane
+                                - stats->skipped_invalid
                                 - stats->matched_filter;
     }
     rc_spawn_index_slice_free(&slice);

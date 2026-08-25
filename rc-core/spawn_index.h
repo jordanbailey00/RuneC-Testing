@@ -1,11 +1,13 @@
 #ifndef RC_SPAWN_INDEX_H
 #define RC_SPAWN_INDEX_H
 
+#include "coordinates.h"
+
 #include <stdint.h>
 
 enum {
     RC_SPAWN_INDEX_VERSION = 1,
-    RC_SPAWN_INDEX_MAPSQUARE_COUNT = 65536,
+    RC_SPAWN_INDEX_MAPSQUARE_COUNT = RC_MAPSQUARE_COUNT,
 };
 
 typedef struct {
@@ -15,7 +17,7 @@ typedef struct {
     uint32_t occupied_pages;
     uint32_t pages_loaded;
     uint32_t record_size;
-    uint32_t source_plane_counts[4];
+    uint32_t source_plane_counts[RC_MAX_PLANES];
 } RcSpawnIndexSlice;
 
 int rc_spawn_index_read(const char *path, uint32_t expected_magic,

@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 
@@ -125,6 +126,16 @@ int main(void) {
     assert(telemetry.active_area_load_count == 0);
 
     RcActiveAreaRequest bad = {0};
+    assert(rc_world_activate_area(world, &bad, NULL) == -1);
+    bad.origin_x = RC_WORLD_MAX;
+    bad.origin_y = 0;
+    bad.width = 2;
+    bad.height = 1;
+    bad.min_plane = 0;
+    bad.max_plane = 0;
+    assert(rc_world_activate_area(world, &bad, NULL) == -1);
+    bad.origin_x = 0;
+    bad.width = INT_MAX;
     assert(rc_world_activate_area(world, &bad, NULL) == -1);
 
     RcActiveAreaRequest req = {

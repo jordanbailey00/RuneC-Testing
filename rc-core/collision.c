@@ -396,16 +396,13 @@ static int collision_mapsquare_bounds(int min_x, int min_y,
                                       int *min_rx, int *min_ry,
                                       int *max_rx, int *max_ry) {
     if (min_x > max_x || min_y > max_y) return -1;
-    if (max_x < 0 || max_y < 0 || min_x >= 16384 || min_y >= 16384)
+    RcTileRect bounds;
+    if (!rc_tile_rect_intersect_world(min_x, min_y, max_x, max_y, &bounds))
         return 0;
-    if (min_x < 0) min_x = 0;
-    if (min_y < 0) min_y = 0;
-    if (max_x >= 16384) max_x = 16383;
-    if (max_y >= 16384) max_y = 16383;
-    *min_rx = min_x >> 6;
-    *min_ry = min_y >> 6;
-    *max_rx = max_x >> 6;
-    *max_ry = max_y >> 6;
+    *min_rx = bounds.min_x / RC_MAPSQUARE_SIZE;
+    *min_ry = bounds.min_y / RC_MAPSQUARE_SIZE;
+    *max_rx = bounds.max_x / RC_MAPSQUARE_SIZE;
+    *max_ry = bounds.max_y / RC_MAPSQUARE_SIZE;
     return 1;
 }
 
@@ -441,7 +438,8 @@ int rc_collision_populate_map_rect_stats(RcWorldMap *map, int min_x, int min_y,
     uint32_t missing_pages = 0;
     for (int rx = min_rx; rx <= max_rx; rx++) {
         for (int ry = min_ry; ry <= max_ry; ry++) {
-            uint16_t mapsquare = (uint16_t)((rx << 8) | ry);
+            uint16_t mapsquare;
+            if (!rc_mapsquare_key(rx, ry, &mapsquare)) return -1;
             if (store->index[mapsquare].count == 0) continue;
             if (stats) stats->pages_requested++;
             if (!cached_collision_page(store, mapsquare)) missing_pages++;
@@ -454,7 +452,11 @@ int rc_collision_populate_map_rect_stats(RcWorldMap *map, int min_x, int min_y,
     int result = 0;
     for (int rx = min_rx; rx <= max_rx && result >= 0; rx++) {
         for (int ry = min_ry; ry <= max_ry; ry++) {
-            uint16_t mapsquare = (uint16_t)((rx << 8) | ry);
+            uint16_t mapsquare;
+            if (!rc_mapsquare_key(rx, ry, &mapsquare)) {
+                result = -1;
+                break;
+            }
             if (store->index[mapsquare].count == 0) continue;
             RcCollisionPage *page = NULL;
             int loaded = 0;
@@ -490,16 +492,17 @@ int rc_collision_populate_map_rect(RcWorldMap *map, int min_x, int min_y,
 
 uint32_t rc_collision_flags_at(int x, int y, int plane, int *found) {
     if (found) *found = 0;
-    if (!rc_collision_is_loaded() || x < 0 || y < 0
-            || x >= 16384 || y >= 16384
-            || plane < 0 || plane >= RC_MAX_PLANES) {
+    uint16_t mapsquare;
+    int local_x, local_y;
+    if (!rc_collision_is_loaded() || !rc_world_tile_valid(x, y, plane)
+            || !rc_world_to_mapsquare(x, y, &mapsquare,
+                                      &local_x, &local_y)) {
         return 0;
     }
     RcCollisionStore *store = active_collision_store();
-    uint16_t mapsquare = (uint16_t)(((x >> 6) << 8) | (y >> 6));
     RcCollisionPage *page = NULL;
     if (!collision_page_get(store, NULL, mapsquare, &page, NULL) || !page)
         return 0;
     if (found) *found = 1;
-    return page->region->flags[plane][x & 63][y & 63];
+    return page->region->flags[plane][local_x][local_y];
 }

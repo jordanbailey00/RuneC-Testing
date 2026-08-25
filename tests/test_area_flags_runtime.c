@@ -61,8 +61,11 @@ int main(void) {
     assert(ferox & RC_AREA_PVP_SAFE);
 
     assert(rc_area_flags_at(-1, 0, 0) == 0);
+    assert(rc_area_flags_at(2950 + RC_WORLD_SIZE, 3400, 0) == 0);
+    assert(rc_area_flag_rows_at(2964 + RC_WORLD_SIZE, 3332, 0) == 0);
     assert(rc_area_flags_at(3130, 3625, 4) == 0);
     assert(rc_wilderness_level_at(-1, 0, 0) == 0);
+    assert(rc_wilderness_level_at(3000 + RC_WORLD_SIZE, 3526, 0) == 0);
     assert(rc_wilderness_level_at(3130, 3625, 4) == 0);
 
     RcWorldConfig cfg = rc_preset_base_only();

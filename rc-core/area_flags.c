@@ -89,10 +89,6 @@ void rc_area_flags_reset_data_if_active(const RcAreaFlagData *data) {
     }
 }
 
-static uint16_t mapsquare_for(int x, int y) {
-    return (uint16_t)(((x >> 6) << 8) | (y >> 6));
-}
-
 static void free_area_data(RcAreaFlagRow *rows, RcAreaPoint *points) {
     free(rows);
     free(points);
@@ -139,13 +135,18 @@ static int build_index(RcAreaFlagData *data) {
     uint32_t total = 0;
     for (int i = 0; i < data->row_count; i++) {
         const RcAreaFlagRow *row = &data->rows[i];
-        int min_rx = row->min_x >> 6, max_rx = row->max_x >> 6;
-        int min_ry = row->min_y >> 6, max_ry = row->max_y >> 6;
-        for (int rx = min_rx; rx <= max_rx && rx < 256; rx++) {
-            if (rx < 0) continue;
-            for (int ry = min_ry; ry <= max_ry && ry < 256; ry++) {
-                if (ry < 0) continue;
-                counts[(uint16_t)((rx << 8) | ry)]++;
+        int min_rx = row->min_x / RC_MAPSQUARE_SIZE;
+        int max_rx = row->max_x / RC_MAPSQUARE_SIZE;
+        int min_ry = row->min_y / RC_MAPSQUARE_SIZE;
+        int max_ry = row->max_y / RC_MAPSQUARE_SIZE;
+        for (int rx = min_rx; rx <= max_rx; rx++) {
+            for (int ry = min_ry; ry <= max_ry; ry++) {
+                uint16_t key;
+                if (!rc_mapsquare_key(rx, ry, &key)) {
+                    free(counts);
+                    return 0;
+                }
+                counts[key]++;
                 total++;
             }
         }
@@ -165,13 +166,17 @@ static int build_index(RcAreaFlagData *data) {
     }
     for (int i = 0; i < data->row_count; i++) {
         const RcAreaFlagRow *row = &data->rows[i];
-        int min_rx = row->min_x >> 6, max_rx = row->max_x >> 6;
-        int min_ry = row->min_y >> 6, max_ry = row->max_y >> 6;
-        for (int rx = min_rx; rx <= max_rx && rx < 256; rx++) {
-            if (rx < 0) continue;
-            for (int ry = min_ry; ry <= max_ry && ry < 256; ry++) {
-                if (ry < 0) continue;
-                uint16_t ms = (uint16_t)((rx << 8) | ry);
+        int min_rx = row->min_x / RC_MAPSQUARE_SIZE;
+        int max_rx = row->max_x / RC_MAPSQUARE_SIZE;
+        int min_ry = row->min_y / RC_MAPSQUARE_SIZE;
+        int max_ry = row->max_y / RC_MAPSQUARE_SIZE;
+        for (int rx = min_rx; rx <= max_rx; rx++) {
+            for (int ry = min_ry; ry <= max_ry; ry++) {
+                uint16_t ms;
+                if (!rc_mapsquare_key(rx, ry, &ms)) {
+                    free(counts);
+                    return 0;
+                }
                 uint32_t slot = data->index[ms].first + counts[ms]++;
                 data->refs[slot] = (uint32_t)i;
             }
@@ -203,24 +208,27 @@ static void raster_row(RcAreaFlagData *data, const RcAreaFlagRow *row,
     if (!data || !row) return;
     uint8_t bits = (uint8_t)(clear ? row->clear_flags : row->set_flags);
     if (!bits) return;
-    int min_rx = row->min_x >> 6, max_rx = row->max_x >> 6;
-    int min_ry = row->min_y >> 6, max_ry = row->max_y >> 6;
-    for (int rx = min_rx; rx <= max_rx && rx < 256; rx++) {
-        if (rx < 0) continue;
-        for (int ry = min_ry; ry <= max_ry && ry < 256; ry++) {
-            if (ry < 0) continue;
-            uint16_t ms = (uint16_t)((rx << 8) | ry);
+    int min_rx = row->min_x / RC_MAPSQUARE_SIZE;
+    int max_rx = row->max_x / RC_MAPSQUARE_SIZE;
+    int min_ry = row->min_y / RC_MAPSQUARE_SIZE;
+    int max_ry = row->max_y / RC_MAPSQUARE_SIZE;
+    for (int rx = min_rx; rx <= max_rx; rx++) {
+        for (int ry = min_ry; ry <= max_ry; ry++) {
+            uint16_t ms;
+            if (!rc_mapsquare_key(rx, ry, &ms)) return;
             int idx = data->tile_index[ms];
             if (idx < 0) continue;
             RcAreaTileRegion *tile = &data->tiles[idx];
-            int lx0 = rx == min_rx ? (row->min_x & 63) : 0;
-            int ly0 = ry == min_ry ? (row->min_y & 63) : 0;
-            int lx1 = rx == max_rx ? (row->max_x & 63) : 63;
-            int ly1 = ry == max_ry ? (row->max_y & 63) : 63;
+            int lx0 = rx == min_rx ? row->min_x % RC_MAPSQUARE_SIZE : 0;
+            int ly0 = ry == min_ry ? row->min_y % RC_MAPSQUARE_SIZE : 0;
+            int lx1 = rx == max_rx ? row->max_x % RC_MAPSQUARE_SIZE
+                                   : RC_MAPSQUARE_SIZE - 1;
+            int ly1 = ry == max_ry ? row->max_y % RC_MAPSQUARE_SIZE
+                                   : RC_MAPSQUARE_SIZE - 1;
             for (int lx = lx0; lx <= lx1; lx++) {
-                int x = (rx << 6) + lx;
+                int x = rx * RC_MAPSQUARE_SIZE + lx;
                 for (int ly = ly0; ly <= ly1; ly++) {
-                    int y = (ry << 6) + ly;
+                    int y = ry * RC_MAPSQUARE_SIZE + ly;
                     if (!point_in_row(row, x, y)) continue;
                     if (clear) tile->flags[row->plane][lx][ly] &= (uint8_t)~bits;
                     else tile->flags[row->plane][lx][ly] |= bits;
@@ -296,8 +304,11 @@ int rc_load_area_flags_into(const char *path, RcAreaFlagData *data) {
             rc_asset_close(f);
             return -1;
         }
-        if (point_pos + row->vertex_count > point_count
-                || row->plane >= 4 || row->vertex_count < 3) {
+        RcTileRect bounds;
+        if (row->vertex_count > point_count - point_pos
+                || !rc_plane_valid(row->plane) || row->vertex_count < 3
+                || !rc_tile_rect_make(row->min_x, row->min_y,
+                                      row->max_x, row->max_y, &bounds)) {
             free_area_data(rows, points);
             rc_asset_close(f);
             return -1;
@@ -308,6 +319,16 @@ int rc_load_area_flags_into(const char *path, RcAreaFlagData *data) {
             free_area_data(rows, points);
             rc_asset_close(f);
             return -1;
+        }
+        for (uint16_t j = 0; j < row->vertex_count; j++) {
+            if (!rc_world_coord_valid(row->points[j].x)
+                    || !rc_world_coord_valid(row->points[j].y)
+                    || !rc_tile_rect_contains(&bounds, row->points[j].x,
+                                              row->points[j].y)) {
+                free_area_data(rows, points);
+                rc_asset_close(f);
+                return -1;
+            }
         }
         point_pos += row->vertex_count;
     }
@@ -445,8 +466,11 @@ static int row_matches(const RcAreaFlagRow *row, int x, int y, int plane) {
 }
 
 uint32_t rc_area_flags_at(int x, int y, int plane) {
-    if (!rc_area_flags_is_loaded() || x < 0 || y < 0 || plane < 0
-            || plane >= 4) {
+    uint16_t mapsquare;
+    int local_x, local_y;
+    if (!rc_area_flags_is_loaded() || !rc_world_tile_valid(x, y, plane)
+            || !rc_world_to_mapsquare(x, y, &mapsquare,
+                                      &local_x, &local_y)) {
         return 0;
     }
     const int *tile_index = g_active_area_tile_index
@@ -455,14 +479,15 @@ uint32_t rc_area_flags_at(int x, int y, int plane) {
                                   ? g_active_area_tiles : g_area_tiles;
     int tile_count = g_active_area_tiles ? g_active_area_tile_count
                                          : g_area_tile_count;
-    int idx = tile_index[mapsquare_for(x, y)];
+    int idx = tile_index[mapsquare];
     if (idx < 0 || idx >= tile_count || !tiles) return 0;
-    return tiles[idx].flags[plane][x & 63][y & 63];
+    return tiles[idx].flags[plane][local_x][local_y];
 }
 
 int rc_area_flag_rows_at(int x, int y, int plane) {
-    if (!rc_area_flags_is_loaded() || x < 0 || y < 0 || plane < 0
-            || plane >= 4) {
+    uint16_t mapsquare;
+    if (!rc_area_flags_is_loaded() || !rc_world_tile_valid(x, y, plane)
+            || !rc_world_to_mapsquare(x, y, &mapsquare, NULL, NULL)) {
         return 0;
     }
     const RcAreaFlagRow *rows = g_active_area_flags
@@ -471,7 +496,7 @@ int rc_area_flag_rows_at(int x, int y, int plane) {
                          ? g_active_area_refs : g_area_refs;
     const RcAreaRange *index = g_active_area_index
                              ? g_active_area_index : g_area_index;
-    RcAreaRange idx = index[mapsquare_for(x, y)];
+    RcAreaRange idx = index[mapsquare];
     int count = 0;
     for (uint32_t i = 0; i < idx.count; i++) {
         if (!rows || !refs) break;
@@ -483,13 +508,15 @@ int rc_area_flag_rows_at(int x, int y, int plane) {
 
 int rc_wilderness_level_at(int x, int y, int plane) {
     if ((rc_area_flags_at(x, y, plane) & RC_AREA_WILDERNESS) == 0) return 0;
+    uint16_t mapsquare;
+    if (!rc_world_to_mapsquare(x, y, &mapsquare, NULL, NULL)) return 0;
     const RcAreaFlagRow *rows = g_active_area_flags
                               ? g_active_area_flags : g_rc_area_flags;
     const uint32_t *refs = g_active_area_refs
                          ? g_active_area_refs : g_area_refs;
     const RcAreaRange *index = g_active_area_index
                              ? g_active_area_index : g_area_index;
-    RcAreaRange idx = index[mapsquare_for(x, y)];
+    RcAreaRange idx = index[mapsquare];
     for (uint32_t i = 0; i < idx.count; i++) {
         if (!rows || !refs) break;
         const RcAreaFlagRow *row = &rows[refs[idx.first + i]];

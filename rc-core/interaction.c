@@ -25,17 +25,16 @@ int rc_interaction_op_valid(RcInteractionOp op) {
     return op >= RC_INTERACTION_OP1 && op <= RC_INTERACTION_WIDGET_ACTION;
 }
 
-static int valid_plane(int plane) {
-    return plane >= 0 && plane < RC_MAX_PLANES;
-}
-
 static int valid_footprint(const RcInteractionTarget *target) {
-    return target->footprint_width > 0 && target->footprint_height > 0;
+    RcTileBounds bounds;
+    return target && rc_tile_bounds_from_origin_size(
+        target->tile_x, target->tile_y,
+        target->footprint_width, target->footprint_height,
+        target->plane, &bounds);
 }
 
 static int valid_tile_target(const RcInteractionTarget *target) {
-    return target->tile_x >= 0 && target->tile_y >= 0
-        && valid_plane(target->plane) && valid_footprint(target);
+    return valid_footprint(target);
 }
 
 int rc_interaction_target_valid(const RcInteractionTarget *target) {

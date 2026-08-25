@@ -286,7 +286,7 @@ int rc_player_pending_command_count(const RcWorld *world) {
 }
 
 int rc_world_relocate_player(RcWorld *world, int x, int y, int plane) {
-    if (!world || x < 0 || y < 0 || plane < 0 || plane >= RC_MAX_PLANES) {
+    if (!world || !rc_world_tile_valid(x, y, plane)) {
         return 0;
     }
     rc_player_cancel_action(world, RC_ACTION_CANCEL_RELOCATED);
@@ -314,9 +314,13 @@ const RcNpc *rc_get_npcs(const RcWorld *world, int *count) {
 }
 
 static int valid_active_area_request(const RcActiveAreaRequest *request) {
-    return request && request->width > 0 && request->height > 0
-        && request->min_plane >= 0 && request->max_plane < RC_MAX_PLANES
-        && request->min_plane <= request->max_plane;
+    RcTileRect rect;
+    return request && rc_plane_valid(request->min_plane)
+        && rc_plane_valid(request->max_plane)
+        && request->min_plane <= request->max_plane
+        && rc_tile_rect_from_origin_size(
+            request->origin_x, request->origin_y,
+            request->width, request->height, &rect);
 }
 
 static void clear_active_npcs(RcWorld *world) {
@@ -359,10 +363,16 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
               | RC_ACTIVE_AREA_LOAD_OBJECT_PLACEMENTS;
     }
 
-    int min_x = request->origin_x;
-    int min_y = request->origin_y;
-    int max_x = request->origin_x + request->width - 1;
-    int max_y = request->origin_y + request->height - 1;
+    RcTileRect bounds;
+    if (!rc_tile_rect_from_origin_size(request->origin_x, request->origin_y,
+                                       request->width, request->height,
+                                       &bounds)) {
+        return -1;
+    }
+    int min_x = bounds.min_x;
+    int min_y = bounds.min_y;
+    int max_x = bounds.max_x;
+    int max_y = bounds.max_y;
 
     int collision_regions = world->map.region_count;
     RcCollisionLoadStats collision_stats;
@@ -526,9 +536,11 @@ int rc_world_get_streaming_telemetry(const RcWorld *world,
 
 int rc_world_find_npc_near(const RcWorld *world, int npc_id, int x, int y,
                            int plane, int radius) {
-    if (!world || npc_id < 0 || plane < 0 || plane >= RC_MAX_PLANES
-            || radius < 0)
+    RcTileRect search;
+    if (!world || npc_id < 0 || !rc_plane_valid(plane)
+            || !rc_tile_rect_around(x, y, radius, &search)) {
         return -1;
+    }
     for (int i = 0; i < world->npc_count; i++) {
         const RcNpc *npc = &world->npcs[i];
         const RcNpcDef *def = rc_npc_def_for_npc(npc);
@@ -536,7 +548,7 @@ int rc_world_find_npc_near(const RcWorld *world, int npc_id, int x, int y,
             continue;
         if (npc->plane != plane || def->id != npc_id)
             continue;
-        if (abs(npc->x - x) <= radius && abs(npc->y - y) <= radius)
+        if (rc_tile_rect_contains(&search, npc->x, npc->y))
             return i;
     }
     return -1;

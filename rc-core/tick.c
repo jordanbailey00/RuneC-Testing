@@ -160,36 +160,45 @@ static void process_player_movement(RcWorld *world) {
     }
 }
 
-static void nearest_npc_tile_to_player(const RcNpc *npc, const RcPlayer *p,
-                                       int *tx, int *ty) {
+static int nearest_npc_tile_to_player(const RcNpc *npc, const RcPlayer *p,
+                                      int *tx, int *ty) {
     const RcNpcDef *def = npc_def_for(npc);
     int size = def && def->size > 0 ? def->size : 1;
-    int min_x = npc->x;
-    int min_y = npc->y;
-    int max_x = npc->x + size - 1;
-    int max_y = npc->y + size - 1;
-    if (p->x < min_x) *tx = min_x;
-    else if (p->x > max_x) *tx = max_x;
-    else *tx = p->x;
-    if (p->y < min_y) *ty = min_y;
-    else if (p->y > max_y) *ty = max_y;
-    else *ty = p->y;
+    RcTileBounds bounds;
+    if (!npc || !p || !tx || !ty
+            || !rc_tile_bounds_from_origin_size(npc->x, npc->y,
+                                                size, size, npc->plane,
+                                                &bounds)
+            || !rc_tile_rect_closest_point(&bounds.rect, p->x, p->y,
+                                           tx, ty)) {
+        return 0;
+    }
+    return 1;
 }
 
 static int player_distance_to_npc(const RcPlayer *p, const RcNpc *npc) {
-    if (!p || !npc || p->plane != npc->plane) return INT_MAX;
-    int tx, ty;
-    nearest_npc_tile_to_player(npc, p, &tx, &ty);
-    int dx = p->x - tx;
-    int dy = p->y - ty;
-    if (dx < 0) dx = -dx;
-    if (dy < 0) dy = -dy;
-    return dx > dy ? dx : dy;
+    const RcNpcDef *def = npc_def_for(npc);
+    int size = def && def->size > 0 ? def->size : 1;
+    RcTileBounds player_bounds, npc_bounds;
+    int distance;
+    if (!p || !npc
+            || !rc_tile_bounds_from_origin_size(p->x, p->y, 1, 1,
+                                                p->plane, &player_bounds)
+            || !rc_tile_bounds_from_origin_size(npc->x, npc->y, size, size,
+                                                npc->plane, &npc_bounds)
+            || (distance = rc_tile_bounds_distance(
+                    &player_bounds, &npc_bounds)) < 0) {
+        return INT_MAX;
+    }
+    return distance;
 }
 
 static void face_player_to_npc(RcPlayer *p, const RcNpc *npc) {
     int tx, ty;
-    nearest_npc_tile_to_player(npc, p, &tx, &ty);
+    if (!nearest_npc_tile_to_player(npc, p, &tx, &ty)) {
+        if (p) p->facing_entity = -1;
+        return;
+    }
     p->facing_entity = npc->uid;
     p->facing_x = tx;
     p->facing_y = ty;
@@ -200,7 +209,7 @@ static int npc_interaction_has_los(const RcWorld *world, const RcPlayer *p,
     if (!p || !npc || p->plane != npc->plane) return 0;
     if (range <= 1) return 1;
     int tx, ty;
-    nearest_npc_tile_to_player(npc, p, &tx, &ty);
+    if (!nearest_npc_tile_to_player(npc, p, &tx, &ty)) return 0;
     return rc_has_los(&world->map, p->x, p->y, tx, ty, p->plane);
 }
 
@@ -209,10 +218,13 @@ static void route_player_toward_interaction_npc(RcWorld *world, RcPlayer *p,
     if (!p || !npc || p->plane != npc->plane) return;
     const RcNpcDef *def = npc_def_for(npc);
     int size = def && def->size > 0 ? def->size : 1;
-    int min_x = npc->x;
-    int min_y = npc->y;
-    int max_x = npc->x + size - 1;
-    int max_y = npc->y + size - 1;
+    RcTileBounds bounds;
+    if (!rc_tile_bounds_from_origin_size(npc->x, npc->y, size, size,
+                                         npc->plane, &bounds)) return;
+    int min_x = bounds.rect.min_x;
+    int min_y = bounds.rect.min_y;
+    int max_x = bounds.rect.max_x;
+    int max_y = bounds.rect.max_y;
     int tx = p->x;
     int ty = p->y;
     if (p->x < min_x) tx = min_x - range;
@@ -225,31 +237,38 @@ static void route_player_toward_interaction_npc(RcWorld *world, RcPlayer *p,
     p->interaction.flags |= RC_INTERACTION_MOVED;
 }
 
-static void nearest_target_tile_to_player(const RcInteractionTarget *target,
-                                          const RcPlayer *p, int *tx,
-                                          int *ty) {
-    int min_x = target->tile_x;
-    int min_y = target->tile_y;
-    int max_x = target->tile_x + target->footprint_width - 1;
-    int max_y = target->tile_y + target->footprint_height - 1;
-    if (p->x < min_x) *tx = min_x;
-    else if (p->x > max_x) *tx = max_x;
-    else *tx = p->x;
-    if (p->y < min_y) *ty = min_y;
-    else if (p->y > max_y) *ty = max_y;
-    else *ty = p->y;
+static int nearest_target_tile_to_player(const RcInteractionTarget *target,
+                                         const RcPlayer *p, int *tx,
+                                         int *ty) {
+    RcTileBounds bounds;
+    if (!target || !p || !tx || !ty
+            || !rc_tile_bounds_from_origin_size(
+                target->tile_x, target->tile_y,
+                target->footprint_width, target->footprint_height,
+                target->plane, &bounds)
+            || !rc_tile_rect_closest_point(&bounds.rect, p->x, p->y,
+                                           tx, ty)) {
+        return 0;
+    }
+    return 1;
 }
 
 static int player_distance_to_target(const RcPlayer *p,
                                      const RcInteractionTarget *target) {
-    if (!p || !target || p->plane != target->plane) return INT_MAX;
-    int tx, ty;
-    nearest_target_tile_to_player(target, p, &tx, &ty);
-    int dx = p->x - tx;
-    int dy = p->y - ty;
-    if (dx < 0) dx = -dx;
-    if (dy < 0) dy = -dy;
-    return dx > dy ? dx : dy;
+    RcTileBounds player_bounds, target_bounds;
+    int distance;
+    if (!p || !target
+            || !rc_tile_bounds_from_origin_size(p->x, p->y, 1, 1,
+                                                p->plane, &player_bounds)
+            || !rc_tile_bounds_from_origin_size(
+                target->tile_x, target->tile_y,
+                target->footprint_width, target->footprint_height,
+                target->plane, &target_bounds)
+            || (distance = rc_tile_bounds_distance(
+                    &player_bounds, &target_bounds)) < 0) {
+        return INT_MAX;
+    }
+    return distance;
 }
 
 static int player_has_active_route(const RcPlayer *p) {
@@ -259,7 +278,10 @@ static int player_has_active_route(const RcPlayer *p) {
 static void face_player_to_target(RcPlayer *p,
                                   const RcInteractionTarget *target) {
     int tx, ty;
-    nearest_target_tile_to_player(target, p, &tx, &ty);
+    if (!nearest_target_tile_to_player(target, p, &tx, &ty)) {
+        if (p) p->facing_entity = -1;
+        return;
+    }
     p->facing_entity = -1;
     p->facing_x = tx;
     p->facing_y = ty;
@@ -267,13 +289,14 @@ static void face_player_to_target(RcPlayer *p,
 
 static int tile_distance_to_target_rect(int x, int y, int min_x, int min_y,
                                         int max_x, int max_y) {
-    int dx = 0;
-    int dy = 0;
-    if (x < min_x) dx = min_x - x;
-    else if (x > max_x) dx = x - max_x;
-    if (y < min_y) dy = min_y - y;
-    else if (y > max_y) dy = y - max_y;
-    return dx > dy ? dx : dy;
+    RcTileRect target;
+    int tx, ty;
+    if (!rc_tile_rect_make(min_x, min_y, max_x, max_y, &target)
+            || !rc_world_coord_valid(x) || !rc_world_coord_valid(y)
+            || !rc_tile_rect_closest_point(&target, x, y, &tx, &ty)) {
+        return INT_MAX;
+    }
+    return rc_tile_distance(x, y, 0, tx, ty, 0);
 }
 
 static int route_player_toward_interaction_target(RcWorld *world, RcPlayer *p,
@@ -300,12 +323,16 @@ static int route_player_toward_interaction_target(RcWorld *world, RcPlayer *p,
             return 1;
         }
     }
-    int min_x = t->tile_x;
-    int min_y = t->tile_y;
-    int max_x = t->tile_x + t->footprint_width - 1;
-    int max_y = t->tile_y + t->footprint_height - 1;
-    if (t->footprint_width <= 0) max_x = min_x;
-    if (t->footprint_height <= 0) max_y = min_y;
+    RcTileBounds target_bounds;
+    if (!rc_tile_bounds_from_origin_size(
+            t->tile_x, t->tile_y, t->footprint_width,
+            t->footprint_height, t->plane, &target_bounds)) {
+        return 0;
+    }
+    int min_x = target_bounds.rect.min_x;
+    int min_y = target_bounds.rect.min_y;
+    int max_x = target_bounds.rect.max_x;
+    int max_y = target_bounds.rect.max_y;
 
     RcRoute best_route = {0};
     int best_len = INT_MAX;
@@ -1402,14 +1429,19 @@ static void schedule_player_traversal(RcWorld *world,
     start_player_action_lock(world, delay_ticks);
 }
 
-void rc_player_walk_to(RcWorld *world, int x, int y) {
+int rc_player_walk_to(RcWorld *world, int x, int y) {
     if (rc_player_command_should_queue(world)) {
-        (void)queue_player_command(world, RC_PLAYER_COMMAND_WALK_TO,
-                                   RC_ACTION_CATEGORY_NORMAL,
-                                   x, y, 0, 0, 0, 0);
-        return;
+        return queue_player_command(world, RC_PLAYER_COMMAND_WALK_TO,
+                                    RC_ACTION_CATEGORY_NORMAL,
+                                    x, y, 0, 0, 0, 0);
     }
-    if (!action_allowed_if_loaded(world, RC_PLAYER_ACTION_WALK_TO)) return;
+    if (!world || !rc_world_coord_valid(x) || !rc_world_coord_valid(y)
+            || !rc_world_tile_valid(world->player.x, world->player.y,
+                                    world->player.plane)
+            || !action_allowed_if_loaded(world,
+                                         RC_PLAYER_ACTION_WALK_TO)) {
+        return 0;
+    }
     RcPlayer *p = &world->player;
     RcRoute route = rc_find_path(&world->map, p->x, p->y, x, y,
                                  1, p->plane, false);
@@ -1417,16 +1449,22 @@ void rc_player_walk_to(RcWorld *world, int x, int y) {
     p->running = false;
     api_stop_player_combat(world);
     rc_interaction_cancel(p, RC_INTERACTION_FAIL_CANCELLED);
+    return 1;
 }
 
-void rc_player_run_to(RcWorld *world, int x, int y) {
+int rc_player_run_to(RcWorld *world, int x, int y) {
     if (rc_player_command_should_queue(world)) {
-        (void)queue_player_command(world, RC_PLAYER_COMMAND_RUN_TO,
-                                   RC_ACTION_CATEGORY_NORMAL,
-                                   x, y, 0, 0, 0, 0);
-        return;
+        return queue_player_command(world, RC_PLAYER_COMMAND_RUN_TO,
+                                    RC_ACTION_CATEGORY_NORMAL,
+                                    x, y, 0, 0, 0, 0);
     }
-    if (!action_allowed_if_loaded(world, RC_PLAYER_ACTION_RUN_TO)) return;
+    if (!world || !rc_world_coord_valid(x) || !rc_world_coord_valid(y)
+            || !rc_world_tile_valid(world->player.x, world->player.y,
+                                    world->player.plane)
+            || !action_allowed_if_loaded(world,
+                                         RC_PLAYER_ACTION_RUN_TO)) {
+        return 0;
+    }
     RcPlayer *p = &world->player;
     RcRoute route = rc_find_path(&world->map, p->x, p->y, x, y,
                                  1, p->plane, false);
@@ -1434,6 +1472,7 @@ void rc_player_run_to(RcWorld *world, int x, int y) {
     p->running = true;
     api_stop_player_combat(world);
     rc_interaction_cancel(p, RC_INTERACTION_FAIL_CANCELLED);
+    return 1;
 }
 
 int rc_player_set_running(RcWorld *world, int enabled) {
@@ -1642,12 +1681,17 @@ static void object_state_to_placement(const RcObjectState *st,
                                       RcObjectPlacement *out) {
     if (!st || !out) return;
     memset(out, 0, sizeof(*out));
+    uint16_t mapsquare;
+    if (!rc_world_to_mapsquare(st->active_x, st->active_y,
+                               &mapsquare, NULL, NULL)
+            || !rc_plane_valid(st->active_plane)) {
+        return;
+    }
     out->obj_id = (uint32_t)st->active_obj_id;
     out->key = st->placement_key;
     out->x = (uint16_t)st->active_x;
     out->y = (uint16_t)st->active_y;
-    out->mapsquare =
-        (uint16_t)(((st->active_x >> 6) << 8) | (st->active_y >> 6));
+    out->mapsquare = mapsquare;
     out->plane = (uint8_t)st->active_plane;
     out->type = st->active_type;
     out->rotation = st->active_rotation;
@@ -1671,6 +1715,7 @@ static int object_state_matches_target(const RcObjectState *st, int obj_id,
 static RcObjectState *object_state_get_key(RcWorld *world, int obj_id,
                                            int x, int y, int plane,
                                            uint64_t placement_key) {
+    if (!rc_world_tile_valid(x, y, plane)) return NULL;
     RcObjectState *st = placement_key
         ? object_state_find_by_key(world, placement_key)
         : object_state_find(world, obj_id, x, y, plane);

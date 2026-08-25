@@ -42,16 +42,13 @@ static int read_page(RcAssetReader *reader, uint16_t mapsquare,
 static int mapsquare_bounds(int min_x, int min_y, int max_x, int max_y,
                             int *min_rx, int *min_ry,
                             int *max_rx, int *max_ry) {
-    if (max_x < 0 || max_y < 0 || min_x >= 16384 || min_y >= 16384)
+    RcTileRect bounds;
+    if (!rc_tile_rect_intersect_world(min_x, min_y, max_x, max_y, &bounds))
         return 0;
-    if (min_x < 0) min_x = 0;
-    if (min_y < 0) min_y = 0;
-    if (max_x >= 16384) max_x = 16383;
-    if (max_y >= 16384) max_y = 16383;
-    *min_rx = min_x >> 6;
-    *min_ry = min_y >> 6;
-    *max_rx = max_x >> 6;
-    *max_ry = max_y >> 6;
+    *min_rx = bounds.min_x / RC_MAPSQUARE_SIZE;
+    *min_ry = bounds.min_y / RC_MAPSQUARE_SIZE;
+    *max_rx = bounds.max_x / RC_MAPSQUARE_SIZE;
+    *max_ry = bounds.max_y / RC_MAPSQUARE_SIZE;
     return 1;
 }
 
@@ -139,7 +136,12 @@ int rc_spawn_index_read(const char *path, uint32_t expected_magic,
     uint32_t selected_rows = 0;
     for (int rx = min_rx; rx <= max_rx; rx++) {
         for (int ry = min_ry; ry <= max_ry; ry++) {
-            uint16_t mapsquare = (uint16_t)((rx << 8) | ry);
+            uint16_t mapsquare;
+            if (!rc_mapsquare_key(rx, ry, &mapsquare)) {
+                free(pages);
+                rc_asset_reader_close(reader);
+                return 0;
+            }
             SpawnPage page;
             if (!read_page(reader, mapsquare, out->total_rows, &page)) {
                 free(pages);

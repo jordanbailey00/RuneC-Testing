@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "coordinates.h"
 #include "config.h"
 #include "handles.h"
 #include "events.h"
@@ -132,10 +133,6 @@ typedef struct {
     RcTick ready_tick;
     RcPlayerActionCancelReason last_cancel_reason;
 } RcPlayerActionState;
-
-// Tile / region constants
-#define RC_REGION_SIZE      64
-#define RC_MAX_PLANES       4
 
 // Combat styles
 typedef enum {

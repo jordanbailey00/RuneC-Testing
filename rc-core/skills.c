@@ -325,6 +325,15 @@ int rc_load_gathering_nodes_into(const char *path, RcSkillData *out) {
                 || !rc_read_exact(f, &pad, sizeof(pad), 1, path, "pad")) {
             free(rows); rc_asset_close(f); return -1;
         }
+        uint16_t mapsquare;
+        if (!rc_world_tile_valid(row->x, row->y, row->plane)
+                || !rc_world_to_mapsquare(row->x, row->y, &mapsquare,
+                                          NULL, NULL)
+                || mapsquare != row->mapsquare) {
+            free(rows);
+            rc_asset_close(f);
+            return -1;
+        }
         RcSkillRegionIndex *idx =
             &out->gathering_region_index[row->mapsquare];
         if (idx->first == UINT32_MAX) idx->first = i;
@@ -645,9 +654,10 @@ const RcGatheringNode *rc_gathering_nodes_in_region(uint16_t mapsquare,
 
 const RcGatheringNode *rc_gathering_node_find(int obj_id, int x, int y,
                                               int plane) {
-    if (x < 0 || y < 0 || plane < 0 || !g_active_gathering_nodes)
+    uint16_t mapsquare;
+    if (!g_active_gathering_nodes || !rc_world_tile_valid(x, y, plane)
+            || !rc_world_to_mapsquare(x, y, &mapsquare, NULL, NULL))
         return NULL;
-    uint16_t mapsquare = (uint16_t)(((x >> 6) << 8) | (y >> 6));
     int count = 0;
     const RcGatheringNode *rows = rc_gathering_nodes_in_region(mapsquare, &count);
     for (int i = 0; rows && i < count; i++) {

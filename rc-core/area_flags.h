@@ -1,10 +1,12 @@
 #ifndef RC_AREA_FLAGS_H
 #define RC_AREA_FLAGS_H
 
+#include "coordinates.h"
+
 #include <stdint.h>
 
 #define RC_AREA_SOURCE_NEAR_REALITY_ZENYTE 1u
-#define RC_AREA_MAPSQUARE_COUNT 65536
+#define RC_AREA_MAPSQUARE_COUNT RC_MAPSQUARE_COUNT
 
 enum {
     RC_AREA_MULTICOMBAT           = 1u << 0,
@@ -37,7 +39,7 @@ typedef struct {
 
 typedef struct {
     uint16_t mapsquare;
-    uint8_t flags[4][64][64];
+    uint8_t flags[RC_MAX_PLANES][RC_MAPSQUARE_SIZE][RC_MAPSQUARE_SIZE];
 } RcAreaTileRegion;
 
 typedef struct {

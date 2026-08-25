@@ -33,6 +33,7 @@
 #include "streaming.h"
 #include "tick_pacing.h"
 #include "streaming_async.h"
+#include "world_transform.h"
 #include <math.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -94,6 +95,8 @@ typedef struct {
     int region_x;
     int region_y;
     int plane;
+    int render_origin_x;
+    int render_origin_y;
     TerrainMesh *terrain;
     ObjectMesh *objects;
     ModelSet *object_anim_models;
@@ -502,8 +505,12 @@ static int viewer_actor_in_draw_range(const ViewerState *v, float x, float y,
                                       float padding);
 static void viewer_update_movement_prefetch(ViewerState *v);
 
-static int g_world_origin_x = DEFAULT_WORLD_ORIGIN_X;
-static int g_world_origin_y = DEFAULT_WORLD_ORIGIN_Y;
+static ViewerWorldTransform g_world_transform = {
+    DEFAULT_WORLD_ORIGIN_X,
+    DEFAULT_WORLD_ORIGIN_Y,
+};
+#define g_world_origin_x (g_world_transform.origin_x)
+#define g_world_origin_y (g_world_transform.origin_y)
 static int g_player_start_x = DEFAULT_PLAYER_START_X;
 static int g_player_start_y = DEFAULT_PLAYER_START_Y;
 static int g_player_start_plane = 0;
@@ -511,8 +518,8 @@ static int g_world_w = DEFAULT_WORLD_W;
 static int g_world_h = DEFAULT_WORLD_H;
 
 // Convert world tile to local rendering coordinate
-#define LOCAL_X(wx) ((wx) - g_world_origin_x)
-#define LOCAL_Y(wy) ((wy) - g_world_origin_y)
+#define LOCAL_X(wx) viewer_world_local_x(&g_world_transform, (wx))
+#define LOCAL_Y(wy) viewer_world_local_y(&g_world_transform, (wy))
 
 static const char *env_path(const char *key, const char *fallback) {
     const char *value = getenv(key);
@@ -2033,18 +2040,31 @@ static void unload_scene_visual_assets(ViewerState *v) {
     v->minimap_tiles_plane = -1;
 }
 
-static void scene_bounds_for_tile(int x, int y, int radius_regions,
-                                  int *origin_x, int *origin_y,
-                                  int *world_w, int *world_h) {
-    int center_rx = x >> 6;
-    int center_ry = y >> 6;
+static int scene_bounds_for_tile(int x, int y, int radius_regions,
+                                 int *origin_x, int *origin_y,
+                                 int *world_w, int *world_h) {
+    if (!origin_x || !origin_y || !world_w || !world_h
+            || !rc_world_coord_valid(x) || !rc_world_coord_valid(y)
+            || radius_regions < 0) {
+        return 0;
+    }
+    int64_t side_wide = (int64_t)radius_regions * 2 + 1;
+    if (side_wide <= 0 || side_wide > RC_MAPSQUARE_AXIS) return 0;
+    int side = (int)side_wide;
+    int center_rx = x / RC_MAPSQUARE_SIZE;
+    int center_ry = y / RC_MAPSQUARE_SIZE;
     int min_rx = center_rx - radius_regions;
     int min_ry = center_ry - radius_regions;
-    int side = radius_regions * 2 + 1;
-    *origin_x = min_rx * 64;
-    *origin_y = min_ry * 64;
-    *world_w = side * 64;
-    *world_h = side * 64;
+    int max_origin_region = RC_MAPSQUARE_AXIS - side;
+    if (min_rx < 0) min_rx = 0;
+    if (min_ry < 0) min_ry = 0;
+    if (min_rx > max_origin_region) min_rx = max_origin_region;
+    if (min_ry > max_origin_region) min_ry = max_origin_region;
+    *origin_x = min_rx * RC_MAPSQUARE_SIZE;
+    *origin_y = min_ry * RC_MAPSQUARE_SIZE;
+    *world_w = side * RC_MAPSQUARE_SIZE;
+    *world_h = side * RC_MAPSQUARE_SIZE;
+    return 1;
 }
 
 static void scene_plane_file(char *out, size_t cap, const char *prefix,
@@ -2220,9 +2240,13 @@ static int validate_viewer_scene_assets(ViewerState *v) {
         int origin_y = 0;
         int world_w = 0;
         int world_h = 0;
-        scene_bounds_for_tile(scene->center_x, scene->center_y,
-                              scene->radius_regions, &origin_x, &origin_y,
-                              &world_w, &world_h);
+        if (!scene_bounds_for_tile(scene->center_x, scene->center_y,
+                                   scene->radius_regions,
+                                   &origin_x, &origin_y,
+                                   &world_w, &world_h)) {
+            missing++;
+            continue;
+        }
         (void)world_w;
         (void)world_h;
         char prefix[1024];
@@ -2518,7 +2542,10 @@ static int activate_core_area_around_tile(ViewerState *v, int x, int y) {
     int origin_y = 0;
     int width = 0;
     int height = 0;
-    scene_bounds_for_tile(x, y, radius, &origin_x, &origin_y, &width, &height);
+    if (!scene_bounds_for_tile(x, y, radius, &origin_x, &origin_y,
+                               &width, &height)) {
+        return 0;
+    }
     return activate_core_area_bounds(v, origin_x, origin_y, width, height);
 }
 
@@ -2592,9 +2619,12 @@ static int reload_scene_around_player(ViewerState *v, int center_x,
     }
 
     int origin_x, origin_y, world_w, world_h;
-    scene_bounds_for_tile(center_x, center_y,
-                          v->streaming.scene_radius_regions,
-                          &origin_x, &origin_y, &world_w, &world_h);
+    if (!scene_bounds_for_tile(center_x, center_y,
+                               v->streaming.scene_radius_regions,
+                               &origin_x, &origin_y,
+                               &world_w, &world_h)) {
+        return 0;
+    }
 
     const char *dir = env_path("RUNEC_SCENE_CACHE_DIR",
                                "data/regions/scene_cache");
@@ -2681,9 +2711,11 @@ static int generated_scene_prefix_for_start(ViewerState *v, char *out,
     if (!v || !out || cap == 0)
         return 0;
     int ox = 0, oy = 0, ww = 0, wh = 0;
-    scene_bounds_for_tile(g_player_start_x, g_player_start_y,
-                          v->streaming.preload_radius_regions, &ox, &oy, &ww,
-                          &wh);
+    if (!scene_bounds_for_tile(g_player_start_x, g_player_start_y,
+                               v->streaming.preload_radius_regions,
+                               &ox, &oy, &ww, &wh)) {
+        return 0;
+    }
     const char *dir = env_path("RUNEC_SCENE_CACHE_DIR",
                                "data/regions/scene_cache");
     int n = snprintf(out, cap, "%s/scene_%d_%d_r%d", dir, ox, oy,
@@ -4011,7 +4043,9 @@ static int pick_object_from_regions(ViewerState *v, ViewerPickedObject *out,
     for (int rx = min_rx; rx <= max_rx; rx++) {
         for (int ry = min_ry; ry <= max_ry; ry++) {
             int count = 0;
-            uint16_t ms = (uint16_t)((rx << 8) | ry);
+            uint16_t ms;
+            if (!rc_mapsquare_key(rx, ry, &ms))
+                continue;
             const RcObjectPlacement *rows =
                 rc_object_region_placements(ms, &count);
             for (int i = 0; rows && i < count; i++) {
@@ -4045,17 +4079,19 @@ static int pick_object_from_regions(ViewerState *v, ViewerPickedObject *out,
 static int pick_object_near_tile(ViewerState *v, ViewerPickedObject *out,
                                  float *out_score,
                                  int tile_x, int tile_y) {
-    int min_x = tile_x - OBJECT_PICK_TILE_RADIUS;
-    int min_y = tile_y - OBJECT_PICK_TILE_RADIUS;
-    int max_x = tile_x + OBJECT_PICK_TILE_RADIUS;
-    int max_y = tile_y + OBJECT_PICK_TILE_RADIUS;
-    int min_rx = min_x >> 6;
-    int min_ry = min_y >> 6;
-    int max_rx = max_x >> 6;
-    int max_ry = max_y >> 6;
+    RcTileRect bounds;
+    if (!rc_tile_rect_around(tile_x, tile_y, OBJECT_PICK_TILE_RADIUS,
+                             &bounds)) {
+        return 0;
+    }
+    int min_rx = bounds.min_x / RC_MAPSQUARE_SIZE;
+    int min_ry = bounds.min_y / RC_MAPSQUARE_SIZE;
+    int max_rx = bounds.max_x / RC_MAPSQUARE_SIZE;
+    int max_ry = bounds.max_y / RC_MAPSQUARE_SIZE;
     return pick_object_from_regions(v, out, out_score, 1, tile_x, tile_y,
                                     min_rx, min_ry, max_rx, max_ry,
-                                    min_x, min_y, max_x, max_y);
+                                    bounds.min_x, bounds.min_y,
+                                    bounds.max_x, bounds.max_y);
 }
 
 static int pick_object_at_mouse_score(ViewerState *v, ViewerPickedObject *out,
@@ -4066,15 +4102,19 @@ static int pick_object_at_mouse_score(ViewerState *v, ViewerPickedObject *out,
     int has_tile = raycast_tile(v, &tile_x, &tile_y);
     if (has_tile)
         return pick_object_near_tile(v, out, out_score, tile_x, tile_y);
-    int min_rx = g_world_origin_x >> 6;
-    int min_ry = g_world_origin_y >> 6;
-    int max_rx = (g_world_origin_x + g_world_w - 1) >> 6;
-    int max_ry = (g_world_origin_y + g_world_h - 1) >> 6;
+    RcTileRect bounds;
+    if (!rc_tile_rect_from_origin_size(g_world_origin_x, g_world_origin_y,
+                                       g_world_w, g_world_h, &bounds)) {
+        return 0;
+    }
+    int min_rx = bounds.min_x / RC_MAPSQUARE_SIZE;
+    int min_ry = bounds.min_y / RC_MAPSQUARE_SIZE;
+    int max_rx = bounds.max_x / RC_MAPSQUARE_SIZE;
+    int max_ry = bounds.max_y / RC_MAPSQUARE_SIZE;
     return pick_object_from_regions(v, out, out_score, has_tile, tile_x, tile_y,
                                     min_rx, min_ry, max_rx, max_ry,
-                                    g_world_origin_x, g_world_origin_y,
-                                    g_world_origin_x + g_world_w - 1,
-                                    g_world_origin_y + g_world_h - 1);
+                                    bounds.min_x, bounds.min_y,
+                                    bounds.max_x, bounds.max_y);
 }
 
 static int pick_object_at_mouse(ViewerState *v, ViewerPickedObject *out) {
@@ -5550,9 +5590,12 @@ static void viewer_cancel_mapsquare_loading(ViewerState *v) {
 }
 
 static uint64_t mapsquare_job_key(int region_x, int region_y, int plane) {
-    return 1u + (uint64_t)(uint32_t)region_x
-        + ((uint64_t)(uint32_t)region_y << 8)
-        + ((uint64_t)(uint32_t)plane << 16);
+    uint16_t mapsquare;
+    if (!rc_mapsquare_key(region_x, region_y, &mapsquare)
+            || !rc_plane_valid(plane)) {
+        return 0;
+    }
+    return 1u + mapsquare + ((uint64_t)(uint32_t)plane << 16);
 }
 
 static int pending_chunk_index(const ViewerPendingMapsquareLoad *load,
@@ -5609,13 +5652,18 @@ static ViewerAsyncMapsquareRequest *npc_models_request(
     int origin_y = 0;
     int width = 0;
     int height = 0;
-    scene_bounds_for_tile(center_x, center_y,
-                          v->streaming.scene_radius_regions,
-                          &origin_x, &origin_y, &width, &height);
-    request->min_x = origin_x - 8;
-    request->min_y = origin_y - 8;
+    if (!scene_bounds_for_tile(center_x, center_y,
+                               v->streaming.scene_radius_regions,
+                               &origin_x, &origin_y, &width, &height)) {
+        free(request);
+        return NULL;
+    }
+    request->min_x = origin_x > 8 ? origin_x - 8 : 0;
+    request->min_y = origin_y > 8 ? origin_y - 8 : 0;
     request->max_x = origin_x + width + 7;
     request->max_y = origin_y + height + 7;
+    if (request->max_x > RC_WORLD_MAX) request->max_x = RC_WORLD_MAX;
+    if (request->max_y > RC_WORLD_MAX) request->max_y = RC_WORLD_MAX;
     request->extra_model_ids[request->extra_model_id_count++] = 2668;
     int transport_count = 0;
     const RuneCDevTransport *transports =
@@ -5694,13 +5742,30 @@ static void viewer_process_deferred_mapsquare_eviction(ViewerState *v) {
     viewer_log_streaming_telemetry(v, "cache-retired");
 }
 
-static void rebase_mapsquare_cache(ViewerState *v, int delta_x, int delta_y) {
-    if (!v || (delta_x == 0 && delta_y == 0))
-        return;
+static int rebase_mapsquare_cache(ViewerState *v,
+                                  const ViewerWorldTransform *target) {
+    if (!v || !target)
+        return 0;
     for (int i = 0; i < v->mapsquare_chunk_count; i++) {
-        terrain_offset(v->mapsquare_chunks[i].terrain, delta_x, delta_y);
-        objects_offset(v->mapsquare_chunks[i].objects, delta_x, delta_y);
+        ViewerMapsquareChunk *chunk = &v->mapsquare_chunks[i];
+        ViewerWorldTransform current = {
+            chunk->render_origin_x,
+            chunk->render_origin_y,
+        };
+        int delta_x = 0;
+        int delta_y = 0;
+        if (!viewer_world_transform_rebase_delta(
+                &current, target, &delta_x, &delta_y)) {
+            return 0;
+        }
+        if (delta_x != 0 || delta_y != 0) {
+            terrain_offset(chunk->terrain, delta_x, delta_y);
+            objects_offset(chunk->objects, delta_x, delta_y);
+        }
+        chunk->render_origin_x = target->origin_x;
+        chunk->render_origin_y = target->origin_y;
     }
+    return 1;
 }
 
 static int submit_mapsquare_request(ViewerState *v,
@@ -5919,6 +5984,8 @@ static int upload_pending_mapsquare_resources(ViewerState *v) {
                 break;
             terrain_offset(chunk->terrain, g_world_origin_x,
                            g_world_origin_y);
+            chunk->render_origin_x = g_world_origin_x;
+            chunk->render_origin_y = g_world_origin_y;
             if (!terrain_upload(chunk->terrain))
                 return 0;
             used += bytes;
@@ -6040,13 +6107,18 @@ static int commit_pending_mapsquare_window(ViewerState *v) {
     }
 
     int origin_x = 0, origin_y = 0, world_w = 0, world_h = 0;
-    scene_bounds_for_tile(load->center_x, load->center_y,
-                          v->streaming.scene_radius_regions, &origin_x,
-                          &origin_y, &world_w, &world_h);
-    rebase_mapsquare_cache(v, origin_x - g_world_origin_x,
-                           origin_y - g_world_origin_y);
-    g_world_origin_x = origin_x;
-    g_world_origin_y = origin_y;
+    if (!scene_bounds_for_tile(load->center_x, load->center_y,
+                               v->streaming.scene_radius_regions,
+                               &origin_x, &origin_y,
+                               &world_w, &world_h)) {
+        return 0;
+    }
+    ViewerWorldTransform target_transform;
+    if (!viewer_world_transform_set(&target_transform, origin_x, origin_y)
+            || !rebase_mapsquare_cache(v, &target_transform)) {
+        return 0;
+    }
+    g_world_transform = target_transform;
     g_world_w = world_w;
     g_world_h = world_h;
     clear_aggregate_visual_assets(v);

@@ -49,6 +49,13 @@ int main(void) {
         }
     }
     assert(px == 240 && py == 0);
+    assert(!rc_find_path(&open_map, -1, 0, 1, 1, 1, 0, false).success);
+    assert(!rc_find_path(&open_map, 0, 0, RC_WORLD_SIZE, 1,
+                         1, 0, false).success);
+    assert(!rc_find_path(&open_map, RC_WORLD_MAX, RC_WORLD_MAX,
+                         RC_WORLD_MAX, RC_WORLD_MAX, 2, 0, false).success);
+    assert(!rc_can_move(&open_map, RC_WORLD_MAX, RC_WORLD_MAX, 1, 0, 0));
+    assert(!rc_has_los(&open_map, 0, 0, RC_WORLD_SIZE, 0, 0));
 
     printf("All pathfinding tests passed.\n");
     return 0;

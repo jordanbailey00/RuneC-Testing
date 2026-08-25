@@ -3,7 +3,7 @@
 
 #include "types.h"
 
-#define RC_COLLISION_MAPSQUARE_COUNT 65536
+#define RC_COLLISION_MAPSQUARE_COUNT RC_MAPSQUARE_COUNT
 #define RC_COLLISION_DEFAULT_CACHE_PAGES 64
 
 typedef struct RcCollisionStore RcCollisionStore;

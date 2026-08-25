@@ -4,6 +4,7 @@
 #include "api.h"
 #include "config.h"
 #include "items.h"
+#include "interaction.h"
 #include "npc.h"
 #include "objects.h"
 #include "player_actions.h"
@@ -105,8 +106,37 @@ static void test_object_and_ground_item_reject_other_plane(void) {
     rc_world_destroy(world);
 }
 
+static void test_invalid_world_coordinates_are_rejected(void) {
+    RcWorld *world = make_world();
+    int def_count = 0;
+    const RcNpcDef *defs = rc_npc_defs_all(&def_count);
+    assert(defs != NULL && def_count > 0);
+    assert(rc_npc_spawn(world, 0, RC_WORLD_SIZE, 0, 0) == -1);
+    assert(rc_npc_spawn(world, 0, 0, 0, RC_MAX_PLANES) == -1);
+    assert(!rc_ground_item_spawn(world, 995, 1, RC_WORLD_SIZE, 0, 0,
+                                 RC_GROUND_OWNER_NONE));
+    int old_x = world->player.x;
+    int old_y = world->player.y;
+    assert(!rc_world_relocate_player(world, RC_WORLD_SIZE, 0, 0));
+    assert(world->player.x == old_x && world->player.y == old_y);
+
+    RcInteractionTarget target = {
+        .kind = RC_INTERACTION_OBJECT,
+        .tile_x = RC_WORLD_MAX,
+        .tile_y = RC_WORLD_MAX,
+        .plane = 0,
+        .footprint_width = 2,
+        .footprint_height = 1,
+    };
+    assert(!rc_interaction_target_valid(&target));
+    target.footprint_width = 1;
+    assert(rc_interaction_target_valid(&target));
+    rc_world_destroy(world);
+}
+
 int main(void) {
     test_npc_interaction_rejects_other_plane();
     test_object_and_ground_item_reject_other_plane();
+    test_invalid_world_coordinates_are_rejected();
     return 0;
 }

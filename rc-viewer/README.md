@@ -167,6 +167,15 @@ radius 0, CPU/GPU chunk caps 128, and a 16 MB per-frame upload budget. Existing
 `RUNEC_SCENE_RADIUS_REGIONS` and
 `RUNEC_STARTUP_SCENE_RADIUS_REGIONS` overrides remain accepted.
 
+`world_transform.[ch]` is the sole owner of viewer world-to-render conversion.
+Core positions remain global tiles; the viewer transform stores the current
+global render origin and provides checked, exact world/local round trips.
+Every cached mapsquare chunk also records the render origin used for its
+current geometry, so rebasing computes an absolute delta and repeated A-B-A
+scene changes cannot accumulate position error. Window planning, prefetch,
+scene transitions, and object picking reject invalid planes and handle the
+lower and upper world edges symmetrically.
+
 Normal gameplay uses a generation-tagged worker to load complete mapsquares
 center-first. The worker reads loose/packed assets, decompresses pack entries,
 parses terrain/static objects/animated-object models, prepares NPC model filters

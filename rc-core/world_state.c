@@ -271,10 +271,9 @@ static int ground_item_is_default(const RcGroundItem *item) {
         && item->reveal_timer == 0 && item->despawn_timer == 0;
 }
 
-static int point_in_area(int x, int y, int plane,
-                         int min_x, int min_y, int max_x, int max_y,
+static int point_in_area(int x, int y, int plane, const RcTileRect *bounds,
                          int min_plane, int max_plane) {
-    return x >= min_x && x <= max_x && y >= min_y && y <= max_y
+    return rc_tile_rect_contains(bounds, x, y)
         && plane >= min_plane && plane <= max_plane;
 }
 
@@ -282,7 +281,9 @@ int rc_world_state_save_ground_items(RcWorld *world,
                                      int min_x, int min_y,
                                      int max_x, int max_y,
                                      int min_plane, int max_plane) {
-    if (!world || min_x > max_x || min_y > max_y
+    RcTileRect bounds;
+    if (!world || !rc_tile_rect_make(min_x, min_y, max_x, max_y, &bounds)
+            || !rc_plane_valid(min_plane) || !rc_plane_valid(max_plane)
             || min_plane > max_plane) {
         return -1;
     }
@@ -306,9 +307,9 @@ int rc_world_state_save_ground_items(RcWorld *world,
             }
             continue;
         }
-        if (!item->active || point_in_area(
-                item->x, item->y, item->plane,
-                min_x, min_y, max_x, max_y, min_plane, max_plane)) {
+        if (!item->active || point_in_area(item->x, item->y, item->plane,
+                                           &bounds,
+                                           min_plane, max_plane)) {
             continue;
         }
         RcGroundItem state = *item;
@@ -352,7 +353,9 @@ int rc_world_state_restore_ground_items(RcWorld *world,
                                         int min_x, int min_y,
                                         int max_x, int max_y,
                                         int min_plane, int max_plane) {
-    if (!world || min_x > max_x || min_y > max_y
+    RcTileRect bounds;
+    if (!world || !rc_tile_rect_make(min_x, min_y, max_x, max_y, &bounds)
+            || !rc_plane_valid(min_plane) || !rc_plane_valid(max_plane)
             || min_plane > max_plane) {
         return -1;
     }
@@ -374,7 +377,7 @@ int rc_world_state_restore_ground_items(RcWorld *world,
             &world->dormant_ground_items[i];
         if (state->static_spawn || !point_in_area(
                 state->item.x, state->item.y, state->item.plane,
-                min_x, min_y, max_x, max_y, min_plane, max_plane)) {
+                &bounds, min_plane, max_plane)) {
             i++;
             continue;
         }

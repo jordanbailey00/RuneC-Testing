@@ -1,4 +1,5 @@
 #include "objects.h"
+#include "coordinates.h"
 #include "io.h"
 
 #include <limits.h>
@@ -601,11 +602,13 @@ static int parse_placement_page(const unsigned char *raw, uint32_t count,
             .rotation = src[20],
             .flags = src[21],
         };
-        uint16_t coordinate_mapsquare = (uint16_t)(
-            ((row.x >> 6) << 8) | (row.y >> 6));
-        if (row.key == 0 || row.x >= 16384 || row.y >= 16384
+        uint16_t coordinate_mapsquare;
+        if (row.key == 0
+                || !rc_world_to_mapsquare(row.x, row.y,
+                                          &coordinate_mapsquare, NULL, NULL)
                 || row.mapsquare != mapsquare
-                || coordinate_mapsquare != mapsquare || row.plane >= 4
+                || coordinate_mapsquare != mapsquare
+                || !rc_plane_valid(row.plane)
                 || row.type >= 64 || row.rotation >= 4) {
             return 0;
         }
@@ -757,11 +760,18 @@ int rc_load_object_transports_into(const char *path, RcObjectData *data) {
         }
         row->start_plane = (uint8_t)((planes >> 14) & 0x3);
         row->dest_plane = (uint8_t)((planes >> 12) & 0x3);
-        if (row->obj_id < RC_MAX_OBJECT_ID) {
-            RcObjectRange *idx = &data->transport_index[row->obj_id];
-            if (idx->first == UINT32_MAX) idx->first = i;
-            idx->count++;
+        if (row->obj_id >= RC_MAX_OBJECT_ID
+                || !rc_world_tile_valid(row->start_x, row->start_y,
+                                        row->start_plane)
+                || !rc_world_tile_valid(row->dest_x, row->dest_y,
+                                        row->dest_plane)) {
+            free(rows);
+            rc_asset_close(f);
+            return -1;
         }
+        RcObjectRange *idx = &data->transport_index[row->obj_id];
+        if (idx->first == UINT32_MAX) idx->first = i;
+        idx->count++;
     }
     rc_asset_close(f);
     free(data->transports);
@@ -1058,16 +1068,13 @@ static int placement_mapsquare_bounds(int min_x, int min_y,
                                       int *min_rx, int *min_ry,
                                       int *max_rx, int *max_ry) {
     if (min_x > max_x || min_y > max_y) return -1;
-    if (max_x < 0 || max_y < 0 || min_x >= 16384 || min_y >= 16384)
+    RcTileRect bounds;
+    if (!rc_tile_rect_intersect_world(min_x, min_y, max_x, max_y, &bounds))
         return 0;
-    if (min_x < 0) min_x = 0;
-    if (min_y < 0) min_y = 0;
-    if (max_x >= 16384) max_x = 16383;
-    if (max_y >= 16384) max_y = 16383;
-    *min_rx = min_x >> 6;
-    *min_ry = min_y >> 6;
-    *max_rx = max_x >> 6;
-    *max_ry = max_y >> 6;
+    *min_rx = bounds.min_x / RC_MAPSQUARE_SIZE;
+    *min_ry = bounds.min_y / RC_MAPSQUARE_SIZE;
+    *max_rx = bounds.max_x / RC_MAPSQUARE_SIZE;
+    *max_ry = bounds.max_y / RC_MAPSQUARE_SIZE;
     return 1;
 }
 
@@ -1097,7 +1104,8 @@ int rc_object_placements_prefetch_rect(int min_x, int min_y,
     uint32_t missing_pages = 0;
     for (int rx = min_rx; rx <= max_rx; rx++) {
         for (int ry = min_ry; ry <= max_ry; ry++) {
-            uint16_t mapsquare = (uint16_t)((rx << 8) | ry);
+            uint16_t mapsquare;
+            if (!rc_mapsquare_key(rx, ry, &mapsquare)) return -1;
             if (store->index[mapsquare].count == 0) continue;
             if (stats) stats->pages_requested++;
             if (!cached_placement_page(store, mapsquare)) missing_pages++;
@@ -1110,7 +1118,11 @@ int rc_object_placements_prefetch_rect(int min_x, int min_y,
     int result = 0;
     for (int rx = min_rx; rx <= max_rx && result >= 0; rx++) {
         for (int ry = min_ry; ry <= max_ry; ry++) {
-            uint16_t mapsquare = (uint16_t)((rx << 8) | ry);
+            uint16_t mapsquare;
+            if (!rc_mapsquare_key(rx, ry, &mapsquare)) {
+                result = -1;
+                break;
+            }
             if (store->index[mapsquare].count == 0) continue;
             RcObjectPlacementPage *page = NULL;
             int loaded = 0;
@@ -1136,9 +1148,10 @@ int rc_object_placements_prefetch_rect(int min_x, int min_y,
 
 int rc_object_placements_at(int x, int y, int plane,
                             RcObjectPlacement *out, int max_out) {
-    if (x < 0 || y < 0 || plane < 0 || plane >= 4
+    uint16_t ms;
+    if (!rc_world_tile_valid(x, y, plane)
+            || !rc_world_to_mapsquare(x, y, &ms, NULL, NULL)
             || !out || max_out <= 0) return 0;
-    uint16_t ms = (uint16_t)(((x >> 6) << 8) | (y >> 6));
     int count = 0;
     const RcObjectPlacement *rows = rc_object_region_placements(ms, &count);
     int n = 0;
@@ -1152,7 +1165,11 @@ int rc_object_placements_at(int x, int y, int plane,
 
 const RcObjectTransport *rc_object_transport_find(int obj_id, int x, int y,
                                                   int plane, int option) {
-    if (obj_id < 0 || obj_id >= RC_MAX_OBJECT_ID) return NULL;
+    if (obj_id < 0 || obj_id >= RC_MAX_OBJECT_ID
+            || !rc_world_tile_valid(x, y, plane)
+            || option < -1 || option > UINT8_MAX) {
+        return NULL;
+    }
     const RcObjectRange *index = g_active_transport_index
                                ? g_active_transport_index : g_transport_index;
     const RcObjectTransport *transports = g_active_object_transports

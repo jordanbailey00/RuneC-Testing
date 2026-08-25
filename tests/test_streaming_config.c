@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -6,6 +7,7 @@
 
 #include "config.h"
 #include "streaming.h"
+#include "world_transform.h"
 
 int main(void) {
     RcWorldStreamingConfig backend = rc_world_streaming_config_default();
@@ -145,6 +147,15 @@ int main(void) {
         NULL, 0, 0, plan, VIEWER_STREAMING_CHUNK_CAPACITY) == -1);
     assert(viewer_streaming_plan_mapsquares(
         &viewer, -1, 0, plan, VIEWER_STREAMING_CHUNK_CAPACITY) == -1);
+    assert(viewer_streaming_plan_mapsquares(
+        &viewer, RC_WORLD_MAX, RC_WORLD_MAX, plan,
+        VIEWER_STREAMING_CHUNK_CAPACITY) == 4);
+    assert(viewer_streaming_plan_mapsquares(
+        &viewer, RC_WORLD_SIZE, 0, plan,
+        VIEWER_STREAMING_CHUNK_CAPACITY) == -1);
+    count = viewer_streaming_plan_mapsquares(
+        &viewer, 0, 0, plan, VIEWER_STREAMING_CHUNK_CAPACITY);
+    assert(count == 4);
     assert(!viewer_streaming_mapsquare_in_plan(NULL, 1, 0, 0));
     assert(viewer_streaming_chunk_retained(plan, count, 0, 0, 0, 0, 2));
     assert(viewer_streaming_chunk_retained(plan, count, 0, 0, 2, 0, 2));
@@ -154,6 +165,10 @@ int main(void) {
     assert(!viewer_streaming_same_window(3136, 3392, 0, 3200, 3455, 0));
     assert(!viewer_streaming_same_window(3136, 3392, 0, 3136, 3392, 1));
     assert(!viewer_streaming_same_window(-1, 3392, 0, 3136, 3392, 0));
+    assert(!viewer_streaming_same_window(
+        RC_WORLD_SIZE, 3392, 0, RC_WORLD_MAX, 3392, 0));
+    assert(!viewer_streaming_same_window(
+        RC_WORLD_MAX, RC_WORLD_MAX, 4, RC_WORLD_MAX, RC_WORLD_MAX, 4));
 
     int prefetch_x = -1;
     int prefetch_y = -1;
@@ -187,6 +202,13 @@ int main(void) {
     assert(prefetch_x == 50 * 64 + 32 && prefetch_y == 53 * 64 + 32);
     assert(!viewer_streaming_predict_prefetch_center(
         0, 0, 1, 1, 0, 1, 16, &prefetch_x, &prefetch_y));
+    assert(!viewer_streaming_predict_prefetch_center(
+        RC_MAPSQUARE_AXIS - 1, RC_MAPSQUARE_AXIS - 1,
+        RC_WORLD_MAX, RC_WORLD_MAX, RC_WORLD_MAX, RC_WORLD_MAX - 1, 16,
+        &prefetch_x, &prefetch_y));
+    assert(!viewer_streaming_predict_prefetch_center(
+        RC_MAPSQUARE_AXIS, 0, RC_WORLD_MAX, 0, RC_WORLD_MAX, 1, 16,
+        &prefetch_x, &prefetch_y));
     assert(!viewer_streaming_predict_prefetch_center(
         49, 53, 3160, 3424, 3161, 3424, 16,
         &prefetch_x, &prefetch_y));
@@ -264,6 +286,41 @@ int main(void) {
         path, 4, "data/regions", 50, 53, 2, ".terrain"));
     assert(!viewer_streaming_mapsquare_path(
         path, sizeof(path), "data/regions", 50, 53, 4, ".terrain"));
+
+    ViewerWorldTransform transform;
+    ViewerWorldTransform other;
+    assert(viewer_world_transform_set(&transform, 3072, 3392));
+    assert(viewer_world_transform_set(&other, 16000, 16000));
+    int local_x = 0;
+    int local_y = 0;
+    int world_x = 0;
+    int world_y = 0;
+    assert(viewer_world_to_local_tile(
+        &transform, 3184, 3440, &local_x, &local_y));
+    assert(local_x == 112 && local_y == 48);
+    assert(viewer_local_to_world_tile(
+        &transform, local_x, local_y, &world_x, &world_y));
+    assert(world_x == 3184 && world_y == 3440);
+    assert(viewer_world_to_local_tile(
+        &other, RC_WORLD_MAX, RC_WORLD_MAX, &local_x, &local_y));
+    assert(viewer_local_to_world_tile(
+        &other, local_x, local_y, &world_x, &world_y));
+    assert(world_x == RC_WORLD_MAX && world_y == RC_WORLD_MAX);
+    assert(!viewer_world_transform_set(&other, RC_WORLD_SIZE, 0));
+    assert(!viewer_local_to_world_tile(
+        &transform, INT_MAX, 0, &world_x, &world_y));
+    int delta_x = 0;
+    int delta_y = 0;
+    assert(viewer_world_transform_set(&other, 16000, 15000));
+    assert(viewer_world_transform_rebase_delta(
+        &transform, &other, &delta_x, &delta_y));
+    int accumulated_x = delta_x;
+    int accumulated_y = delta_y;
+    assert(viewer_world_transform_rebase_delta(
+        &other, &transform, &delta_x, &delta_y));
+    accumulated_x += delta_x;
+    accumulated_y += delta_y;
+    assert(accumulated_x == 0 && accumulated_y == 0);
 
     printf("test_streaming_config: defaults and counters verified.\n");
     return 0;

@@ -177,6 +177,7 @@ endif()
 if(TARGET test_streaming_config)
     target_sources(test_streaming_config PRIVATE
         rc-viewer/streaming.c
+        rc-viewer/world_transform.c
     )
     target_include_directories(test_streaming_config PRIVATE
         rc-viewer

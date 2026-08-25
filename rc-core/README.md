@@ -147,6 +147,20 @@ RcActiveAreaRequest req = {
 rc_world_activate_area(world, &req, NULL);
 ```
 
+World positions obey one shared contract in `coordinates.h`: X and Y are
+global 14-bit OSRS tiles in `0..16383`, planes are `0..3`, mapsquares are
+64-by-64, and zones are 8-by-8. Checked helpers own mapsquare/zone keys,
+representable inclusive rectangles, clipped scan windows, generic footprints,
+same-plane Chebyshev separation, and eight-direction deltas. Data loaders and
+public mutation APIs reject invalid positions, planes, or footprints before
+narrowing or changing world state; high bits are never discarded to make a
+bad coordinate appear valid. Existing entity fields remain signed global
+integers, and existing binary layouts remain unchanged.
+
+Core never stores render-local positions or a camera origin. A frontend may
+project global positions for presentation, but it must not write those
+presentation coordinates back as gameplay state.
+
 Every preset carries the same initial streaming policy: an active radius of
 two regions, a preload radius of three regions, and a 64-region cache limit.
 Spawn, object-placement, and collision paging all consume that cache limit.

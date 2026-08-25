@@ -27,12 +27,39 @@ static void write_truncated_row(void) {
     fclose(f);
 }
 
+static void write_invalid_coordinate_row(void) {
+    uint32_t header[3] = {TRAV_MAGIC, 1, 1};
+    uint8_t kind = RC_TRAVERSAL_OBJECT;
+    uint8_t option = 0;
+    uint16_t planes = 0;
+    uint32_t source_id = 1;
+    uint32_t flags = 0;
+    uint16_t coordinates[4] = {1, 1, RC_WORLD_SIZE, 1};
+    uint8_t pad[4] = {0};
+    uint8_t empty_string = 0;
+    FILE *f = fopen(BAD_PATH, "wb");
+    assert(f != NULL);
+    assert(fwrite(header, sizeof(header), 1, f) == 1);
+    assert(fwrite(&kind, sizeof(kind), 1, f) == 1);
+    assert(fwrite(&option, sizeof(option), 1, f) == 1);
+    assert(fwrite(&planes, sizeof(planes), 1, f) == 1);
+    assert(fwrite(&source_id, sizeof(source_id), 1, f) == 1);
+    assert(fwrite(&flags, sizeof(flags), 1, f) == 1);
+    assert(fwrite(coordinates, sizeof(coordinates), 1, f) == 1);
+    assert(fwrite(pad, sizeof(pad), 1, f) == 1);
+    assert(fwrite(&empty_string, sizeof(empty_string), 1, f) == 1);
+    assert(fwrite(&empty_string, sizeof(empty_string), 1, f) == 1);
+    assert(fclose(f) == 0);
+}
+
 int main(void) {
     write_bad_header();
     assert(rc_load_traversal_edges(NULL) == -1);
     assert(rc_load_traversal_edges("/missing/traversal_edges.bin") == -1);
     assert(rc_load_traversal_edges(BAD_PATH) == -1);
     write_truncated_row();
+    assert(rc_load_traversal_edges(BAD_PATH) == -1);
+    write_invalid_coordinate_row();
     assert(rc_load_traversal_edges(BAD_PATH) == -1);
     assert(rc_load_traversal_edges(TRAV_PATH) == 45740);
 
@@ -55,6 +82,10 @@ int main(void) {
            == NULL);
     assert(rc_traversal_find(RC_TRAVERSAL_OBJECT, 34810, 3185, 3436, 0, 1)
            == NULL);
+    assert(rc_traversal_find(RC_TRAVERSAL_OBJECT, 16683,
+                             RC_WORLD_SIZE, 3495, 0, 0) == NULL);
+    assert(rc_traversal_find(RC_TRAVERSAL_OBJECT, 16683,
+                             2465, 3495, RC_MAX_PLANES, 0) == NULL);
 
     const RcTraversalEdge *dungeon =
         rc_traversal_find(RC_TRAVERSAL_OBJECT, 17384, 3116, 3451, 0, 0);
