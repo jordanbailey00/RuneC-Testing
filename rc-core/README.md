@@ -161,31 +161,41 @@ Core never stores render-local positions or a camera origin. A frontend may
 project global positions for presentation, but it must not write those
 presentation coordinates back as gameplay state.
 
-Every preset carries the same initial streaming policy: an active radius of
-two regions, a preload radius of three regions, and a 64-region cache limit.
-Spawn, object-placement, and collision paging all consume that cache limit.
+Every preset carries the same initial backend streaming policy: an active
+radius of two mapsquares and a 64-page cache limit. The fixed collision map
+supports at most this `5x5` active window. Visual lookahead is a separate
+`rc-viewer` policy; core has no preload-radius setting.
 
-`rc_world_activate_area` populates `RcWorld.map` and prefetches mapsquare-
-indexed collision, NPC, static ground-item, and object-placement pages. Only
-records in mapsquares intersecting the requested area are read. Spawn records
-are restored to source order before spawning so indexing does not change NPC
-UID or ground-item merge order. Object definitions, behaviors, and transports
-stay global while spatial instances live in bounded LRUs. The viewer and
-headless agents use the same API before issuing gameplay actions. Scenario/dev
-validation code that needs a guaranteed target uses `rc_world_ensure_npc_near`;
-presentation frontends should not resolve NPC definitions or mutate
-`world->npcs` directly.
+`rc_world_activate_area` stages one complete world-owned activation profile for
+the enabled subsystems: collision, NPCs, static and dynamic ground items, and
+object-placement cache warming. Only records in mapsquares intersecting the
+requested area are read. The map, active entities, dormant records, descriptor,
+generation, and telemetry publish together only after all capacity and load
+checks pass; failure leaves the prior authoritative state unchanged. An
+identical request is idempotent. `rc_world_activate_area_around` applies the
+configured radius and is used by core movement and relocation before player
+coordinates enter another mapsquare. Object definitions, behaviors, and
+transports stay global while spatial instances live in bounded LRUs. The
+viewer and headless agents therefore observe the same backend transition.
+Scenario/dev validation code that needs a guaranteed target uses
+`rc_world_ensure_npc_near`; presentation frontends should not resolve NPC
+definitions or mutate `world->npcs` directly.
 
-Indexed NPC and static-ground-item records also carry stable identities derived
-from their source path and source ordinal. Before an active-area replacement,
-`rc-core` stores compact overrides only for changed indexed NPCs, picked-up or
-otherwise changed static ground items, and dynamic ground items leaving the
-active area. The source pages recreate unchanged static state; matching
-overrides are applied after the destination pages load. Dormant HP, death and
-respawn timers, poison, attack state, ownership, reveal timers, and despawn
-timers do not advance because dormant records are not part of `rc_world_tick`.
-Transient combat targets and pending hits are intentionally cleared when an NPC
-is restored across an area boundary.
+Indexed NPC and static-ground-item records carry stable identities derived from
+their source path and source ordinal. Before replacement, `rc-core` preserves
+the complete live state of source-backed NPCs so overlapping and returning
+entities keep identity, health, timers, pending work, facing, and combat state.
+Runtime-created NPCs inside the destination remain active; those leaving are
+removed explicitly, which clears stale player/NPC references and retires any
+encounter slot or effect owned by the removed UID. Static item overrides and
+dynamic ground items use their existing stable keys and UIDs.
+
+Dormant records are not scanned on every tick. They store the world tick at
+which they left and reconcile observable deadlines on return. NPC death and
+respawn, and ground-item reveal and despawn, therefore advance by elapsed world
+time. Expired dynamic items are discarded deterministically. Eligible state
+that cannot fit the active capacity fails the staged activation instead of
+silently disappearing.
 
 The generic dormant NPC store owns indexed world spawns. NPCs created by an
 encounter or script have no indexed spawn identity and remain owned by that
@@ -195,10 +205,10 @@ and are restored by UID when their area becomes active again.
 `rc_world_get_streaming_telemetry` returns the latest collision/spatial-page
 and full active-area timings, loaded page count, active NPC count, and active
 ground-item count. It also reports resident dormant NPC/ground-item counts and
-the number saved/restored by the latest activation. Spawn and object-placement
-stats expose indexed pages and rows read, plus resident collision and object
-pages/rows. Measurement is confined to area activation and does not add work
-to the tick path.
+the number saved, restored, or expired by the latest activation. Spawn and
+object-placement stats expose indexed pages and rows read, plus resident
+collision and object pages/rows. Measurement is confined to area activation
+and does not add work to the tick path.
 
 The NSPI/GSPI v1 files use a fixed 65,536-entry mapsquare directory. Each
 entry stores the first record and count for `(region_x << 8) | region_y`.

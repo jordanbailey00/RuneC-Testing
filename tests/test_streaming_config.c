@@ -12,29 +12,23 @@
 int main(void) {
     RcWorldStreamingConfig backend = rc_world_streaming_config_default();
     assert(backend.active_radius_regions == 2);
-    assert(backend.preload_radius_regions == 3);
     assert(backend.max_cached_regions == 64);
 
     backend.active_radius_regions = 4;
-    backend.preload_radius_regions = 1;
     backend.max_cached_regions = 10;
     rc_world_streaming_config_sanitize(&backend);
-    assert(backend.active_radius_regions == 4);
-    assert(backend.preload_radius_regions == 4);
-    assert(backend.max_cached_regions == 81);
+    assert(backend.active_radius_regions == 2);
+    assert(backend.max_cached_regions == 25);
     rc_world_streaming_config_sanitize(NULL);
 
     backend.active_radius_regions = -1;
-    backend.preload_radius_regions = -1;
     backend.max_cached_regions = 0;
     rc_world_streaming_config_sanitize(&backend);
     assert(backend.active_radius_regions == 2);
-    assert(backend.preload_radius_regions == 3);
     assert(backend.max_cached_regions == 64);
 
     RcWorldConfig preset = rc_preset_full_game();
     assert(preset.streaming.active_radius_regions == 2);
-    assert(preset.streaming.preload_radius_regions == 3);
     assert(preset.streaming.max_cached_regions == 64);
 
     ViewerStreamingConfig viewer = viewer_streaming_config_default();

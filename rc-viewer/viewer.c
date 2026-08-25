@@ -2448,18 +2448,7 @@ static int activate_core_area_bounds(ViewerState *v, int origin_x,
         .height = height,
         .min_plane = 0,
         .max_plane = RC_MAX_PLANES - 1,
-        .flags = RC_ACTIVE_AREA_LOAD_COLLISION
-               | RC_ACTIVE_AREA_LOAD_NPCS
-               | RC_ACTIVE_AREA_CLEAR_NPCS
-               | RC_ACTIVE_AREA_INCLUDE_INSTANCE_NPCS
-               | RC_ACTIVE_AREA_LOAD_STATIC_GROUND_ITEMS
-               | RC_ACTIVE_AREA_CLEAR_STATIC_GROUND_ITEMS
-               | RC_ACTIVE_AREA_LOAD_OBJECT_PLACEMENTS,
-        .npc_spawns_path = env_path("RUNEC_NPC_SPAWNS",
-            "data/spawns/world.npc-spawns.indexed.bin"),
-        .ground_item_spawns_path = env_path(
-            "RUNEC_GROUND_ITEM_SPAWNS",
-            "data/spawns/world.ground-items.indexed.bin"),
+        .options = RC_ACTIVE_AREA_INCLUDE_INSTANCE_NPCS,
     };
     RcActiveAreaStats stats;
     int ok = rc_world_activate_area(v->world, &request, &stats);
@@ -3214,24 +3203,6 @@ static void viewer_commit_player_scene_transition(ViewerState *v) {
             x, y, plane, p->x, p->y, p->plane);
 }
 
-static void viewer_rollback_player_scene_transition(ViewerState *v) {
-    if (!v || !v->world)
-        return;
-    int x = 0;
-    int y = 0;
-    int plane = 0;
-    if (!viewer_streaming_player_transition_source(
-            &v->mapsquare_load.player_transition, &x, &y, &plane)) {
-        return;
-    }
-    RcPlayer *p = &v->world->player;
-    (void)rc_world_relocate_player(v->world, x, y, plane);
-    v->prev_player_x = (float)x;
-    v->prev_player_y = (float)y;
-    v->tick_frac = 0.0f;
-    v->player_moving = 0;
-}
-
 static void handle_player_scene_transition(ViewerState *v, int old_x,
                                            int old_y, int old_plane) {
     if (!v || !v->world)
@@ -3289,24 +3260,10 @@ static void handle_player_scene_transition(ViewerState *v, int old_x,
             viewer_defer_player_scene_transition(v, old_x, old_y, old_plane);
             return;
         }
-        int blocked_x = p->x;
-        int blocked_y = p->y;
-        int blocked_plane = p->plane;
-        (void)rc_world_relocate_player(v->world, old_x, old_y, old_plane);
-        v->prev_player_x = (float)old_x;
-        v->prev_player_y = (float)old_y;
-        v->tick_frac = 0.0f;
-        v->player_moving = 0;
-        viewer_clear_player_activity(v);
-        if (!viewer_tile_in_loaded_scene(old_x, old_y)
-                || (v->mapsquare_streaming_active
-                    && !viewer_mapsquare_plane_loaded(v, old_plane))) {
-            reload_scene_around_player(v, old_x, old_y);
-        }
         fprintf(stderr,
-                "viewer scene: blocked transition to %d,%d,%d because a "
-                "complete visual destination could not be loaded\n",
-                blocked_x, blocked_y, blocked_plane);
+                "viewer scene: visual destination %d,%d,%d is not ready; "
+                "retaining the current scene without moving the player\n",
+                p->x, p->y, p->plane);
     }
 }
 
@@ -6081,11 +6038,6 @@ static int upload_pending_mapsquare_resources(ViewerState *v) {
 
 static int commit_pending_mapsquare_window(ViewerState *v) {
     ViewerPendingMapsquareLoad *load = &v->mapsquare_load;
-    if (load->request_kind == VIEWER_STREAMING_REQUEST_ACTIVATE
-            && !activate_core_area_around_tile(
-                v, load->center_x, load->center_y)) {
-        return 0;
-    }
 
     int previous_chunk_count = v->mapsquare_chunk_count;
     if (!make_mapsquare_cache_room(
@@ -6245,7 +6197,6 @@ static int viewer_process_mapsquare_loading(ViewerState *v) {
                 "failed; keeping the current scene\n",
                 center_x, center_y, plane);
         record_mapsquare_main_thread_work(load, main_thread_started_ms);
-        viewer_rollback_player_scene_transition(v);
         viewer_cancel_mapsquare_loading(v);
         return -1;
     }
@@ -6273,7 +6224,6 @@ static int viewer_process_mapsquare_loading(ViewerState *v) {
     }
     if (!commit_pending_mapsquare_window(v)) {
         record_mapsquare_main_thread_work(load, main_thread_started_ms);
-        viewer_rollback_player_scene_transition(v);
         viewer_cancel_mapsquare_loading(v);
         return -1;
     }
@@ -9115,9 +9065,6 @@ int main(int argc, char **argv) {
     backend_streaming.active_radius_regions = env_int(
         "RUNEC_WORLD_ACTIVE_RADIUS_REGIONS",
         backend_streaming.active_radius_regions);
-    backend_streaming.preload_radius_regions = env_int(
-        "RUNEC_WORLD_PRELOAD_RADIUS_REGIONS",
-        backend_streaming.preload_radius_regions);
     backend_streaming.max_cached_regions = env_int(
         "RUNEC_WORLD_MAX_CACHED_REGIONS",
         backend_streaming.max_cached_regions);
@@ -9209,16 +9156,17 @@ int main(int argc, char **argv) {
         "data/regions/world.collision-tiles.indexed.bin");
     cfg.spawns_path = env_path("RUNEC_NPC_SPAWNS",
         "data/spawns/world.npc-spawns.indexed.bin");
+    cfg.ground_item_spawns_path = env_path("RUNEC_GROUND_ITEM_SPAWNS",
+        "data/spawns/world.ground-items.indexed.bin");
     cfg.area_flags_path = env_path("RUNEC_AREA_FLAGS",
         "data/defs/area_flags.bin");
     cfg.traversal_edges_path = env_path("RUNEC_TRAVERSAL_EDGES",
         "data/defs/traversal_edges.bin");
     cfg.seed = 12345;
     fprintf(stderr,
-            "backend streaming config: active_radius=%d preload_radius=%d "
+            "backend streaming config: active_radius=%d "
             "max_cached_regions=%d\n",
             cfg.streaming.active_radius_regions,
-            cfg.streaming.preload_radius_regions,
             cfg.streaming.max_cached_regions);
     fprintf(stderr,
             "viewer streaming config: scene_radius=%d preload_radius=%d "

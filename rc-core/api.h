@@ -11,22 +11,21 @@
 #include "traversal.h"
 
 enum {
-    RC_ACTIVE_AREA_LOAD_COLLISION = 1u << 0,
-    RC_ACTIVE_AREA_LOAD_NPCS      = 1u << 1,
-    RC_ACTIVE_AREA_CLEAR_NPCS     = 1u << 2,
-    RC_ACTIVE_AREA_INCLUDE_INSTANCE_NPCS = 1u << 3,
-    RC_ACTIVE_AREA_LOAD_STATIC_GROUND_ITEMS = 1u << 4,
-    RC_ACTIVE_AREA_CLEAR_STATIC_GROUND_ITEMS = 1u << 5,
-    RC_ACTIVE_AREA_LOAD_OBJECT_PLACEMENTS = 1u << 6,
+    RC_ACTIVE_AREA_INCLUDE_INSTANCE_NPCS = 1u << 0,
+};
+
+enum {
+    RC_ACTIVE_AREA_COMPONENT_COLLISION = 1u << 0,
+    RC_ACTIVE_AREA_COMPONENT_NPCS = 1u << 1,
+    RC_ACTIVE_AREA_COMPONENT_GROUND_ITEMS = 1u << 2,
+    RC_ACTIVE_AREA_COMPONENT_OBJECT_CACHE = 1u << 3,
 };
 
 typedef struct {
     int origin_x, origin_y;
     int width, height;
     int min_plane, max_plane;
-    uint32_t flags;
-    const char *npc_spawns_path;
-    const char *ground_item_spawns_path;
+    uint32_t options;
 } RcActiveAreaRequest;
 
 typedef struct {
@@ -39,6 +38,7 @@ typedef struct {
     RcGroundItemSpawnLoadStats ground_item_stats;
     RcActiveArea active_area;
     RcWorldStreamingTelemetry streaming;
+    bool unchanged;
 } RcActiveAreaStats;
 
 typedef struct {
@@ -59,10 +59,15 @@ int      rc_world_reset(RcWorld *world);
 void     rc_world_destroy(RcWorld *world);
 const RcGameData *rc_world_get_game_data(const RcWorld *world);
 
-// Backend-owned gameplay area activation. The viewer may choose which visual
-// scene to display, but core owns the collision window and active NPC slice.
+// Backend-owned complete gameplay-area transaction. Enabled subsystems derive
+// the component profile; success publishes all authoritative area state,
+// identical requests are idempotent, and failure leaves live state unchanged.
+// The viewer may choose which visual scene to display but cannot delay or roll
+// back this simulation transition.
 int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
                            RcActiveAreaStats *stats);
+int rc_world_activate_area_around(RcWorld *world, int x, int y, int plane,
+                                  RcActiveAreaStats *stats);
 const RcActiveArea *rc_world_get_active_area(const RcWorld *world);
 const RcWorldStreamingConfig *rc_world_get_streaming_config(
     const RcWorld *world);

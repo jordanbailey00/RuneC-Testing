@@ -919,6 +919,8 @@ int rc_encounter_init(RcWorld *world) {
     memset(s, 0, sizeof(*s));
     if (rc_event_subscribe(world, RC_EVT_NPC_SPAWNED,
                            rc_encounter_on_npc_spawned, s) != 0
+            || rc_event_subscribe(world, RC_EVT_NPC_REMOVED,
+                                  rc_encounter_on_npc_removed, s) != 0
             || rc_event_subscribe(world, RC_EVT_NPC_DIED,
                                   rc_encounter_on_npc_died, s) != 0
             || rc_event_subscribe(world, RC_EVT_PLAYER_DAMAGED,
@@ -1371,6 +1373,22 @@ void rc_encounter_on_npc_spawned(RcWorld *world, int evt,
     a->ticks_since_start = 0;
     s->started_count++;
     run_phase_script(world, slot, 0);
+}
+
+void rc_encounter_on_npc_removed(RcWorld *world, int evt,
+                                 const void *payload, void *ctx) {
+    (void)evt;
+    RcEncounterState *state = ctx;
+    const RcPayloadNpcEvent *npc = payload;
+    if (!world || !state || !npc) return;
+    int slot = find_active_by_npc(state, npc->npc_id);
+    if (slot >= 0) state->active[slot].active = false;
+    for (int i = 0; i < world->encounter_effect_count; i++) {
+        if (world->encounter_effects[i].active
+                && world->encounter_effects[i].source_uid == npc->npc_id) {
+            world->encounter_effects[i].active = false;
+        }
+    }
 }
 
 void rc_encounter_on_npc_died(RcWorld *world, int evt,

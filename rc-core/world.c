@@ -205,6 +205,9 @@ RcWorld *rc_world_create_with_data(RcGameData *data,
     rc_world_streaming_config_sanitize(&world->streaming);
     copy_world_path(world->npc_spawns_path, sizeof(world->npc_spawns_path),
                     cfg->spawns_path);
+    copy_world_path(world->ground_item_spawns_path,
+                    sizeof(world->ground_item_spawns_path),
+                    cfg->ground_item_spawns_path);
 
     if (!init_world_state(world)) {
         rc_world_destroy(world);
@@ -244,6 +247,9 @@ int rc_world_reset(RcWorld *world) {
     RcWorldStreamingConfig streaming = world->streaming;
     char spawns_path[sizeof(world->npc_spawns_path)];
     memcpy(spawns_path, world->npc_spawns_path, sizeof(spawns_path));
+    char ground_spawns_path[sizeof(world->ground_item_spawns_path)];
+    memcpy(ground_spawns_path, world->ground_item_spawns_path,
+           sizeof(ground_spawns_path));
 
     rc_world_state_destroy(world);
     memset(npcs, 0, (size_t)npc_capacity * sizeof(*npcs));
@@ -255,6 +261,8 @@ int rc_world_reset(RcWorld *world) {
     world->enabled = enabled;
     world->streaming = streaming;
     memcpy(world->npc_spawns_path, spawns_path, sizeof(spawns_path));
+    memcpy(world->ground_item_spawns_path, ground_spawns_path,
+           sizeof(ground_spawns_path));
     if (!init_world_state(world)) return 0;
     world->next_npc_uid = next_npc_uid;
     return 1;
@@ -289,6 +297,8 @@ int rc_world_relocate_player(RcWorld *world, int x, int y, int plane) {
     if (!world || !rc_world_tile_valid(x, y, plane)) {
         return 0;
     }
+    if (rc_world_activate_area_around(world, x, y, plane, NULL) < 0)
+        return 0;
     rc_player_cancel_action(world, RC_ACTION_CANCEL_RELOCATED);
     RcPlayer *player = &world->player;
     player->prev_x = player->x;
@@ -318,17 +328,239 @@ static int valid_active_area_request(const RcActiveAreaRequest *request) {
     return request && rc_plane_valid(request->min_plane)
         && rc_plane_valid(request->max_plane)
         && request->min_plane <= request->max_plane
+        && (request->options & ~RC_ACTIVE_AREA_INCLUDE_INSTANCE_NPCS) == 0
         && rc_tile_rect_from_origin_size(
             request->origin_x, request->origin_y,
             request->width, request->height, &rect);
 }
 
-static void clear_active_npcs(RcWorld *world) {
-    if (world->npc_count > 0) {
-        memset(world->npcs, 0,
-               (size_t)world->npc_count * sizeof(world->npcs[0]));
+static uint32_t active_area_components(const RcWorld *world) {
+    uint32_t components = 0;
+    const uint32_t npc_backed = RC_SUB_COMBAT | RC_SUB_DIALOGUE | RC_SUB_SHOPS
+                              | RC_SUB_SLAYER | RC_SUB_ENCOUNTER;
+    if (world->enabled & RC_SUB_REGIONS)
+        components |= RC_ACTIVE_AREA_COMPONENT_COLLISION;
+    if ((world->enabled & npc_backed) && world->npc_spawns_path[0])
+        components |= RC_ACTIVE_AREA_COMPONENT_NPCS;
+    if ((world->enabled & RC_SUB_LOOT) && world->ground_item_spawns_path[0])
+        components |= RC_ACTIVE_AREA_COMPONENT_GROUND_ITEMS;
+    if (world->enabled & RC_SUB_OBJECTS)
+        components |= RC_ACTIVE_AREA_COMPONENT_OBJECT_CACHE;
+    return components;
+}
+
+static int same_active_area(const RcWorld *world,
+                            const RcActiveAreaRequest *request,
+                            uint32_t components) {
+    const RcActiveArea *area = &world->active_area;
+    return area->active && area->origin_x == request->origin_x
+        && area->origin_y == request->origin_y
+        && area->width == request->width && area->height == request->height
+        && area->min_plane == request->min_plane
+        && area->max_plane == request->max_plane
+        && area->options == request->options
+        && area->components == components;
+}
+
+static int point_in_active_request(const RcActiveAreaRequest *request,
+                                   int x, int y, int plane) {
+    RcTileRect bounds;
+    return rc_tile_rect_from_origin_size(
+               request->origin_x, request->origin_y,
+               request->width, request->height, &bounds)
+        && rc_tile_rect_contains(&bounds, x, y)
+        && plane >= request->min_plane && plane <= request->max_plane;
+}
+
+static void retain_dynamic_npcs(RcWorld *world,
+                                const RcActiveAreaRequest *request) {
+    int write = 0;
+    for (int i = 0; i < world->npc_count; i++) {
+        RcNpc *npc = &world->npcs[i];
+        if (!npc->active || npc->spawn_key != 0
+                || !point_in_active_request(
+                    request, npc->x, npc->y, npc->plane)) {
+            continue;
+        }
+        if (write != i) world->npcs[write] = *npc;
+        write++;
     }
-    world->npc_count = 0;
+    if (write < world->npc_count) {
+        memset(&world->npcs[write], 0,
+               (size_t)(world->npc_count - write) * sizeof(world->npcs[0]));
+    }
+    world->npc_count = write;
+}
+
+static RcWorld *clone_area_stage(const RcWorld *world) {
+    RcWorld *stage = malloc(sizeof(*stage));
+    if (!stage) return NULL;
+    memcpy(stage, world, sizeof(*stage));
+    stage->npcs = calloc((size_t)world->npc_capacity, sizeof(*stage->npcs));
+    if (!stage->npcs) {
+        free(stage);
+        return NULL;
+    }
+    memcpy(stage->npcs, world->npcs,
+           (size_t)world->npc_count * sizeof(*stage->npcs));
+    if (!rc_world_state_clone_dormant(stage, world)) {
+        free(stage->npcs);
+        free(stage);
+        return NULL;
+    }
+    rc_events_init(&stage->events);
+    return stage;
+}
+
+static void discard_area_stage(RcWorld *stage) {
+    if (!stage) return;
+    rc_world_state_discard_dormant(stage);
+    free(stage->npcs);
+    free(stage);
+}
+
+static int npc_uid_present(const RcWorld *world, int uid) {
+    for (int i = 0; world && i < world->npc_count; i++)
+        if (world->npcs[i].active && world->npcs[i].uid == uid) return 1;
+    return 0;
+}
+
+static void clear_actor_npc_reference(RcCombatActorState *state, int uid) {
+    if (!state) return;
+    if (state->target.kind == RC_COMBAT_ACTOR_NPC
+            && state->target.uid == uid) {
+        state->target = (RcCombatTargetRef){0};
+        state->active = false;
+    }
+    if (state->primary_attacker.kind == RC_COMBAT_ACTOR_NPC
+            && state->primary_attacker.uid == uid) {
+        state->primary_attacker = (RcCombatActorRef){0};
+    }
+    int write = 0;
+    for (int i = 0; i < state->attacker_count; i++) {
+        RcCombatActorRef ref = state->attackers[i];
+        if (ref.kind == RC_COMBAT_ACTOR_NPC && ref.uid == uid) continue;
+        state->attackers[write++] = ref;
+    }
+    state->attacker_count = write;
+    write = 0;
+    for (int i = 0; i < state->recent_hit_count; i++) {
+        RcCombatRecentHit hit = state->recent_hits[i];
+        if (hit.source_uid == uid) continue;
+        state->recent_hits[write++] = hit;
+    }
+    state->recent_hit_count = write;
+}
+
+static void clear_removed_npc_references(RcWorld *world, int uid) {
+    RcPlayer *player = &world->player;
+    if (player->attack_target == uid) {
+        player->attack_target = -1;
+        player->attack_target_def_id = -1;
+    }
+    if (player->facing_entity == uid) player->facing_entity = -1;
+    if (player->interact_target == uid) {
+        player->interact_type = RC_INTERACT_NONE;
+        player->interact_target = -1;
+        player->interact_option = -1;
+    }
+    if (player->interaction.active
+            && player->interaction.target.kind == RC_INTERACTION_NPC
+            && player->interaction.target.entity_uid == uid) {
+        rc_interaction_clear(player);
+    }
+    for (int i = 0; i < player->num_pending_hits; i++) {
+        if (player->pending_hits[i].active
+                && player->pending_hits[i].source_idx == uid) {
+            player->pending_hits[i].active = 0;
+        }
+    }
+    clear_actor_npc_reference(&player->combat, uid);
+    for (int i = 0; i < world->npc_count; i++) {
+        RcNpc *npc = &world->npcs[i];
+        if (npc->target_uid == uid) npc->target_uid = -1;
+        if (npc->facing_entity == uid) npc->facing_entity = -1;
+        for (int h = 0; h < npc->num_pending_hits; h++) {
+            if (npc->pending_hits[h].active
+                    && npc->pending_hits[h].source_idx == uid) {
+                npc->pending_hits[h].active = 0;
+            }
+        }
+        clear_actor_npc_reference(&npc->combat, uid);
+    }
+}
+
+static int commit_area_stage(RcWorld *world, RcWorld *stage) {
+    RcPayloadNpcEvent *removed = world->npc_count > 0
+        ? calloc((size_t)world->npc_count, sizeof(*removed)) : NULL;
+    RcPayloadNpcEvent *spawned = stage->npc_count > 0
+        ? calloc((size_t)stage->npc_count, sizeof(*spawned)) : NULL;
+    if ((world->npc_count > 0 && !removed)
+            || (stage->npc_count > 0 && !spawned)) {
+        free(removed);
+        free(spawned);
+        return 0;
+    }
+    int removed_count = 0;
+    int spawned_count = 0;
+    for (int i = 0; i < world->npc_count; i++) {
+        const RcNpc *npc = &world->npcs[i];
+        if (!npc->active || npc_uid_present(stage, npc->uid)) continue;
+        const RcNpcDef *def = rc_npc_def_for_npc(npc);
+        if (removed) {
+            removed[removed_count++] = (RcPayloadNpcEvent){
+                .npc_id = (uint32_t)npc->uid,
+                .def_id = def ? (uint32_t)def->id : UINT32_MAX,
+            };
+        }
+    }
+    for (int i = 0; i < stage->npc_count; i++) {
+        const RcNpc *npc = &stage->npcs[i];
+        if (!npc->active || npc_uid_present(world, npc->uid)) continue;
+        const RcNpcDef *def = rc_npc_def_for_npc(npc);
+        if (spawned) {
+            spawned[spawned_count++] = (RcPayloadNpcEvent){
+                .npc_id = (uint32_t)npc->uid,
+                .def_id = def ? (uint32_t)def->id : UINT32_MAX,
+            };
+        }
+    }
+
+    if (world->npc_count > stage->npc_count) {
+        memset(&world->npcs[stage->npc_count], 0,
+               (size_t)(world->npc_count - stage->npc_count)
+                   * sizeof(*world->npcs));
+    }
+    memcpy(world->npcs, stage->npcs,
+           (size_t)stage->npc_count * sizeof(*world->npcs));
+    world->npc_count = stage->npc_count;
+    world->next_npc_uid = stage->next_npc_uid;
+    world->map = stage->map;
+    memcpy(world->ground_items, stage->ground_items,
+           sizeof(world->ground_items));
+    world->ground_item_count = stage->ground_item_count;
+    world->next_ground_item_uid = stage->next_ground_item_uid;
+    rc_world_state_discard_dormant(world);
+    world->dormant_npcs = stage->dormant_npcs;
+    world->dormant_npc_count = stage->dormant_npc_count;
+    world->dormant_npc_capacity = stage->dormant_npc_capacity;
+    world->dormant_ground_items = stage->dormant_ground_items;
+    world->dormant_ground_item_count = stage->dormant_ground_item_count;
+    world->dormant_ground_item_capacity = stage->dormant_ground_item_capacity;
+    stage->dormant_npcs = NULL;
+    stage->dormant_ground_items = NULL;
+    world->active_area = stage->active_area;
+    world->streaming_telemetry = stage->streaming_telemetry;
+
+    for (int i = 0; i < removed_count; i++) {
+        clear_removed_npc_references(world, (int)removed[i].npc_id);
+        rc_event_fire(world, RC_EVT_NPC_REMOVED, &removed[i]);
+    }
+    for (int i = 0; i < spawned_count; i++)
+        rc_event_fire(world, RC_EVT_NPC_SPAWNED, &spawned[i]);
+    free(removed);
+    free(spawned);
+    return 1;
 }
 
 static int active_npc_count(const RcWorld *world) {
@@ -353,16 +585,18 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
     if (!world || !valid_active_area_request(request))
         return -1;
 
-    double area_load_started_ms = monotonic_ms();
-
-    uint32_t flags = request->flags;
-    if (flags == 0) {
-        flags = RC_ACTIVE_AREA_LOAD_COLLISION
-              | RC_ACTIVE_AREA_LOAD_NPCS
-              | RC_ACTIVE_AREA_CLEAR_NPCS
-              | RC_ACTIVE_AREA_LOAD_OBJECT_PLACEMENTS;
+    uint32_t components = active_area_components(world);
+    if (same_active_area(world, request, components)) {
+        if (stats) {
+            stats->collision_regions = world->map.region_count;
+            stats->active_area = world->active_area;
+            stats->streaming = world->streaming_telemetry;
+            stats->unchanged = true;
+        }
+        return 1;
     }
 
+    double area_load_started_ms = monotonic_ms();
     RcTileRect bounds;
     if (!rc_tile_rect_from_origin_size(request->origin_x, request->origin_y,
                                        request->width, request->height,
@@ -374,37 +608,39 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
     int max_x = bounds.max_x;
     int max_y = bounds.max_y;
 
-    int collision_regions = world->map.region_count;
-    RcCollisionLoadStats collision_stats;
-    memset(&collision_stats, 0, sizeof(collision_stats));
+    RcWorld *stage = clone_area_stage(world);
+    if (!stage) return -1;
+    stage->streaming_telemetry.expired_ground_items = 0;
+
+    int collision_regions = stage->map.region_count;
+    RcCollisionLoadStats collision_stats = {0};
     int pages_loaded = 0;
     double page_load_ms = 0.0;
-    if (flags & RC_ACTIVE_AREA_LOAD_COLLISION) {
+    if (components & RC_ACTIVE_AREA_COMPONENT_COLLISION) {
         if (rc_collision_set_cache_limit(
                 world->streaming.max_cached_regions) < 0) {
-            return -1;
+            goto fail;
         }
         double page_load_started_ms = monotonic_ms();
         collision_regions = rc_collision_populate_map_rect_stats(
-            &world->map, min_x, min_y, max_x, max_y, &collision_stats);
+            &stage->map, min_x, min_y, max_x, max_y, &collision_stats);
         page_load_ms = monotonic_ms() - page_load_started_ms;
         if (collision_regions < 0)
-            return -1;
+            goto fail;
         pages_loaded += (int)collision_stats.pages_loaded;
     }
 
-    RcObjectPlacementLoadStats object_placement_stats;
-    memset(&object_placement_stats, 0, sizeof(object_placement_stats));
-    if (flags & RC_ACTIVE_AREA_LOAD_OBJECT_PLACEMENTS) {
+    RcObjectPlacementLoadStats object_placement_stats = {0};
+    if (components & RC_ACTIVE_AREA_COMPONENT_OBJECT_CACHE) {
         if (rc_object_placements_set_cache_limit(
                 world->streaming.max_cached_regions) < 0) {
-            return -1;
+            goto fail;
         }
         double page_load_started_ms = monotonic_ms();
         int object_pages = rc_object_placements_prefetch_rect(
             min_x, min_y, max_x, max_y, &object_placement_stats);
         page_load_ms += monotonic_ms() - page_load_started_ms;
-        if (object_pages < 0) return -1;
+        if (object_pages < 0) goto fail;
         pages_loaded += object_placement_stats.pages_loaded;
     }
 
@@ -412,66 +648,54 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
     int restored_npc_states = 0;
     int saved_ground_items = 0;
     int restored_ground_items = 0;
-    if (flags & RC_ACTIVE_AREA_CLEAR_NPCS) {
-        saved_npc_states = rc_world_state_save_npcs(world);
-        if (saved_npc_states < 0) return -1;
-        clear_active_npcs(world);
-    }
-    if (flags & RC_ACTIVE_AREA_CLEAR_STATIC_GROUND_ITEMS) {
-        saved_ground_items = rc_world_state_save_ground_items(
-            world, min_x, min_y, max_x, max_y,
-            request->min_plane, request->max_plane);
-        if (saved_ground_items < 0) return -1;
-        rc_clear_static_ground_items(world);
-    }
-
-    RcNpcSpawnLoadStats npc_stats;
-    memset(&npc_stats, 0, sizeof(npc_stats));
+    RcNpcSpawnLoadStats npc_stats = {0};
     int spawned = 0;
-    if (flags & RC_ACTIVE_AREA_LOAD_NPCS) {
-        const char *path = request->npc_spawns_path && request->npc_spawns_path[0]
-                         ? request->npc_spawns_path : world->npc_spawns_path;
-        if (path && path[0]) {
-            uint32_t npc_load_flags = 0;
-            if (flags & RC_ACTIVE_AREA_INCLUDE_INSTANCE_NPCS)
-                npc_load_flags |= RC_NPC_SPAWN_LOAD_INCLUDE_INSTANCE;
-            double page_load_started_ms = monotonic_ms();
-            spawned = rc_load_npc_spawns_rect_stats_flags(
-                world, path, min_x, min_y, max_x, max_y,
-                request->min_plane, request->max_plane, npc_load_flags,
-                &npc_stats);
-            page_load_ms += monotonic_ms() - page_load_started_ms;
-            if (spawned < 0)
-                return -1;
-            pages_loaded += npc_stats.pages_loaded;
-        }
-        restored_npc_states = rc_world_state_restore_npcs(world);
-        if (restored_npc_states < 0) return -1;
+    if (components & RC_ACTIVE_AREA_COMPONENT_NPCS) {
+        saved_npc_states = rc_world_state_save_npcs(stage);
+        if (saved_npc_states < 0) goto fail;
+        retain_dynamic_npcs(stage, request);
+        uint32_t npc_load_flags = 0;
+        if (request->options & RC_ACTIVE_AREA_INCLUDE_INSTANCE_NPCS)
+            npc_load_flags |= RC_NPC_SPAWN_LOAD_INCLUDE_INSTANCE;
+        double page_load_started_ms = monotonic_ms();
+        spawned = rc_load_npc_spawns_rect_stats_flags(
+            stage, stage->npc_spawns_path, min_x, min_y, max_x, max_y,
+            request->min_plane, request->max_plane, npc_load_flags,
+            &npc_stats);
+        page_load_ms += monotonic_ms() - page_load_started_ms;
+        if (spawned < 0 || npc_stats.skipped_capacity > 0) goto fail;
+        pages_loaded += npc_stats.pages_loaded;
+        restored_npc_states = rc_world_state_restore_npcs(stage);
+        if (restored_npc_states < 0) goto fail;
     }
 
-    RcGroundItemSpawnLoadStats ground_item_stats;
-    memset(&ground_item_stats, 0, sizeof(ground_item_stats));
+    RcGroundItemSpawnLoadStats ground_item_stats = {0};
     int spawned_ground_items = 0;
-    if (flags & RC_ACTIVE_AREA_LOAD_STATIC_GROUND_ITEMS) {
-        const char *path = request->ground_item_spawns_path;
-        if (path && path[0]) {
-            double page_load_started_ms = monotonic_ms();
-            spawned_ground_items = rc_load_ground_item_spawns_rect_stats(
-                world, path, min_x, min_y, max_x, max_y,
-                request->min_plane, request->max_plane, &ground_item_stats);
-            page_load_ms += monotonic_ms() - page_load_started_ms;
-            if (spawned_ground_items < 0)
-                return -1;
-            pages_loaded += ground_item_stats.pages_loaded;
-        }
-        restored_ground_items = rc_world_state_restore_ground_items(
-            world, min_x, min_y, max_x, max_y,
+    if (components & RC_ACTIVE_AREA_COMPONENT_GROUND_ITEMS) {
+        saved_ground_items = rc_world_state_save_ground_items(
+            stage, min_x, min_y, max_x, max_y,
             request->min_plane, request->max_plane);
-        if (restored_ground_items < 0) return -1;
+        if (saved_ground_items < 0) goto fail;
+        rc_clear_static_ground_items(stage);
+        double page_load_started_ms = monotonic_ms();
+        spawned_ground_items = rc_load_ground_item_spawns_rect_stats(
+            stage, stage->ground_item_spawns_path,
+            min_x, min_y, max_x, max_y,
+            request->min_plane, request->max_plane, &ground_item_stats);
+        page_load_ms += monotonic_ms() - page_load_started_ms;
+        if (spawned_ground_items < 0
+                || ground_item_stats.skipped_capacity > 0) {
+            goto fail;
+        }
+        pages_loaded += ground_item_stats.pages_loaded;
+        restored_ground_items = rc_world_state_restore_ground_items(
+            stage, min_x, min_y, max_x, max_y,
+            request->min_plane, request->max_plane);
+        if (restored_ground_items < 0) goto fail;
     }
 
     uint32_t generation = world->active_area.generation + 1;
-    world->active_area = (RcActiveArea){
+    stage->active_area = (RcActiveArea){
         .active = true,
         .origin_x = request->origin_x,
         .origin_y = request->origin_y,
@@ -479,25 +703,29 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
         .height = request->height,
         .min_plane = request->min_plane,
         .max_plane = request->max_plane,
+        .options = request->options,
+        .components = components,
         .generation = generation ? generation : 1,
     };
 
     double area_load_ms = monotonic_ms() - area_load_started_ms;
-    RcWorldStreamingTelemetry *telemetry = &world->streaming_telemetry;
+    RcWorldStreamingTelemetry *telemetry = &stage->streaming_telemetry;
     telemetry->active_area_load_count++;
     telemetry->active_area_load_ms = area_load_ms;
     telemetry->active_area_load_total_ms += area_load_ms;
     telemetry->backend_page_load_ms = page_load_ms;
     telemetry->backend_page_load_total_ms += page_load_ms;
     telemetry->backend_pages_loaded = pages_loaded;
-    telemetry->active_npcs = active_npc_count(world);
-    telemetry->active_ground_items = active_ground_item_count(world);
-    telemetry->dormant_npc_states = world->dormant_npc_count;
-    telemetry->dormant_ground_items = world->dormant_ground_item_count;
+    telemetry->active_npcs = active_npc_count(stage);
+    telemetry->active_ground_items = active_ground_item_count(stage);
+    telemetry->dormant_npc_states = stage->dormant_npc_count;
+    telemetry->dormant_ground_items = stage->dormant_ground_item_count;
     telemetry->saved_npc_states = saved_npc_states;
     telemetry->restored_npc_states = restored_npc_states;
     telemetry->saved_ground_items = saved_ground_items;
     telemetry->restored_ground_items = restored_ground_items;
+
+    if (!commit_area_stage(world, stage)) goto fail;
 
     if (stats) {
         stats->collision_regions = collision_regions;
@@ -508,9 +736,42 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
         stats->npc_stats = npc_stats;
         stats->ground_item_stats = ground_item_stats;
         stats->active_area = world->active_area;
-        stats->streaming = *telemetry;
+        stats->streaming = world->streaming_telemetry;
     }
+    discard_area_stage(stage);
     return 1;
+
+fail:
+    discard_area_stage(stage);
+    return -1;
+}
+
+int rc_world_activate_area_around(RcWorld *world, int x, int y, int plane,
+                                  RcActiveAreaStats *stats) {
+    if (!world || !rc_world_tile_valid(x, y, plane)) return -1;
+    int radius = world->streaming.active_radius_regions;
+    int center_x = x / RC_MAPSQUARE_SIZE;
+    int center_y = y / RC_MAPSQUARE_SIZE;
+    int min_region_x = center_x - radius;
+    int min_region_y = center_y - radius;
+    int max_region_x = center_x + radius;
+    int max_region_y = center_y + radius;
+    if (min_region_x < 0) min_region_x = 0;
+    if (min_region_y < 0) min_region_y = 0;
+    if (max_region_x >= RC_MAPSQUARE_AXIS)
+        max_region_x = RC_MAPSQUARE_AXIS - 1;
+    if (max_region_y >= RC_MAPSQUARE_AXIS)
+        max_region_y = RC_MAPSQUARE_AXIS - 1;
+    RcActiveAreaRequest request = {
+        .origin_x = min_region_x * RC_MAPSQUARE_SIZE,
+        .origin_y = min_region_y * RC_MAPSQUARE_SIZE,
+        .width = (max_region_x - min_region_x + 1) * RC_MAPSQUARE_SIZE,
+        .height = (max_region_y - min_region_y + 1) * RC_MAPSQUARE_SIZE,
+        .min_plane = 0,
+        .max_plane = RC_MAX_PLANES - 1,
+        .options = RC_ACTIVE_AREA_INCLUDE_INSTANCE_NPCS,
+    };
+    return rc_world_activate_area(world, &request, stats);
 }
 
 const RcActiveArea *rc_world_get_active_area(const RcWorld *world) {

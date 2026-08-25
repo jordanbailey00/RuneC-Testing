@@ -471,6 +471,7 @@ static void bench_mixed_agent(int envs, int ops, int warmup) {
 static RcWorld *make_spawn_world(uint32_t seed) {
     RcWorldConfig cfg = rc_preset_base_only();
     cfg.seed = seed;
+    cfg.npc_capacity = RC_WORLD_NPC_CAPACITY_FULL;
     cfg.subsystems = RC_SUB_COMBAT | RC_SUB_REGIONS;
     cfg.npc_defs_path = NPC_PATH;
     cfg.spawns_path = SPAWN_PATH;
@@ -492,16 +493,16 @@ static void bench_spawn_slice(int ops) {
         .height = 320,
         .min_plane = 0,
         .max_plane = RC_MAX_PLANES - 1,
-        .flags = RC_ACTIVE_AREA_LOAD_COLLISION
-               | RC_ACTIVE_AREA_LOAD_NPCS
-               | RC_ACTIVE_AREA_CLEAR_NPCS,
     };
+    RcActiveAreaRequest alternate = req;
+    alternate.origin_x = 3008;
     RcActiveAreaStats stats = {0};
 
     double start = now_seconds();
     int spawned_total = 0;
     for (int i = 0; i < ops; i++) {
-        if (rc_world_activate_area(world, &req, &stats) < 0) {
+        const RcActiveAreaRequest *area = (i & 1) ? &alternate : &req;
+        if (rc_world_activate_area(world, area, &stats) < 0) {
             fprintf(stderr, "active area load failed\n");
             exit(1);
         }

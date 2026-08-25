@@ -40,8 +40,8 @@ presentation responsibilities.
   - main window lifecycle
   - input handling
   - camera control
-  - visual scene selection/generation followed by backend active-area
-    activation through `rc_world_activate_area`
+  - visual scene selection and generation that follows core-owned active-area
+    activation without controlling or rolling back gameplay state
   - world ticking for the current viewer path
 - `tick_pacing.c` / `tick_pacing.h`
   - monotonic 600 ms world-tick accumulator
@@ -132,7 +132,6 @@ presentation responsibilities.
   - `RUNEC_PLAYER_START_X`, `RUNEC_PLAYER_START_Y`,
     `RUNEC_PLAYER_START_PLANE`
   - `RUNEC_WORLD_ACTIVE_RADIUS_REGIONS`,
-    `RUNEC_WORLD_PRELOAD_RADIUS_REGIONS`,
     `RUNEC_WORLD_MAX_CACHED_REGIONS`
   - `RUNEC_VIEWER_SCENE_RADIUS_REGIONS`, `RUNEC_VIEWER_PRELOAD_RADIUS`,
     `RUNEC_VIEWER_MAX_CPU_CHUNKS`, `RUNEC_VIEWER_MAX_GPU_CHUNKS`,
@@ -220,10 +219,12 @@ remains mandatory before a scene or transport commits.
 Fixed and generated aggregate scenes remain an explicit development
 compatibility path and are not included in runtime-data packs. Normal startup
 and transitions never launch Python or read the source cache. Missing installed
-assets report the first incomplete path and leave the player in the prior
-loaded scene. `RUNEC_SCENE_AUTO_EXPORT=1` retains bounded missing-mapsquare
-generation for maintainers with a local b237 cache. Scene or plane transitions
-still load the visual and backend destination before committing coordinates.
+assets report the first incomplete path and retain the prior visual scene.
+They do not relocate the authoritative player back to that scene.
+`RUNEC_SCENE_AUTO_EXPORT=1` retains bounded missing-mapsquare generation for
+maintainers with a local b237 cache. Core activates destination simulation and
+commits movement independently; the viewer replaces presentation only when a
+complete destination window is ready.
 
 Streaming telemetry logs startup and scene/active-area changes. It reports
 worker decode and render-thread upload time, queued async jobs, staged CPU

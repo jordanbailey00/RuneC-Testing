@@ -111,11 +111,11 @@ static void process_player_action_timers(RcWorld *world) {
     RcPlayer *p = &world->player;
     if (p->pending_traversal_active
             && world->tick >= p->pending_traversal_tick) {
-        p->prev_x = p->x;
-        p->prev_y = p->y;
-        p->x = p->pending_traversal_x;
-        p->y = p->pending_traversal_y;
-        p->plane = p->pending_traversal_plane;
+        int destination_x = p->pending_traversal_x;
+        int destination_y = p->pending_traversal_y;
+        int destination_plane = p->pending_traversal_plane;
+        (void)rc_world_relocate_player(
+            world, destination_x, destination_y, destination_plane);
         p->route_len = 0;
         p->route_idx = 0;
         p->pending_traversal_active = 0;
@@ -148,6 +148,16 @@ static void process_player_movement(RcWorld *world) {
         if (!dx && !dy) {
             p->route_idx++;
             continue;
+        }
+        if (!world->active_area.active
+                || nx / RC_MAPSQUARE_SIZE != p->x / RC_MAPSQUARE_SIZE
+                || ny / RC_MAPSQUARE_SIZE != p->y / RC_MAPSQUARE_SIZE) {
+            if (rc_world_activate_area_around(
+                    world, nx, ny, p->plane, NULL) < 0) {
+                p->route_len = 0;
+                p->route_idx = 0;
+                return;
+            }
         }
         if (!rc_can_move(&world->map, p->x, p->y, dx, dy, p->plane)) {
             p->route_len = 0;

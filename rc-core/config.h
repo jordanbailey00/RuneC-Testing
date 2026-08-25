@@ -40,13 +40,11 @@ enum {
 
 enum {
     RC_WORLD_STREAMING_DEFAULT_ACTIVE_RADIUS = 2,
-    RC_WORLD_STREAMING_DEFAULT_PRELOAD_RADIUS = 3,
     RC_WORLD_STREAMING_DEFAULT_MAX_CACHED_REGIONS = 64,
 };
 
 typedef struct {
     int active_radius_regions;
-    int preload_radius_regions;
     int max_cached_regions;
 } RcWorldStreamingConfig;
 
@@ -65,7 +63,8 @@ typedef struct {
     // without forcing unused data into a sim.
     const char *regions_dir;         // base: region *.terrain/.objects/.cmap
     const char *npc_defs_path;       // base: npc_defs.bin
-    const char *spawns_path;         // explicit load: indexed world NPC spawns
+    const char *spawns_path;         // active area: indexed world NPC spawns
+    const char *ground_item_spawns_path; // RC_SUB_LOOT: indexed static items
     const char *varbits_path;        // explicit state: varbits.bin
     const char *varps_path;          // explicit state: varps.bin
     const char *items_path;          // RC_SUB_EQUIPMENT / _INVENTORY

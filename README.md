@@ -236,20 +236,23 @@ When the complete starting visual window is present, the viewer uses a bounded,
 center-first mapsquare cache. A worker performs installed-asset reads, pack
 decompression, binary parsing, and CPU mesh preparation for terrain, static
 objects, animated objects, shared materials, and filtered NPC models. The
-render thread performs budgeted GPU uploads and commits only after every visible
-chunk, required NPC model, and backend active-area load succeed. Moving the
-window retains overlap; cancellation, missing assets, or decode/upload failure
-leaves the prior scene active. Normal gameplay never launches Python or reads
+render thread performs budgeted GPU uploads and commits only after every
+visible chunk and required NPC model succeeds. Core independently commits the
+authoritative active area before a player crosses a mapsquare or relocates.
+Moving the visual window retains overlap; cancellation, missing assets, or
+decode/upload failure leaves the prior scene active without moving the backend
+player backward. Normal gameplay never launches Python or reads
 the source cache. Maintainers can opt into bounded development generation with
 `RUNEC_SCENE_AUTO_EXPORT=1`; an incomplete or failed split export still blocks
 the transition instead of launching aggregate generation.
 Object traversals that cross scene windows carry their resolved destination in
-the pending transaction. The backend keeps its normal traversal timing, while
-the viewer presents a source position/plane snapshot until the destination
-visual window and active area commit together. Failure restores the safe source
-once; normal loading does not repeatedly rewrite authoritative player
-coordinates. Additional route ticks cannot replace or restart an already
-pending player transition.
+the pending transaction. The backend keeps its normal traversal timing and
+activates destination simulation before committing destination coordinates,
+while the viewer may keep presenting its source scene snapshot until the
+destination visuals are ready. Visual failure keeps that prior presentation
+but never rolls authoritative coordinates or simulation membership back.
+Additional route ticks cannot replace or restart an already pending player
+transition.
 PR 11 adds frontend-only latency hiding rather than a loading screen.
 Route/direction lookahead warms one visual window ahead of an ordinary
 boundary, and accepted object interactions prefetch their existing traversal

@@ -11,6 +11,7 @@
 #define DEFAULT_REGIONS     "data/regions"
 #define DEFAULT_NPC_DEFS    "data/defs/npc_defs.bin"
 #define DEFAULT_SPAWNS      "data/spawns/world.npc-spawns.indexed.bin"
+#define DEFAULT_GROUND_SPAWNS "data/spawns/world.ground-items.indexed.bin"
 #define DEFAULT_VARBITS     "data/defs/varbits.bin"
 #define DEFAULT_VARPS       "data/defs/varps.bin"
 #define DEFAULT_ITEMS       "data/defs/items.bin"
@@ -48,7 +49,6 @@
 RcWorldStreamingConfig rc_world_streaming_config_default(void) {
     return (RcWorldStreamingConfig){
         .active_radius_regions = RC_WORLD_STREAMING_DEFAULT_ACTIVE_RADIUS,
-        .preload_radius_regions = RC_WORLD_STREAMING_DEFAULT_PRELOAD_RADIUS,
         .max_cached_regions = RC_WORLD_STREAMING_DEFAULT_MAX_CACHED_REGIONS,
     };
 }
@@ -58,10 +58,8 @@ void rc_world_streaming_config_sanitize(RcWorldStreamingConfig *config) {
     RcWorldStreamingConfig defaults = rc_world_streaming_config_default();
     if (config->active_radius_regions < 0)
         config->active_radius_regions = defaults.active_radius_regions;
-    if (config->preload_radius_regions < 0)
-        config->preload_radius_regions = defaults.preload_radius_regions;
-    if (config->preload_radius_regions < config->active_radius_regions)
-        config->preload_radius_regions = config->active_radius_regions;
+    if (config->active_radius_regions > 2)
+        config->active_radius_regions = 2;
     if (config->max_cached_regions <= 0)
         config->max_cached_regions = defaults.max_cached_regions;
     int64_t side = (int64_t)config->active_radius_regions * 2 + 1;
@@ -115,6 +113,8 @@ int rc_world_config_validate(const RcWorldConfig *config,
     RC_REQUIRE_PATH(RC_SUB_SLAYER, slayer_path, "slayer subsystem");
     RC_REQUIRE_PATH(RC_SUB_TRAVERSAL, traversal_edges_path,
                     "traversal subsystem");
+    RC_REQUIRE_PATH(RC_SUB_LOOT, ground_item_spawns_path,
+                    "loot subsystem active-area state");
     if ((config->subsystems & RC_SUB_OBJECTS)
             && ((!config->object_defs_path || !config->object_defs_path[0])
                 || (!config->object_behaviors_path
@@ -152,6 +152,7 @@ RcWorldConfig rc_preset_full_game(void) {
         .regions_dir     = DEFAULT_REGIONS,
         .npc_defs_path   = DEFAULT_NPC_DEFS,
         .spawns_path     = DEFAULT_SPAWNS,
+        .ground_item_spawns_path = DEFAULT_GROUND_SPAWNS,
         .varbits_path    = DEFAULT_VARBITS,
         .varps_path      = DEFAULT_VARPS,
         .items_path      = DEFAULT_ITEMS,
@@ -199,6 +200,7 @@ RcWorldConfig rc_preset_combat_only(void) {
         .regions_dir     = DEFAULT_REGIONS,
         .npc_defs_path   = DEFAULT_NPC_DEFS,
         .spawns_path     = DEFAULT_SPAWNS,
+        .ground_item_spawns_path = DEFAULT_GROUND_SPAWNS,
         .items_path      = DEFAULT_ITEMS,
         .normalization_path = DEFAULT_NORM,
         .prayers_path    = DEFAULT_PRAYERS,
@@ -225,6 +227,7 @@ RcWorldConfig rc_preset_skilling_only(void) {
         .regions_dir     = DEFAULT_REGIONS,
         .npc_defs_path   = DEFAULT_NPC_DEFS,
         .spawns_path     = DEFAULT_SPAWNS,
+        .ground_item_spawns_path = DEFAULT_GROUND_SPAWNS,
         .varbits_path    = DEFAULT_VARBITS,
         .varps_path      = DEFAULT_VARPS,
         .items_path      = DEFAULT_ITEMS,
@@ -252,6 +255,7 @@ RcWorldConfig rc_preset_base_only(void) {
         .regions_dir     = DEFAULT_REGIONS,
         .npc_defs_path   = DEFAULT_NPC_DEFS,
         .spawns_path     = DEFAULT_SPAWNS,
+        .ground_item_spawns_path = DEFAULT_GROUND_SPAWNS,
         .player_actions_path = DEFAULT_ACTIONS,
     };
 }

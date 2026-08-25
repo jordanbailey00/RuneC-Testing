@@ -813,6 +813,8 @@ void rc_encounter_tick(struct RcWorld *world);
 // Exposed here so tests can invoke them directly.
 void rc_encounter_on_npc_spawned(struct RcWorld *world, int evt,
                                  const void *payload, void *ctx);
+void rc_encounter_on_npc_removed(struct RcWorld *world, int evt,
+                                 const void *payload, void *ctx);
 void rc_encounter_on_npc_died(struct RcWorld *world, int evt,
                               const void *payload, void *ctx);
 void rc_encounter_on_player_damaged(struct RcWorld *world, int evt,

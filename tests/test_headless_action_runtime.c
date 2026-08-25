@@ -184,6 +184,7 @@ int main(void) {
     assert(world->player.interaction.source_spell_id == 0);
     assert(world->player.interact_type == RC_INTERACT_NPC_ATTACK);
 
+    int previous_npc_uid = npc->uid;
     RcActiveAreaRequest area = {
         .origin_x = 3072,
         .origin_y = 3264,
@@ -191,16 +192,16 @@ int main(void) {
         .height = 64,
         .min_plane = 0,
         .max_plane = 0,
-        .flags = RC_ACTIVE_AREA_LOAD_COLLISION,
     };
     RcActiveAreaStats stats;
     assert(rc_world_activate_area(world, &area, &stats) == 1);
     assert(world->active_area.active);
     assert(stats.collision_regions > 0);
+    assert(rc_npc_resolve(world, (RcNpcId)previous_npc_uid) == NULL);
 
-    rc_player_attack_npc(world, npc->uid);
+    rc_player_attack_npc(world, previous_npc_uid);
     rc_world_tick(world);
-    assert(world->player.interact_type == RC_INTERACT_NPC_ATTACK);
+    assert(world->player.interact_type != RC_INTERACT_NPC_ATTACK);
 
     rc_world_destroy(world);
 

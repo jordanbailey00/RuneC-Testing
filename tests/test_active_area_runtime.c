@@ -2,10 +2,12 @@
 #include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "api.h"
 #include "collision.h"
 #include "config.h"
+#include "encounter.h"
 #include "npc.h"
 #include "pathfinding.h"
 
@@ -93,16 +95,45 @@ static int active_ground_items(const RcWorld *world, int static_only) {
     return count;
 }
 
+static int active_encounter_for(const RcWorld *world, int npc_uid) {
+    for (int i = 0; i < RC_ENC_MAX_ACTIVE; i++) {
+        if (world->encounter.active[i].active
+                && world->encounter.active[i].boss_id == npc_uid) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+typedef struct {
+    int target_uid;
+    int total;
+    int target_seen;
+} RemovedEvents;
+
+static void count_removed_npc(RcWorld *world, int event,
+                              const void *payload, void *ctx) {
+    (void)world;
+    assert(event == RC_EVT_NPC_REMOVED);
+    assert(payload != NULL);
+    RemovedEvents *events = ctx;
+    const RcPayloadNpcEvent *npc = payload;
+    events->total++;
+    if ((int)npc->npc_id == events->target_uid) events->target_seen++;
+}
+
 int main(void) {
     g_npc_def_count = 0;
     g_rc_collision_region_count = 0;
+    write_static_ground_item_fixture();
 
     RcWorldConfig cfg = rc_preset_base_only();
     cfg.npc_capacity = RC_WORLD_NPC_CAPACITY_SIM;
     cfg.subsystems = RC_SUB_COMBAT | RC_SUB_REGIONS | RC_SUB_LOOT
-                   | RC_SUB_OBJECTS;
+                   | RC_SUB_OBJECTS | RC_SUB_ENCOUNTER;
     cfg.npc_defs_path = NPC_PATH;
     cfg.spawns_path = SPAWN_PATH;
+    cfg.ground_item_spawns_path = STATIC_GROUND_ITEM_TEST_PATH;
     cfg.object_defs_path = ODEF_PATH;
     cfg.object_behaviors_path = OBHV_PATH;
     cfg.collision_tiles_path = CTPI_PATH;
@@ -117,7 +148,6 @@ int main(void) {
         rc_world_get_streaming_config(world);
     assert(streaming != NULL);
     assert(streaming->active_radius_regions == 2);
-    assert(streaming->preload_radius_regions == 3);
     assert(streaming->max_cached_regions == 64);
     RcWorldStreamingTelemetry telemetry;
     assert(rc_world_get_streaming_telemetry(NULL, &telemetry) == -1);
@@ -145,11 +175,6 @@ int main(void) {
         .height = 320,
         .min_plane = 0,
         .max_plane = RC_MAX_PLANES - 1,
-        .flags = RC_ACTIVE_AREA_LOAD_COLLISION
-               | RC_ACTIVE_AREA_LOAD_NPCS
-               | RC_ACTIVE_AREA_CLEAR_NPCS
-               | RC_ACTIVE_AREA_LOAD_OBJECT_PLACEMENTS,
-        .npc_spawns_path = SPAWN_PATH,
     };
     RcActiveAreaStats stats;
     assert(rc_world_activate_area(world, &req, &stats) == 1);
@@ -183,9 +208,10 @@ int main(void) {
     assert(stats.streaming.backend_pages_loaded
            == (int)stats.collision_stats.pages_loaded
             + stats.npc_stats.pages_loaded
+            + stats.ground_item_stats.pages_loaded
             + (int)stats.object_placement_stats.pages_loaded);
     assert(stats.streaming.active_npcs == 837);
-    assert(stats.streaming.active_ground_items == 0);
+    assert(stats.streaming.active_ground_items == 2);
     assert(world->npc_count == 837);
     assert(world->active_area.active);
     const RcActiveArea *active = rc_world_get_active_area(world);
@@ -196,10 +222,19 @@ int main(void) {
     assert(world->active_area.height == req.height);
     assert(world->active_area.min_plane == 0);
     assert(world->active_area.max_plane == RC_MAX_PLANES - 1);
+    assert(world->active_area.components
+           == (RC_ACTIVE_AREA_COMPONENT_COLLISION
+             | RC_ACTIVE_AREA_COMPONENT_NPCS
+             | RC_ACTIVE_AREA_COMPONENT_GROUND_ITEMS
+             | RC_ACTIVE_AREA_COMPONENT_OBJECT_CACHE));
     assert(rc_get_flags(&world->map, 3213, 3428, 0)
            == rc_collision_flags_at(3213, 3428, 0, NULL));
 
     uint32_t first_gen = world->active_area.generation;
+    RcEncounterSpec area_encounter = {0};
+    area_encounter.npc_ids[0] = 2215;
+    area_encounter.npc_id_count = 1;
+    assert(rc_encounter_register(world, &area_encounter) >= 0);
     RcNpcEnsureResult ensured;
     assert(rc_world_find_npc_near(NULL, 2215, 2872, 5358, 2, 8) == -1);
     assert(rc_world_ensure_npc_near(NULL, 2215, 2872, 5358, 2, 8,
@@ -212,6 +247,12 @@ int main(void) {
     assert(ensured.uid >= 0);
     assert(ensured.spawned == 1);
     assert(world->npc_count == 838);
+    assert(active_encounter_for(world, ensured.uid) >= 0);
+    int encounter_effect = rc_encounter_add_effect(
+        world, RC_ENC_EFFECT_ROOM_ATTACK,
+        2872, 5358, 2, 2872, 5358, 20,
+        (uint16_t)ensured.uid, COMBAT_MAGIC, 1, "test", "");
+    assert(encounter_effect >= 0);
     assert(rc_world_find_npc_near(world, 2215, 2872, 5358, 2, 8)
            == ensured.index);
     RcNpcEnsureResult reused;
@@ -224,38 +265,48 @@ int main(void) {
     assert(rc_world_ensure_npc_near(world, -1, 2872, 5358, 2, 8,
                                     &reused) == -1);
     assert(reused.index == -1 && reused.uid == -1 && reused.spawned == 0);
+    RemovedEvents removed_events = {.target_uid = ensured.uid};
+    assert(rc_event_subscribe(world, RC_EVT_NPC_REMOVED,
+                              count_removed_npc, &removed_events) == 0);
+    world->player.attack_target = ensured.uid;
+    world->player.attack_target_def_id = 2215;
+    world->player.interact_type = RC_INTERACT_NPC;
+    world->player.interact_target = ensured.uid;
     assert(rc_world_activate_area(world, &req, &stats) == 1);
-    assert(world->active_area.generation == first_gen + 1);
-    assert(world->npc_count == 837);
-    assert(stats.streaming.active_area_load_count == 2);
+    assert(stats.unchanged);
+    assert(world->active_area.generation == first_gen);
+    assert(world->npc_count == 838);
+    assert(stats.streaming.active_area_load_count == 1);
     assert(stats.streaming.active_area_load_total_ms
            >= stats.streaming.active_area_load_ms);
-    assert(stats.object_placement_stats.pages_requested > 0);
-    assert(stats.object_placement_stats.pages_loaded == 0);
-    assert(stats.object_placement_stats.rows_loaded == 0);
-    assert(stats.collision_stats.pages_requested > 0);
-    assert(stats.collision_stats.pages_loaded == 0);
-    assert(stats.collision_stats.rows_loaded == 0);
+    assert(stats.object_placement_stats.pages_requested == 0);
+    assert(stats.collision_stats.pages_requested == 0);
 
-    RcActiveAreaRequest collision_only = req;
-    collision_only.origin_x = 3200;
-    collision_only.origin_y = 3392;
-    collision_only.width = 64;
-    collision_only.height = 64;
-    collision_only.flags = RC_ACTIVE_AREA_LOAD_COLLISION;
-    assert(rc_world_activate_area(world, &collision_only, &stats) == 1);
-    assert(stats.spawned_npcs == 0);
-    assert(world->npc_count == 837);
+    RcActiveAreaRequest shifted = req;
+    shifted.origin_x = 3200;
+    shifted.origin_y = 3392;
+    shifted.width = 64;
+    shifted.height = 64;
+    assert(rc_world_activate_area(world, &shifted, &stats) == 1);
+    assert(!stats.unchanged);
+    assert(stats.spawned_npcs > 0);
     assert(world->active_area.origin_x == 3200);
     assert(world->active_area.width == 64);
+    assert(removed_events.total > 0);
+    assert(removed_events.target_seen == 1);
+    assert(active_encounter_for(world, ensured.uid) == -1);
+    assert(!world->encounter_effects[encounter_effect].active);
+    assert(world->player.attack_target == -1);
+    assert(world->player.interact_target == -1);
+    assert(world->active_area.components
+           == (RC_ACTIVE_AREA_COMPONENT_COLLISION
+             | RC_ACTIVE_AREA_COMPONENT_NPCS
+             | RC_ACTIVE_AREA_COMPONENT_GROUND_ITEMS
+             | RC_ACTIVE_AREA_COMPONENT_OBJECT_CACHE));
 
-    RcActiveAreaRequest default_flags = req;
-    default_flags.flags = 0;
-    default_flags.npc_spawns_path = NULL;
-    assert(rc_world_activate_area(world, &default_flags, &stats) == 1);
+    assert(rc_world_activate_area(world, &req, &stats) == 1);
     assert(stats.spawned_npcs == 837);
 
-    write_static_ground_item_fixture();
     RcGroundItemSpawnLoadStats empty_ground_stats;
     assert(rc_load_ground_item_spawns_rect_stats(
         world, STATIC_GROUND_ITEM_TEST_PATH,
@@ -267,9 +318,6 @@ int main(void) {
 
     RcActiveAreaRequest ground_items = req;
     ground_items.max_plane = 0;
-    ground_items.flags = RC_ACTIVE_AREA_CLEAR_STATIC_GROUND_ITEMS
-                       | RC_ACTIVE_AREA_LOAD_STATIC_GROUND_ITEMS;
-    ground_items.ground_item_spawns_path = STATIC_GROUND_ITEM_TEST_PATH;
     assert(rc_world_activate_area(world, &ground_items, &stats) == 1);
     assert(stats.ground_item_stats.total_rows == 4);
     assert(stats.ground_item_stats.pages_loaded == 1);
@@ -291,23 +339,37 @@ int main(void) {
     assert(rc_ground_item_spawn(world, 995, 1, 3213, 3428, 0,
                                 RC_GROUND_OWNER_NONE));
     assert(active_ground_items(world, 0) == 2);
-    ground_items.flags = RC_ACTIVE_AREA_CLEAR_STATIC_GROUND_ITEMS;
     assert(rc_world_activate_area(world, &ground_items, &stats) == 1);
-    assert(active_ground_items(world, 1) == 0);
-    assert(active_ground_items(world, 0) == 1);
+    assert(stats.unchanged);
+    assert(active_ground_items(world, 1) == 1);
+    assert(active_ground_items(world, 0) == 2);
     assert(!world->ground_items[1].static_spawn);
     assert(rc_world_get_streaming_telemetry(world, &telemetry) == 1);
-    assert(telemetry.active_ground_items == 1);
-    remove(STATIC_GROUND_ITEM_TEST_PATH);
-
-    FILE *bad_ground_items = fopen(STATIC_GROUND_ITEM_TEST_PATH, "wb");
+    assert(telemetry.active_ground_items == 2);
+    char valid_ground_path[sizeof(world->ground_item_spawns_path)];
+    memcpy(valid_ground_path, world->ground_item_spawns_path,
+           sizeof(valid_ground_path));
+    FILE *bad_ground_items = fopen("/tmp/runec_bad_ground_items.bin", "wb");
     assert(bad_ground_items != NULL);
     write_u32(bad_ground_items, 0);
     assert(fclose(bad_ground_items) == 0);
-    assert(rc_load_ground_item_spawns_rect_stats(
-        world, STATIC_GROUND_ITEM_TEST_PATH,
-        3200, 3400, 3264, 3464, 0, 0, &empty_ground_stats) == -1);
-    remove(STATIC_GROUND_ITEM_TEST_PATH);
+    snprintf(world->ground_item_spawns_path,
+             sizeof(world->ground_item_spawns_path), "%s",
+             "/tmp/runec_bad_ground_items.bin");
+    uint32_t rollback_generation = world->active_area.generation;
+    int rollback_npc_count = world->npc_count;
+    int rollback_ground_count = world->ground_item_count;
+    RcWorldMap rollback_map = world->map;
+    RcActiveAreaRequest failed = ground_items;
+    failed.origin_x = 3136;
+    assert(rc_world_activate_area(world, &failed, &stats) == -1);
+    assert(world->active_area.generation == rollback_generation);
+    assert(world->npc_count == rollback_npc_count);
+    assert(world->ground_item_count == rollback_ground_count);
+    assert(memcmp(&world->map, &rollback_map, sizeof(rollback_map)) == 0);
+    memcpy(world->ground_item_spawns_path, valid_ground_path,
+           sizeof(world->ground_item_spawns_path));
+    assert(remove("/tmp/runec_bad_ground_items.bin") == 0);
 
     RcActiveAreaRequest stronghold = req;
     stronghold.origin_x = 1792;
@@ -319,13 +381,46 @@ int main(void) {
     assert(stats.npc_stats.skipped_instance == 40);
     assert(stats.spawned_npcs == 110);
 
-    stronghold.flags |= RC_ACTIVE_AREA_INCLUDE_INSTANCE_NPCS;
+    stronghold.options = RC_ACTIVE_AREA_INCLUDE_INSTANCE_NPCS;
     assert(rc_world_activate_area(world, &stronghold, &stats) == 1);
     assert(stats.npc_stats.matched_filter == 150);
     assert(stats.npc_stats.skipped_instance == 0);
     assert(stats.spawned_npcs == 150);
 
+    assert(rc_world_relocate_player(world, 3184, 3440, 0));
+    assert(world->player.x == 3184 && world->player.y == 3440);
+    assert(world->active_area.origin_x == 3008);
+    assert(world->active_area.origin_y == 3264);
+
     rc_world_destroy(world);
+
+    cfg.npc_capacity = RC_WORLD_NPC_CAPACITY_BASE;
+    RcWorld *capacity_limited = rc_world_create_config(&cfg);
+    assert(capacity_limited != NULL);
+    int original_x = capacity_limited->player.x;
+    int original_y = capacity_limited->player.y;
+    assert(rc_world_activate_area(capacity_limited, &req, &stats) == -1);
+    assert(!capacity_limited->active_area.active);
+    assert(capacity_limited->map.region_count == 0);
+    assert(capacity_limited->npc_count == 0);
+    assert(capacity_limited->ground_item_count == 0);
+    assert(!rc_world_relocate_player(capacity_limited, 3184, 3440, 0));
+    assert(capacity_limited->player.x == original_x);
+    assert(capacity_limited->player.y == original_y);
+    capacity_limited->player.x = 3199;
+    capacity_limited->player.y = 3428;
+    capacity_limited->player.plane = 0;
+    capacity_limited->player.route_x[0] = 3200;
+    capacity_limited->player.route_y[0] = 3428;
+    capacity_limited->player.route_len = 1;
+    capacity_limited->player.route_idx = 0;
+    rc_world_tick(capacity_limited);
+    assert(capacity_limited->player.x == 3199);
+    assert(capacity_limited->player.y == 3428);
+    assert(capacity_limited->player.route_len == 0);
+    assert(capacity_limited->player.route_idx == 0);
+    rc_world_destroy(capacity_limited);
+    assert(remove(STATIC_GROUND_ITEM_TEST_PATH) == 0);
     printf("test_active_area_runtime: core-owned active area loaded.\n");
     return 0;
 }

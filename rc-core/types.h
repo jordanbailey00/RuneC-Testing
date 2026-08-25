@@ -772,6 +772,8 @@ typedef struct {
     int origin_x, origin_y;
     int width, height;
     int min_plane, max_plane;
+    uint32_t options;
+    uint32_t components;
     uint32_t generation;
 } RcActiveArea;
 
@@ -790,6 +792,7 @@ typedef struct {
     int restored_npc_states;
     int saved_ground_items;
     int restored_ground_items;
+    int expired_ground_items;
 } RcWorldStreamingTelemetry;
 
 struct RcWorld;
@@ -891,6 +894,7 @@ typedef struct RcWorld {
     RcEncounterState encounter;
 
     char npc_spawns_path[512];
+    char ground_item_spawns_path[512];
     RcPlayerCommand player_command_storage[RC_MAX_PLAYER_COMMANDS];
 } RcWorld;
 

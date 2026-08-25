@@ -9,28 +9,24 @@
 
 struct RcDormantNpcState {
     uint64_t spawn_key;
-    int x, y, plane;
-    int current_hp;
-    int attack_timer;
-    int death_timer;
-    int respawn_timer;
-    int wander_timer;
-    int attack_count;
-    int poison_damage;
-    int poison_tick_counter;
-    bool is_dead;
-    bool disable_wander;
-    bool force_player_max_hit;
-    bool player_untargetable;
+    RcTick saved_tick;
+    RcNpc npc;
 };
 
 struct RcDormantGroundItemState {
     uint64_t key;
+    RcTick saved_tick;
     bool static_spawn;
     RcGroundItem item;
 };
 
+enum {
+    RC_MAX_DORMANT_NPC_STATES = RC_MAX_NPCS,
+    RC_MAX_DORMANT_GROUND_ITEM_STATES = RC_MAX_GROUND_ITEMS * 8,
+};
+
 static int reserve_npcs(RcWorld *world, int needed) {
+    if (needed < 0 || needed > RC_MAX_DORMANT_NPC_STATES) return 0;
     if (needed <= world->dormant_npc_capacity) return 1;
     int capacity = world->dormant_npc_capacity > 0
                  ? world->dormant_npc_capacity : 16;
@@ -47,6 +43,7 @@ static int reserve_npcs(RcWorld *world, int needed) {
 }
 
 static int reserve_ground_items(RcWorld *world, int needed) {
+    if (needed < 0 || needed > RC_MAX_DORMANT_GROUND_ITEM_STATES) return 0;
     if (needed <= world->dormant_ground_item_capacity) return 1;
     int capacity = world->dormant_ground_item_capacity > 0
                  ? world->dormant_ground_item_capacity : 16;
@@ -86,38 +83,12 @@ static void remove_npc_state(RcWorld *world, int index) {
     world->dormant_npc_count--;
 }
 
-static int npc_is_default(const RcNpc *npc) {
-    if (!npc || npc->spawn_key == 0) return 1;
-    return npc->active && !npc->is_dead
-        && npc->x == npc->spawn_x && npc->y == npc->spawn_y
-        && npc->plane == npc->spawn_plane
-        && npc->current_hp == npc->spawn_hp
-        && npc->attack_timer == 0 && npc->death_timer == 0
-        && npc->respawn_timer == 0
-        && npc->attack_count == 0 && npc->poison_damage == 0
-        && npc->poison_tick_counter == 0 && !npc->disable_wander
-        && !npc->force_player_max_hit && !npc->player_untargetable;
-}
-
-static struct RcDormantNpcState npc_state_from_active(const RcNpc *npc) {
+static struct RcDormantNpcState npc_state_from_active(
+    const RcWorld *world, const RcNpc *npc) {
     return (struct RcDormantNpcState){
         .spawn_key = npc->spawn_key,
-        .x = npc->x,
-        .y = npc->y,
-        .plane = npc->plane,
-        .current_hp = npc->current_hp,
-        .attack_timer = npc->attack_timer,
-        .death_timer = npc->death_timer,
-        .respawn_timer = npc->respawn_timer,
-        .wander_timer = (npc->x != npc->spawn_x || npc->y != npc->spawn_y)
-                      ? npc->wander_timer : 0,
-        .attack_count = npc->attack_count,
-        .poison_damage = npc->poison_damage,
-        .poison_tick_counter = npc->poison_tick_counter,
-        .is_dead = npc->is_dead,
-        .disable_wander = npc->disable_wander,
-        .force_player_max_hit = npc->force_player_max_hit,
-        .player_untargetable = npc->player_untargetable,
+        .saved_tick = world->tick,
+        .npc = *npc,
     };
 }
 
@@ -132,11 +103,7 @@ int rc_world_state_save_npcs(RcWorld *world) {
         if (!npc->active || npc->spawn_key == 0) continue;
         bool found = false;
         int at = npc_lower_bound(world, npc->spawn_key, &found);
-        if (npc_is_default(npc)) {
-            if (found) remove_npc_state(world, at);
-            continue;
-        }
-        struct RcDormantNpcState state = npc_state_from_active(npc);
+        struct RcDormantNpcState state = npc_state_from_active(world, npc);
         if (found) {
             world->dormant_npcs[at] = state;
         } else {
@@ -152,36 +119,49 @@ int rc_world_state_save_npcs(RcWorld *world) {
     return saved;
 }
 
-static void apply_npc_state(RcNpc *npc,
-                            const struct RcDormantNpcState *state) {
-    npc->x = state->x;
-    npc->y = state->y;
-    npc->plane = state->plane;
-    npc->prev_x = state->x;
-    npc->prev_y = state->y;
-    npc->current_hp = state->current_hp;
-    npc->attack_timer = state->attack_timer;
-    npc->death_timer = state->death_timer;
-    npc->respawn_timer = state->respawn_timer;
-    npc->wander_timer = state->wander_timer;
-    npc->attack_count = state->attack_count;
-    npc->poison_damage = state->poison_damage;
-    npc->poison_tick_counter = state->poison_tick_counter;
-    npc->is_dead = state->is_dead;
-    npc->disable_wander = state->disable_wander;
-    npc->force_player_max_hit = state->force_player_max_hit;
-    npc->player_untargetable = state->player_untargetable;
+static void respawn_npc(RcNpc *npc) {
+    npc->x = npc->spawn_x;
+    npc->y = npc->spawn_y;
+    npc->plane = npc->spawn_plane;
+    npc->prev_x = npc->x;
+    npc->prev_y = npc->y;
+    npc->current_hp = npc->spawn_hp;
+    npc->death_timer = 0;
+    npc->respawn_timer = 0;
+    npc->is_dead = false;
     npc->target_uid = -1;
-    npc->facing_entity = -1;
-    npc->facing_x = -1;
-    npc->facing_y = -1;
+    npc->num_pending_hits = 0;
+    npc->poison_damage = 0;
+    npc->poison_tick_counter = 0;
     npc->last_hit = -1;
     npc->last_hit_timer = 0;
-    npc->num_pending_hits = 0;
     rc_combat_init_npc_state(npc);
-    npc->combat.hp_current = npc->current_hp;
-    npc->combat.hp_max = npc->spawn_hp;
-    npc->combat.attack_count = npc->attack_count;
+}
+
+static void reconcile_npc_elapsed(RcNpc *npc, RcTick elapsed) {
+    if (!npc || !npc->is_dead || elapsed == 0) return;
+    RcTick death = npc->death_timer > 0 ? (RcTick)npc->death_timer : 0;
+    if (elapsed <= death) {
+        npc->death_timer -= (int)elapsed;
+        return;
+    }
+    elapsed -= death;
+    npc->death_timer = 0;
+    RcTick respawn = npc->respawn_timer > 0
+                   ? (RcTick)npc->respawn_timer : 0;
+    if (elapsed < respawn) {
+        npc->respawn_timer -= (int)elapsed;
+        return;
+    }
+    respawn_npc(npc);
+}
+
+static void apply_npc_state(RcWorld *world, RcNpc *npc,
+                            const struct RcDormantNpcState *state) {
+    *npc = state->npc;
+    RcTick elapsed = world->tick >= state->saved_tick
+                   ? world->tick - state->saved_tick : 0;
+    reconcile_npc_elapsed(npc, elapsed);
 }
 
 int rc_world_state_restore_npcs(RcWorld *world) {
@@ -193,7 +173,7 @@ int rc_world_state_restore_npcs(RcWorld *world) {
         bool found = false;
         int at = npc_lower_bound(world, npc->spawn_key, &found);
         if (!found) continue;
-        apply_npc_state(npc, &world->dormant_npcs[at]);
+        apply_npc_state(world, npc, &world->dormant_npcs[at]);
         remove_npc_state(world, at);
         restored++;
     }
@@ -246,6 +226,7 @@ static int upsert_ground_state(RcWorld *world, bool static_spawn,
     int at = ground_lower_bound(world, static_spawn, key, &found);
     struct RcDormantGroundItemState state = {
         .key = key,
+        .saved_tick = world->tick,
         .static_spawn = static_spawn,
         .item = *item,
     };
@@ -325,16 +306,52 @@ int rc_world_state_save_ground_items(RcWorld *world,
     return saved;
 }
 
+static RcTick elapsed_ground_ticks(
+    const RcWorld *world, const struct RcDormantGroundItemState *state) {
+    RcTick start = state->saved_tick;
+    if (state->item.timer_start_tick > start)
+        start = state->item.timer_start_tick;
+    return world->tick > start ? world->tick - start : 0;
+}
+
+static void reconcile_ground_item(RcGroundItem *item, RcTick elapsed) {
+    if (!item || !item->active || elapsed == 0) return;
+    if (item->visibility == RC_GROUND_VIS_PRIVATE
+            && item->reveal_timer > 0) {
+        if (elapsed >= (RcTick)item->reveal_timer) {
+            item->reveal_timer = 0;
+            item->visibility = RC_GROUND_VIS_PUBLIC;
+            item->owner_uid = RC_GROUND_OWNER_NONE;
+            item->version++;
+        } else {
+            item->reveal_timer -= (int)elapsed;
+        }
+    }
+    if (item->despawn_timer > 0) {
+        if (elapsed >= (RcTick)item->despawn_timer) {
+            item->despawn_timer = 0;
+            item->active = false;
+            item->quantity = 0;
+            item->version++;
+        } else {
+            item->despawn_timer -= (int)elapsed;
+        }
+    }
+}
+
 static void apply_static_ground_state(
-    RcGroundItem *item, const struct RcDormantGroundItemState *state) {
+    RcWorld *world, RcGroundItem *item,
+    const struct RcDormantGroundItemState *state) {
     int version = item->version + 1;
-    item->quantity = state->item.quantity;
-    item->owner_uid = state->item.owner_uid;
-    item->original_owner_uid = state->item.original_owner_uid;
-    item->reveal_timer = state->item.reveal_timer;
-    item->despawn_timer = state->item.despawn_timer;
-    item->visibility = state->item.visibility;
-    item->active = state->item.active;
+    RcGroundItem restored = state->item;
+    reconcile_ground_item(&restored, elapsed_ground_ticks(world, state));
+    item->quantity = restored.quantity;
+    item->owner_uid = restored.owner_uid;
+    item->original_owner_uid = restored.original_owner_uid;
+    item->reveal_timer = restored.reveal_timer;
+    item->despawn_timer = restored.despawn_timer;
+    item->visibility = restored.visibility;
+    item->active = restored.active;
     item->version = version > 0 ? version : 1;
 }
 
@@ -367,7 +384,8 @@ int rc_world_state_restore_ground_items(RcWorld *world,
         bool found = false;
         int at = ground_lower_bound(world, true, item->spawn_key, &found);
         if (!found) continue;
-        apply_static_ground_state(item, &world->dormant_ground_items[at]);
+        apply_static_ground_state(
+            world, item, &world->dormant_ground_items[at]);
         remove_ground_state(world, at);
         restored++;
     }
@@ -381,12 +399,19 @@ int rc_world_state_restore_ground_items(RcWorld *world,
             i++;
             continue;
         }
-        int slot = inactive_ground_slot(world);
-        if (slot < 0) {
-            i++;
+        RcGroundItem restored_item = state->item;
+        reconcile_ground_item(
+            &restored_item, elapsed_ground_ticks(world, state));
+        if (!restored_item.active) {
+            remove_ground_state(world, i);
+            world->streaming_telemetry.expired_ground_items++;
             continue;
         }
-        world->ground_items[slot] = state->item;
+        int slot = inactive_ground_slot(world);
+        if (slot < 0) {
+            return -1;
+        }
+        world->ground_items[slot] = restored_item;
         world->ground_items[slot].active = true;
         world->ground_items[slot].static_spawn = false;
         world->ground_items[slot].spawn_key = 0;
@@ -400,6 +425,49 @@ int rc_world_state_restore_ground_items(RcWorld *world,
 }
 
 void rc_world_state_destroy(RcWorld *world) {
+    if (!world) return;
+    free(world->dormant_npcs);
+    free(world->dormant_ground_items);
+    world->dormant_npcs = NULL;
+    world->dormant_ground_items = NULL;
+    world->dormant_npc_count = 0;
+    world->dormant_ground_item_count = 0;
+    world->dormant_npc_capacity = 0;
+    world->dormant_ground_item_capacity = 0;
+}
+
+int rc_world_state_clone_dormant(RcWorld *dst, const RcWorld *src) {
+    if (!dst || !src) return 0;
+    dst->dormant_npcs = NULL;
+    dst->dormant_ground_items = NULL;
+    dst->dormant_npc_count = src->dormant_npc_count;
+    dst->dormant_ground_item_count = src->dormant_ground_item_count;
+    dst->dormant_npc_capacity = src->dormant_npc_count;
+    dst->dormant_ground_item_capacity = src->dormant_ground_item_count;
+    if (src->dormant_npc_count > 0) {
+        dst->dormant_npcs = malloc(
+            (size_t)src->dormant_npc_count * sizeof(*dst->dormant_npcs));
+        if (!dst->dormant_npcs) goto fail;
+        memcpy(dst->dormant_npcs, src->dormant_npcs,
+               (size_t)src->dormant_npc_count * sizeof(*dst->dormant_npcs));
+    }
+    if (src->dormant_ground_item_count > 0) {
+        dst->dormant_ground_items = malloc(
+            (size_t)src->dormant_ground_item_count
+                * sizeof(*dst->dormant_ground_items));
+        if (!dst->dormant_ground_items) goto fail;
+        memcpy(dst->dormant_ground_items, src->dormant_ground_items,
+               (size_t)src->dormant_ground_item_count
+                * sizeof(*dst->dormant_ground_items));
+    }
+    return 1;
+
+fail:
+    rc_world_state_discard_dormant(dst);
+    return 0;
+}
+
+void rc_world_state_discard_dormant(RcWorld *world) {
     if (!world) return;
     free(world->dormant_npcs);
     free(world->dormant_ground_items);

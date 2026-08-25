@@ -111,9 +111,11 @@ int main(void) {
     write_ground_fixture();
 
     RcWorldConfig config = rc_preset_base_only();
+    config.npc_capacity = RC_WORLD_NPC_CAPACITY_SIM;
     config.subsystems = RC_SUB_COMBAT | RC_SUB_LOOT;
     config.npc_defs_path = NPC_PATH;
     config.spawns_path = SPAWN_PATH;
+    config.ground_item_spawns_path = GROUND_PATH;
     RcWorld *world = rc_world_create_config(&config);
     assert(world != NULL);
 
@@ -124,12 +126,6 @@ int main(void) {
         .height = 320,
         .min_plane = 0,
         .max_plane = RC_MAX_PLANES - 1,
-        .flags = RC_ACTIVE_AREA_LOAD_NPCS
-               | RC_ACTIVE_AREA_CLEAR_NPCS
-               | RC_ACTIVE_AREA_LOAD_STATIC_GROUND_ITEMS
-               | RC_ACTIVE_AREA_CLEAR_STATIC_GROUND_ITEMS,
-        .npc_spawns_path = SPAWN_PATH,
-        .ground_item_spawns_path = GROUND_PATH,
     };
     RcActiveAreaStats stats;
     assert(rc_world_activate_area(world, &varrock, &stats) == 1);
@@ -144,6 +140,50 @@ int main(void) {
     npc->death_timer = 3;
     npc->respawn_timer = 17;
     npc->x++;
+
+    RcNpc *living = NULL;
+    for (int i = 0; i < world->npc_count; i++) {
+        if (world->npcs[i].active && world->npcs[i].spawn_key != 0
+                && world->npcs[i].spawn_key != npc_key) {
+            living = &world->npcs[i];
+            break;
+        }
+    }
+    assert(living != NULL);
+    uint64_t living_key = living->spawn_key;
+    int living_uid = living->uid;
+    living->attack_timer = 7;
+    living->disable_wander = true;
+    living->num_pending_hits = 1;
+    living->pending_hits[0].active = 1;
+    living->pending_hits[0].damage = 4;
+    living->pending_hits[0].apply_tick = world->tick + 50;
+
+    RcNpc *partial_death = NULL;
+    RcNpc *partial_respawn = NULL;
+    for (int i = 0; i < world->npc_count; i++) {
+        RcNpc *candidate = &world->npcs[i];
+        if (!candidate->active || candidate->spawn_key == 0
+                || candidate == npc || candidate == living) {
+            continue;
+        }
+        if (!partial_death) partial_death = candidate;
+        else {
+            partial_respawn = candidate;
+            break;
+        }
+    }
+    assert(partial_death != NULL && partial_respawn != NULL);
+    uint64_t partial_death_key = partial_death->spawn_key;
+    uint64_t partial_respawn_key = partial_respawn->spawn_key;
+    partial_death->is_dead = true;
+    partial_death->current_hp = 0;
+    partial_death->death_timer = 30;
+    partial_death->respawn_timer = 17;
+    partial_respawn->is_dead = true;
+    partial_respawn->current_hp = 0;
+    partial_respawn->death_timer = 3;
+    partial_respawn->respawn_timer = 40;
 
     RcGroundItem *static_item = static_ground_item(world, 995);
     assert(static_item != NULL && static_item->active);
@@ -167,19 +207,20 @@ int main(void) {
     assert(drop != NULL);
     int drop_uid = drop->uid;
     int drop_timer = drop->despawn_timer;
+    drop->visibility = RC_GROUND_VIS_PRIVATE;
+    drop->owner_uid = 0;
+    drop->original_owner_uid = 0;
+    drop->reveal_timer = 30;
 
     RcActiveAreaRequest distant = varrock;
     distant.origin_x = 3968;
     distant.origin_y = 3968;
     distant.width = 64;
     distant.height = 64;
-    distant.flags = RC_ACTIVE_AREA_CLEAR_NPCS
-                  | RC_ACTIVE_AREA_LOAD_STATIC_GROUND_ITEMS
-                  | RC_ACTIVE_AREA_CLEAR_STATIC_GROUND_ITEMS;
     assert(rc_world_activate_area(world, &distant, &stats) == 1);
     assert(world->npc_count == 0);
-    assert(stats.streaming.saved_npc_states == 1);
-    assert(stats.streaming.dormant_npc_states == 1);
+    assert(stats.streaming.saved_npc_states > 1);
+    assert(stats.streaming.dormant_npc_states > 1);
     assert(stats.streaming.saved_ground_items == 2);
     assert(stats.streaming.dormant_ground_items == 2);
     assert(dynamic_ground_item(world, drop_uid) == NULL);
@@ -187,13 +228,27 @@ int main(void) {
     for (int i = 0; i < 20; i++) rc_world_tick(world);
 
     assert(rc_world_activate_area(world, &varrock, &stats) == 1);
-    assert(stats.streaming.restored_npc_states == 1);
+    assert(stats.streaming.restored_npc_states > 1);
     assert(stats.streaming.dormant_npc_states == 0);
     npc = npc_with_spawn_key(world, npc_key);
     assert(npc != NULL);
-    assert(npc->is_dead && npc->current_hp == 0);
-    assert(npc->death_timer == 3 && npc->respawn_timer == 17);
-    assert(npc->x == npc->spawn_x + 1);
+    assert(!npc->is_dead && npc->current_hp == npc->spawn_hp);
+    assert(npc->death_timer == 0 && npc->respawn_timer == 0);
+    assert(npc->x == npc->spawn_x);
+    living = npc_with_spawn_key(world, living_key);
+    assert(living != NULL && living->uid == living_uid);
+    assert(living->attack_timer == 7 && living->disable_wander);
+    assert(living->num_pending_hits == 1);
+    assert(living->pending_hits[0].active);
+    assert(living->pending_hits[0].damage == 4);
+    partial_death = npc_with_spawn_key(world, partial_death_key);
+    assert(partial_death != NULL && partial_death->is_dead);
+    assert(partial_death->death_timer == 10);
+    assert(partial_death->respawn_timer == 17);
+    partial_respawn = npc_with_spawn_key(world, partial_respawn_key);
+    assert(partial_respawn != NULL && partial_respawn->is_dead);
+    assert(partial_respawn->death_timer == 0);
+    assert(partial_respawn->respawn_timer == 23);
 
     static_item = static_ground_item(world, 995);
     assert(static_item != NULL);
@@ -201,7 +256,9 @@ int main(void) {
     assert(!static_item->active && static_item->quantity == 0);
     drop = dynamic_ground_item(world, drop_uid);
     assert(drop != NULL);
-    assert(drop->despawn_timer == drop_timer);
+    assert(drop->despawn_timer == drop_timer - 20);
+    assert(drop->visibility == RC_GROUND_VIS_PRIVATE);
+    assert(drop->reveal_timer == 10);
     assert(stats.streaming.restored_ground_items == 2);
     assert(stats.streaming.dormant_ground_items == 0);
 
@@ -221,8 +278,16 @@ int main(void) {
     npc->player_untargetable = false;
 
     assert(rc_world_activate_area(world, &distant, &stats) == 1);
-    assert(stats.streaming.saved_npc_states == 0);
-    assert(stats.streaming.dormant_npc_states == 0);
+    assert(stats.streaming.saved_npc_states > 0);
+    assert(stats.streaming.dormant_npc_states > 0);
+    for (int i = 0; i < drop_timer - 20; i++) rc_world_tick(world);
+    assert(rc_world_activate_area(world, &varrock, &stats) == 1);
+    assert(dynamic_ground_item(world, drop_uid) == NULL);
+    assert(stats.streaming.expired_ground_items == 1);
+    partial_death = npc_with_spawn_key(world, partial_death_key);
+    partial_respawn = npc_with_spawn_key(world, partial_respawn_key);
+    assert(partial_death != NULL && !partial_death->is_dead);
+    assert(partial_respawn != NULL && !partial_respawn->is_dead);
 
     rc_world_destroy(world);
     assert(remove(GROUND_PATH) == 0);
