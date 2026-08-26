@@ -31,10 +31,10 @@ NPCLIST = DATA_OSRS / "NPCList_OSRS.json"
 OUT = ROOT / "data"
 REPORTS = ROOT / "tools/reports"
 
-# NPCList_OSRS does not carry direction or wander_range — defaults below
-# match what rc-core's NPC wander AI treats as "unspecified":
-#   direction=2 (south), wander_range=0 → use def's wander_range (v2 NDEF).
-DEFAULT_DIRECTION = 2
+# NPCList_OSRS does not carry direction or wander range. These are explicit,
+# conservative placement values: south-facing and stationary. Reviewed content
+# can replace either value without changing the runtime contract.
+DEFAULT_DIRECTION = 6
 DEFAULT_WANDER = 0
 
 

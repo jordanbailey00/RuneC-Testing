@@ -202,6 +202,22 @@ encounter or script have no indexed spawn identity and remain owned by that
 subsystem's lifecycle. Dynamic ground items do have generic dormant ownership
 and are restored by UID when their area becomes active again.
 
+NPC creation enters through checked `rc_npc_spawn_ex`. It validates the
+definition, coordinate, plane, footprint, direction, capacity, and UID range,
+and assigns source identity before publishing the entity. Indexed source keys
+make repeated slice loads idempotent. `rc_npc_remove` clears cross-system
+references and releases the slot; the next occupant receives a new monotonic
+world UID.
+
+`rc_npc_reset_life` is the single initial-spawn/respawn baseline. Core owns the
+alive, dying, hidden, respawned, and removed phases and publishes lifecycle
+events only after each state is complete. NPC policy submits wander, chase, and
+return routes to `rc_npc_movement_tick`, so one footprint-aware step owner moves
+an NPC each cycle. NDEF v5 stores explicit lifecycle, hunt, regeneration, and
+transform policy; the active definition is resolved from the world's
+varbit/varp state. The viewer may animate and draw these phases/forms but does
+not own them.
+
 `rc_world_get_streaming_telemetry` returns the latest collision/spatial-page
 and full active-area timings, loaded page count, active NPC count, and active
 ground-item count. It also reports resident dormant NPC/ground-item counts and
@@ -425,6 +441,7 @@ episodic cross-system events:
 enum {
     RC_EVT_NPC_DIED = 1,
     RC_EVT_NPC_SPAWNED,
+    RC_EVT_NPC_REMOVED,
     RC_EVT_PLAYER_DAMAGED,
     RC_EVT_ITEM_PICKED_UP,
     RC_EVT_DROP_GRANTED,

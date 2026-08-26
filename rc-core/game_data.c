@@ -53,6 +53,8 @@ struct RcGameData {
     RcNpcDef npc_defs[RC_MAX_NPC_DEFS];
     int npc_def_count;
     int npc_def_by_id[RC_MAX_NPC_ID];
+    int32_t *npc_transforms;
+    int npc_transform_count;
     RcItemDef item_defs[RC_MAX_ITEM_DEFS];
     int item_def_count;
     RcDropData drop_data;
@@ -901,12 +903,6 @@ static int rc_mirror_normalization_to_globals(const RcGameData *data) {
     return 1;
 }
 
-static void rc_mirror_npc_defs_to_globals(const RcGameData *data) {
-    if (!data) return;
-    memcpy(g_npc_defs, data->npc_defs, sizeof(g_npc_defs));
-    g_npc_def_count = data->npc_def_count;
-}
-
 static void rc_mirror_item_defs_to_globals(const RcGameData *data) {
     if (!data) return;
     memcpy(g_item_defs, data->item_defs, sizeof(g_item_defs));
@@ -1130,7 +1126,8 @@ RcGameData *rc_game_data_load(const RcWorldConfig *cfg,
     if ((cfg->subsystems & npc_users) && cfg->npc_defs_path) {
         int loaded = rc_load_npc_defs_into(
             cfg->npc_defs_path, data->npc_defs, RC_MAX_NPC_DEFS,
-            &data->npc_def_count, data->npc_def_by_id, RC_MAX_NPC_ID);
+            &data->npc_def_count, data->npc_def_by_id, RC_MAX_NPC_ID,
+            &data->npc_transforms, &data->npc_transform_count);
         if (loaded < 0) {
             snprintf(report->message, sizeof(report->message),
                      "failed to load npc definitions from %.384s",
@@ -1138,9 +1135,17 @@ RcGameData *rc_game_data_load(const RcWorldConfig *cfg,
             rc_game_data_release(data);
             return NULL;
         }
-        rc_mirror_npc_defs_to_globals(data);
+        if (!rc_npc_mirror_defs_to_globals(
+                data->npc_defs, data->npc_def_count, data->npc_def_by_id,
+                data->npc_transforms, data->npc_transform_count)) {
+            snprintf(report->message, sizeof(report->message),
+                     "failed to publish npc definitions");
+            rc_game_data_release(data);
+            return NULL;
+        }
         rc_npc_use_defs(data->npc_defs, data->npc_def_count,
-                        data->npc_def_by_id);
+                        data->npc_def_by_id, data->npc_transforms,
+                        data->npc_transform_count);
     }
 
     uint32_t item_users = RC_SUB_EQUIPMENT | RC_SUB_INVENTORY
@@ -1662,6 +1667,7 @@ void rc_game_data_release(RcGameData *data) {
         rc_shop_data_free(&data->shop_data);
         rc_quest_data_free(&data->quest_data);
         rc_dialogue_data_free(&data->dialogue_data);
+        free(data->npc_transforms);
         free(data->identity);
         free(data);
         if (unlock_after_free) rc_runtime_data_unlock();
@@ -1688,7 +1694,8 @@ static void rc_game_data_activate_views(const RcGameData *data,
                                  | RC_SUB_SHOPS | RC_SUB_STORAGE;
     if (subsystems & npc_users) {
         rc_npc_use_defs(data->npc_defs, data->npc_def_count,
-                        data->npc_def_by_id);
+                        data->npc_def_by_id, data->npc_transforms,
+                        data->npc_transform_count);
     }
     if (subsystems & item_users) {
         rc_item_use_defs(data->item_defs, data->item_def_count);

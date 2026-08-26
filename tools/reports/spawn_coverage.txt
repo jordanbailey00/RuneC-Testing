@@ -10,5 +10,6 @@ planes: 0=20487, 1=2237, 2=1193, 3=193
 runtime output: data/spawns/world.npc-spawns.indexed.bin
 
 accepted simplifications:
-  - direction and wander metadata retain the reviewed first-release defaults
-  - source semantics are unchanged; PR6 only adds mapsquare indexing
+  - the reviewed source does not establish exact placement direction or wander policy
+  - current rows explicitly use conservative south-facing and stationary values pending content reconciliation
+  - mapsquare indexing preserves source rows and source ordering

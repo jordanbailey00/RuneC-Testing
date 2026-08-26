@@ -343,6 +343,7 @@ typedef struct {
         int frame_idx;
         float frame_timer;
         int initialized;
+        int uid;
         int server_x, server_y, server_plane;
         int last_seen_tick;
         float render_x, render_y;
@@ -1753,14 +1754,27 @@ static int collect_spawned_npc_model_ids(ViewerState *v, uint32_t *ids,
     int count = 0;
     for (int i = 0; i < world->npc_count && count < max_ids; i++) {
         const RcNpc *npc = &world->npcs[i];
-        const RcNpcDef *def = rc_npc_def_for_npc(npc);
+        const RcNpcDef *base = rc_npc_base_def_for_npc(npc);
         if (!npc->active || npc->plane < min_plane || npc->plane > max_plane
                 || npc->x < g_world_origin_x - 8
                 || npc->x >= g_world_origin_x + g_world_w + 8
                 || npc->y < g_world_origin_y - 8
                 || npc->y >= g_world_origin_y + g_world_h + 8
-                || !def) continue;
-        count = append_unique_model_id(ids, count, (uint32_t)def->id);
+                || !base) continue;
+        int form_ids[RC_MAX_NPC_DEFS];
+        int form_count = rc_npc_def_collect_form_ids(
+            base, form_ids, RC_MAX_NPC_DEFS);
+        if (form_count < 0) {
+            fprintf(stderr,
+                    "npc models: invalid transform closure for NPC %d\n",
+                    base->id);
+            return -1;
+        }
+        for (int j = 0; j < form_count; j++) {
+            if (count >= max_ids) return -1;
+            count = append_unique_model_id(
+                ids, count, (uint32_t)form_ids[j]);
+        }
     }
     return count;
 }
@@ -1801,12 +1815,17 @@ static void reload_npc_models_for_scene(ViewerState *v) {
     v->npc_models = NULL;
 
     uint32_t *npc_model_ids =
-        calloc((size_t)v->world->npc_count, sizeof(uint32_t));
+        calloc(RC_MAX_NPC_DEFS, sizeof(uint32_t));
     int npc_model_id_count = 0;
     if (npc_model_ids) {
         npc_model_id_count = collect_spawned_npc_model_ids(
-            v, npc_model_ids, v->world->npc_count, 0,
+            v, npc_model_ids, RC_MAX_NPC_DEFS, 0,
             RC_MAX_PLANES - 1);
+        if (npc_model_id_count < 0) {
+            free(npc_model_ids);
+            fprintf(stderr, "npc models: failed to collect scene forms\n");
+            return;
+        }
     }
     uint32_t empty_model_ids[1] = {0};
     const uint32_t *model_filter = npc_model_ids ? npc_model_ids
@@ -3556,7 +3575,7 @@ static int pick_npc_at_mouse_score(ViewerState *v, int *out_uid,
         const RcNpc *n = &v->world->npcs[i];
         if (!n->active || n->is_dead || n->plane != scene_plane)
             continue;
-        const RcNpcDef *def = rc_npc_def_for_npc(n);
+        const RcNpcDef *def = rc_npc_def_for_npc(v->world, n);
         if (!def)
             continue;
         int size = def->size > 0 ? def->size : 1;
@@ -3606,7 +3625,7 @@ static const RcNpc *viewer_find_npc_const_by_uid(const ViewerState *v,
 
 static const char *viewer_npc_name_by_uid(const ViewerState *v, int npc_uid) {
     const RcNpc *npc = viewer_find_npc_const_by_uid(v, npc_uid);
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+    const RcNpcDef *def = rc_npc_def_for_npc(v ? v->world : NULL, npc);
     if (!def)
         return "NPC";
     return def->name[0] ? def->name : "NPC";
@@ -3615,7 +3634,7 @@ static const char *viewer_npc_name_by_uid(const ViewerState *v, int npc_uid) {
 static int viewer_npc_default_option_by_uid(const ViewerState *v,
                                             int npc_uid) {
     const RcNpc *npc = viewer_find_npc_const_by_uid(v, npc_uid);
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+    const RcNpcDef *def = rc_npc_def_for_npc(v ? v->world : NULL, npc);
     if (!def)
         return -1;
     return npc_default_left_click_option(def);
@@ -3624,7 +3643,7 @@ static int viewer_npc_default_option_by_uid(const ViewerState *v,
 static const char *viewer_npc_option_label_by_uid(const ViewerState *v,
                                                   int npc_uid, int option) {
     const RcNpc *npc = viewer_find_npc_const_by_uid(v, npc_uid);
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+    const RcNpcDef *def = rc_npc_def_for_npc(v ? v->world : NULL, npc);
     if (!def)
         return "";
     return rc_npc_def_option(def, option);
@@ -4176,7 +4195,7 @@ static int viewer_find_npc_index_by_uid(ViewerState *v, int npc_uid) {
 
 static void viewer_left_click_npc(ViewerState *v, int npc_uid) {
     RcNpc *npc = viewer_find_npc_by_uid(v, npc_uid);
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+    const RcNpcDef *def = rc_npc_def_for_npc(v ? v->world : NULL, npc);
     if (!def)
         return;
     int opt = npc_default_left_click_option(def);
@@ -4198,7 +4217,7 @@ static void reset_viewer_context(ViewerState *v) {
 
 static void open_npc_context_menu(ViewerState *v, int npc_uid) {
     RcNpc *npc = viewer_find_npc_by_uid(v, npc_uid);
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+    const RcNpcDef *def = rc_npc_def_for_npc(v ? v->world : NULL, npc);
     if (!def)
         return;
     const char *actions[RUNEC_UI_CONTEXT_ACTIONS];
@@ -6951,6 +6970,7 @@ static void viewer_start_npc_attack_anim(
 }
 
 static void viewer_nearest_npc_tile_to_point(
+    const ViewerState *v,
     const RcNpc *npc,
     int px,
     int py,
@@ -6958,7 +6978,7 @@ static void viewer_nearest_npc_tile_to_point(
     int *ty
 ) {
     int size = 1;
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+    const RcNpcDef *def = rc_npc_def_for_npc(v ? v->world : NULL, npc);
     if (def && def->size > 0) size = def->size;
     int min_x = npc ? npc->x : px;
     int min_y = npc ? npc->y : py;
@@ -6972,8 +6992,8 @@ static void viewer_nearest_npc_tile_to_point(
     else *ty = py;
 }
 
-static int viewer_npc_size(const RcNpc *npc) {
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+static int viewer_npc_size(const ViewerState *v, const RcNpc *npc) {
+    const RcNpcDef *def = rc_npc_def_for_npc(v ? v->world : NULL, npc);
     return def && def->size > 0 ? def->size : 1;
 }
 
@@ -7098,12 +7118,13 @@ static void viewer_npc_visual_source_tile(
     }
     if (visual && visual->source_attachment ==
             RC_COMBAT_VISUAL_ATTACH_SOURCE_CENTER) {
-        int size = viewer_npc_size(npc);
+        int size = viewer_npc_size(v, npc);
         *sx = npc->x + size / 2;
         *sy = npc->y + size / 2;
         return;
     }
-    viewer_nearest_npc_tile_to_point(npc, event->target_x, event->target_y,
+    viewer_nearest_npc_tile_to_point(v, npc, event->target_x,
+                                     event->target_y,
                                      sx, sy);
 }
 
@@ -7644,7 +7665,7 @@ static int projectile_target_point(ViewerState *v,
                 continue;
             if (npc->plane != scene_plane)
                 return 0;
-            int size = viewer_npc_size(npc);
+            int size = viewer_npc_size(v, npc);
             wx = v->npc_render[i].initialized
                ? v->npc_render[i].render_x : (float)npc->x;
             wy = v->npc_render[i].initialized
@@ -8078,6 +8099,7 @@ static int player_target_anim_id(ViewerState *v, int *one_shot_kind) {
 
 static void snap_npc_render_state(ViewerState *v, int idx, const RcNpc *npc) {
     v->npc_render[idx].initialized = 1;
+    v->npc_render[idx].uid = npc->uid;
     v->npc_render[idx].server_x = npc->x;
     v->npc_render[idx].server_y = npc->y;
     v->npc_render[idx].server_plane = npc->plane;
@@ -8159,14 +8181,16 @@ static void update_npc_render_motion(ViewerState *v, float dt) {
     float max_axis_delta = step * TPS;
     for (int i = 0; i < v->world->npc_count; i++) {
         const RcNpc *npc = &v->world->npcs[i];
-        if (!npc->active || npc->is_dead) {
+        RcNpcLifePhase life = rc_npc_life_phase(npc);
+        if (life == RC_NPC_LIFE_REMOVED || life == RC_NPC_LIFE_HIDDEN) {
             v->npc_render[i].initialized = 0;
             v->npc_render[i].moving = 0;
             v->npc_render[i].move_anim_timer = 0.0f;
             continue;
         }
 
-        if (!v->npc_render[i].initialized) {
+        if (!v->npc_render[i].initialized
+                || v->npc_render[i].uid != npc->uid) {
             snap_npc_render_state(v, i, npc);
             continue;
         }
@@ -8301,13 +8325,15 @@ static void sync_ui_minimap(ViewerState *v) {
 
     for (int i = 0; i < v->world->npc_count; i++) {
         const RcNpc *npc = &v->world->npcs[i];
-        if (!npc->active || npc->plane != scene_plane)
+        RcNpcLifePhase life = rc_npc_life_phase(npc);
+        if (life == RC_NPC_LIFE_REMOVED || life == RC_NPC_LIFE_HIDDEN
+                || npc->plane != scene_plane)
             continue;
         float npc_x = v->npc_render[i].initialized
                     ? v->npc_render[i].render_x : (float)npc->x;
         float npc_y = v->npc_render[i].initialized
                     ? v->npc_render[i].render_y : (float)npc->y;
-        int size = viewer_npc_size(npc);
+        int size = viewer_npc_size(v, npc);
         float dx = npc_x + 0.5f * (float)size - player_x;
         float dy = npc_y + 0.5f * (float)size - player_y;
         if (dx < -40 || dx > 40 || dy < -40 || dy > 40)
@@ -8577,14 +8603,16 @@ static int update_npc_anim(ViewerState *v, int npc_idx, ModelEntry *me) {
     if ((!v->npc_anims && !v->npc_fallback_anims) || !me || !me->loaded)
         return 0;
     const RcNpc *n = &v->world->npcs[npc_idx];
-    const RcNpcDef *def = rc_npc_def_for_npc(n);
+    const RcNpcDef *def = rc_npc_def_for_npc(v->world, n);
     if (!def)
         return 0;
     const RuneCNpcRenderDef *render_def =
         runec_npc_render_find(&v->npc_render_defs, def->id);
     if (!render_def)
         return 0;
-    AnimModelState *state = v->npc_anim_state[n->def_id];
+    int active_def_idx = rc_npc_def_find(def->id);
+    AnimModelState *state = active_def_idx >= 0
+                          ? v->npc_anim_state[active_def_idx] : NULL;
     if (!state) return 0;
 
     // Pick target anim from NPC state. stand/walk are always present; run,
@@ -8761,7 +8789,9 @@ static void draw_scene(ViewerState *v) {
     const RcNpc *npcs = rc_get_npcs(v->world, &npc_count);
     for (int i = 0; i < npc_count; i++) {
         const RcNpc *n = &npcs[i];
-        if (!n->active || n->is_dead) continue;
+        RcNpcLifePhase life = rc_npc_life_phase(n);
+        if (life == RC_NPC_LIFE_REMOVED || life == RC_NPC_LIFE_HIDDEN)
+            continue;
         if (n->plane != scene_plane) continue;
         if (n->x < g_world_origin_x || n->x >= g_world_origin_x + g_world_w
                 || n->y < g_world_origin_y
@@ -8770,7 +8800,7 @@ static void draw_scene(ViewerState *v) {
         if (!viewer_actor_in_draw_range(v, (float)n->x, (float)n->y, 0.0f))
             continue;
 
-        const RcNpcDef *def = rc_npc_def_for_npc(n);
+        const RcNpcDef *def = rc_npc_def_for_npc(v->world, n);
         if (!def) continue;
         int size = def->size > 0 ? def->size : 1;
 
@@ -8890,7 +8920,7 @@ static void draw_scene(ViewerState *v) {
     for (int i = 0; i < npc_count; i++) {
         const RcNpc *n = &npcs[i];
         if (!n->active || n->is_dead || n->plane != scene_plane) continue;
-        const RcNpcDef *def = rc_npc_def_for_npc(n);
+        const RcNpcDef *def = rc_npc_def_for_npc(v->world, n);
         if (!def) continue;
         int size = def->size > 0 ? def->size : 1;
         float nwx = v->npc_render[i].initialized
@@ -8965,7 +8995,7 @@ static void draw_scene(ViewerState *v) {
         snprintf(label, sizeof(label), "Target %d",
                  combat_view->target.definition_id);
         RcNpc *target = viewer_find_npc_by_uid(v, combat_view->target.uid);
-        const RcNpcDef *target_def = rc_npc_def_for_npc(target);
+        const RcNpcDef *target_def = rc_npc_def_for_npc(v->world, target);
         if (target_def)
             snprintf(label, sizeof(label), "%.63s", target_def->name);
         float pct = (float)combat_view->target_hp_current /
@@ -9327,12 +9357,19 @@ int main(int argc, char **argv) {
     // Mapsquare scenes arrive through the worker and are already GPU-resident.
     if (!v.npc_models) {
         uint32_t *npc_model_ids = calloc(
-            (size_t)v.world->npc_count, sizeof(uint32_t));
+            RC_MAX_NPC_DEFS, sizeof(uint32_t));
         int npc_model_id_count = 0;
         if (npc_model_ids) {
             npc_model_id_count = collect_spawned_npc_model_ids(
-                &v, npc_model_ids, v.world->npc_count,
+                &v, npc_model_ids, RC_MAX_NPC_DEFS,
                 0, RC_MAX_PLANES - 1);
+            if (npc_model_id_count < 0) {
+                free(npc_model_ids);
+                fprintf(stderr,
+                        "npc models: failed to collect startup forms\n");
+                exit_status = 1;
+                goto cleanup;
+            }
         }
         uint32_t empty_model_ids[1] = {0};
         const uint32_t *model_filter = npc_model_ids

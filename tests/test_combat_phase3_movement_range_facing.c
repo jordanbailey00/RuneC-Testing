@@ -117,6 +117,7 @@ static void test_npc_chases_faces_and_sets_range_state(void) {
 
     assert(rc_combat_start_npc_vs_player(world, npc->uid, 0));
     rc_combat_tick_npc(world, npc);
+    rc_npc_movement_tick(world, npc);
 
     assert(npc->x < start_x);
     assert(npc->facing_entity == 0);

@@ -80,7 +80,7 @@ int rc_player_open_storage_npc(RcWorld *world, int npc_uid, int option) {
         return RC_STORAGE_NONE;
     }
     RcNpc *npc = rc_npc_resolve(world, npc_uid);
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+    const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
     if (!npc || npc->is_dead || !def) {
         return RC_STORAGE_NONE;
     }

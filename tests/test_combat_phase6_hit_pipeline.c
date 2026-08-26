@@ -141,7 +141,7 @@ static void test_npc_hit_pipeline_records_damage_hp_xp_death_and_loot(void) {
     assert(npc->is_dead);
     assert(npc->current_hp == 0);
     assert(npc->death_timer == 3);
-    assert(npc->respawn_timer == 25);
+    assert(npc->respawn_timer == 9);
     assert(npc->combat.hp_current == 0);
     assert(npc->combat.hp_max == 10);
     assert(npc->combat.recent_hit_count == 1);

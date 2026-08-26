@@ -603,6 +603,7 @@ int main(void) {
     mal->target_uid = 0;
     mal->attack_count = 2;
     mal->attack_timer = 0;
+    w->player.current_hp = w->player.max_hp;
     w->player.num_pending_hits = 0;
     rc_combat_tick_npc(w, mal);
     assert(mal->attack_count == 3);

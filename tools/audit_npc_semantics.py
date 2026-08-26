@@ -66,6 +66,14 @@ def read_ndef(path: Path) -> dict[int, dict]:
             if version >= 3:
                 model_count = struct.unpack("<B", read_exact(f, 1))[0]
                 read_exact(f, model_count * 4)
+            if version >= 4:
+                for _ in range(5):
+                    option_len = struct.unpack("<B", read_exact(f, 1))[0]
+                    read_exact(f, option_len)
+            if version >= 5:
+                policy = read_exact(f, 21)
+                transform_count = struct.unpack_from("<H", policy, 19)[0]
+                read_exact(f, transform_count * 4)
             defs[npc_id] = rec
     return defs
 

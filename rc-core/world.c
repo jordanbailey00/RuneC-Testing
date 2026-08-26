@@ -429,71 +429,6 @@ static int npc_uid_present(const RcWorld *world, int uid) {
     return 0;
 }
 
-static void clear_actor_npc_reference(RcCombatActorState *state, int uid) {
-    if (!state) return;
-    if (state->target.kind == RC_COMBAT_ACTOR_NPC
-            && state->target.uid == uid) {
-        state->target = (RcCombatTargetRef){0};
-        state->active = false;
-    }
-    if (state->primary_attacker.kind == RC_COMBAT_ACTOR_NPC
-            && state->primary_attacker.uid == uid) {
-        state->primary_attacker = (RcCombatActorRef){0};
-    }
-    int write = 0;
-    for (int i = 0; i < state->attacker_count; i++) {
-        RcCombatActorRef ref = state->attackers[i];
-        if (ref.kind == RC_COMBAT_ACTOR_NPC && ref.uid == uid) continue;
-        state->attackers[write++] = ref;
-    }
-    state->attacker_count = write;
-    write = 0;
-    for (int i = 0; i < state->recent_hit_count; i++) {
-        RcCombatRecentHit hit = state->recent_hits[i];
-        if (hit.source_uid == uid) continue;
-        state->recent_hits[write++] = hit;
-    }
-    state->recent_hit_count = write;
-}
-
-static void clear_removed_npc_references(RcWorld *world, int uid) {
-    RcPlayer *player = &world->player;
-    if (player->attack_target == uid) {
-        player->attack_target = -1;
-        player->attack_target_def_id = -1;
-    }
-    if (player->facing_entity == uid) player->facing_entity = -1;
-    if (player->interact_target == uid) {
-        player->interact_type = RC_INTERACT_NONE;
-        player->interact_target = -1;
-        player->interact_option = -1;
-    }
-    if (player->interaction.active
-            && player->interaction.target.kind == RC_INTERACTION_NPC
-            && player->interaction.target.entity_uid == uid) {
-        rc_interaction_clear(player);
-    }
-    for (int i = 0; i < player->num_pending_hits; i++) {
-        if (player->pending_hits[i].active
-                && player->pending_hits[i].source_idx == uid) {
-            player->pending_hits[i].active = 0;
-        }
-    }
-    clear_actor_npc_reference(&player->combat, uid);
-    for (int i = 0; i < world->npc_count; i++) {
-        RcNpc *npc = &world->npcs[i];
-        if (npc->target_uid == uid) npc->target_uid = -1;
-        if (npc->facing_entity == uid) npc->facing_entity = -1;
-        for (int h = 0; h < npc->num_pending_hits; h++) {
-            if (npc->pending_hits[h].active
-                    && npc->pending_hits[h].source_idx == uid) {
-                npc->pending_hits[h].active = 0;
-            }
-        }
-        clear_actor_npc_reference(&npc->combat, uid);
-    }
-}
-
 static int commit_area_stage(RcWorld *world, RcWorld *stage) {
     RcPayloadNpcEvent *removed = world->npc_count > 0
         ? calloc((size_t)world->npc_count, sizeof(*removed)) : NULL;
@@ -510,22 +445,24 @@ static int commit_area_stage(RcWorld *world, RcWorld *stage) {
     for (int i = 0; i < world->npc_count; i++) {
         const RcNpc *npc = &world->npcs[i];
         if (!npc->active || npc_uid_present(stage, npc->uid)) continue;
-        const RcNpcDef *def = rc_npc_def_for_npc(npc);
+        const RcNpcDef *def = rc_npc_base_def_for_npc(npc);
         if (removed) {
             removed[removed_count++] = (RcPayloadNpcEvent){
                 .npc_id = (uint32_t)npc->uid,
                 .def_id = def ? (uint32_t)def->id : UINT32_MAX,
+                .spawn_key = npc->spawn_key,
             };
         }
     }
     for (int i = 0; i < stage->npc_count; i++) {
         const RcNpc *npc = &stage->npcs[i];
         if (!npc->active || npc_uid_present(world, npc->uid)) continue;
-        const RcNpcDef *def = rc_npc_def_for_npc(npc);
+        const RcNpcDef *def = rc_npc_base_def_for_npc(npc);
         if (spawned) {
             spawned[spawned_count++] = (RcPayloadNpcEvent){
                 .npc_id = (uint32_t)npc->uid,
                 .def_id = def ? (uint32_t)def->id : UINT32_MAX,
+                .spawn_key = npc->spawn_key,
             };
         }
     }
@@ -557,7 +494,7 @@ static int commit_area_stage(RcWorld *world, RcWorld *stage) {
     world->streaming_telemetry = stage->streaming_telemetry;
 
     for (int i = 0; i < removed_count; i++) {
-        clear_removed_npc_references(world, (int)removed[i].npc_id);
+        rc_npc_clear_references(world, (RcNpcId)removed[i].npc_id);
         rc_event_fire(world, RC_EVT_NPC_REMOVED, &removed[i]);
     }
     for (int i = 0; i < spawned_count; i++)
@@ -808,7 +745,7 @@ int rc_world_find_npc_near(const RcWorld *world, int npc_id, int x, int y,
     }
     for (int i = 0; i < world->npc_count; i++) {
         const RcNpc *npc = &world->npcs[i];
-        const RcNpcDef *def = rc_npc_def_for_npc(npc);
+        const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
         if (!npc->active || !def)
             continue;
         if (npc->plane != plane || def->id != npc_id)

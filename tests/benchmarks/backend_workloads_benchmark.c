@@ -563,11 +563,18 @@ static RcWorld *make_many_npc_world(uint32_t seed, int active, int combat,
     RcWorldConfig cfg = rc_preset_base_only();
     cfg.seed = seed;
     cfg.subsystems = combat ? RC_SUB_COMBAT : 0;
+    cfg.npc_capacity = active < RC_MAX_NPCS ? active : RC_MAX_NPCS;
     RcWorld *world = rc_world_create_config(&cfg);
     if (!world) {
         fprintf(stderr, "failed to create many-npc world\n");
         exit(1);
     }
+    /* The workload owns an explicitly loaded empty collision window. Unknown
+       mapsquares are closed by contract and would benchmark failed routing. */
+    world->map.base_region_x = 49;
+    world->map.base_region_y = 49;
+    world->map.region_width = 3;
+    world->map.region_height = 3;
     world->player.x = 3200;
     world->player.y = 3200;
     world->player.plane = 0;

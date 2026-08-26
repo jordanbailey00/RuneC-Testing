@@ -27,8 +27,15 @@ static int add_phase7_npc_def(int npc_id, const char *name, int hp,
     g_npc_defs[def_idx].max_hit = max_hit;
     g_npc_defs[def_idx].attack_speed = attack_speed;
     g_npc_defs[def_idx].attack_types = 0x04;
-    g_npc_defs[def_idx].aggressive = aggressive;
-    g_npc_defs[def_idx].aggro_range = aggro_range;
+    if (aggressive) {
+        g_npc_defs[def_idx].hunt = (RcNpcHuntPolicy){
+            .target = RC_NPC_HUNT_PLAYER,
+            .visibility = RC_NPC_HUNT_VIS_NONE,
+            .strength = RC_NPC_HUNT_STRENGTH_ANY,
+            .range = (uint8_t)aggro_range,
+            .rate = 1,
+        };
+    }
     g_npc_defs[def_idx].wander_range = aggro_range > 0 ? aggro_range : 5;
     g_npc_defs[def_idx].respawn_ticks = 8;
     strcpy(g_npc_defs[def_idx].options[1], "Attack");

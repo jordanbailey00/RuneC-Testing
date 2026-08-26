@@ -41,7 +41,7 @@ SEQ_SYMBOLS = MODEL_DUMP_ROOT / "symbols/seq.sym"
 NPC_SYMBOLS = MODEL_DUMP_ROOT / "symbols/npc.sym"
 
 NDEF_MAGIC = 0x4E444546
-NDEF_VERSION = 4
+NDEF_VERSION = 5
 MAX_NPC_MODELS = 12
 MAX_NPC_OPTIONS = 5
 MAX_NPC_OPTION_LEN = 31
@@ -133,6 +133,12 @@ def blank_def(npc_id: int) -> dict[str, Any]:
         "attack_anim": -1,
         "death_anim": -1,
         "aggressive": False,
+        "wander_range": 0,
+        "respawn_ticks": 25,
+        "regen_ticks": 100,
+        "transform_varbit": -1,
+        "transform_varp": -1,
+        "transforms": [],
         "max_hit": 0,
         "attack_speed": 0,
         "aggro_range": 0,
@@ -471,6 +477,9 @@ def apply_cache_npcs(defs: dict[int, dict[str, Any]], cache_path: Path) -> tuple
         if cache_def.models:
             d["models"] = [int(x) for x in cache_def.models[:MAX_NPC_MODELS]]
         set_options(d, cache_def.actions)
+        d["transform_varbit"] = int(cache_def.varbit)
+        d["transform_varp"] = int(cache_def.varp)
+        d["transforms"] = [int(x) for x in cache_def.transforms]
         d["sources"].add("rc_cache")
         count += 1
     return count, incomplete
@@ -514,6 +523,25 @@ def write_ndef(path: Path, defs: dict[int, dict[str, Any]]):
                 f.write(encoded)
             for _ in range(MAX_NPC_OPTIONS - min(len(options), MAX_NPC_OPTIONS)):
                 f.write(struct.pack("<B", 0))
+            aggressive = bool(d["aggressive"])
+            hunt_flags = 0x03 if aggressive else 0
+            f.write(struct.pack(
+                "<BHHBBBBBBiiH",
+                max(0, min(255, int(d["wander_range"]))),
+                max(0, min(65535, int(d["respawn_ticks"]))),
+                max(0, min(65535, int(d["regen_ticks"]))),
+                1 if aggressive else 0,
+                1 if aggressive else 0,
+                1 if aggressive else 0,
+                hunt_flags,
+                max(1, min(255, int(d["aggro_range"]))) if aggressive else 0,
+                1 if aggressive else 0,
+                int(d["transform_varbit"]),
+                int(d["transform_varp"]),
+                len(d["transforms"]),
+            ))
+            for transform in d["transforms"]:
+                f.write(struct.pack("<i", int(transform)))
 
 
 def report(defs: dict[int, dict[str, Any]], names: dict[int, str],

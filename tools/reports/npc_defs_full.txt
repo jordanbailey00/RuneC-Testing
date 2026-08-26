@@ -4,12 +4,13 @@ status: READY_WITH_ACCEPTED_SIMPLIFICATIONS
 source: content/runtime_snapshots/manifest.json
 authority: runec_owned_reviewed_runtime_snapshot
 snapshot files: 1
-snapshot bytes: 1398383
+snapshot bytes: 2254713
 entries: 15666
 
 installed files:
-  - data/defs/npc_defs.bin bytes=1398383 sha256=d4a8484ac6867e55838cea696a6e47d593903a9ca531fab44d74f92d70ab2ab3
+  - data/defs/npc_defs.bin bytes=2254713 sha256=718705383226b92fc9119be70cc12aa3199e9b3ce83a1ee7522718ae53f0e146
 
 accepted simplifications:
   - this first-release bridge preserves the reviewed runtime snapshot while semantic source tables are normalized later
   - no external checkout, wiki cache, private-server source, or wrong-game source is read during rebuild
+  - NDEF v5 makes inherited lifecycle and hunt policy explicit; exact per-NPC values remain content reconciliation

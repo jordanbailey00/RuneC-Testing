@@ -67,6 +67,7 @@ static RcWorld *phase6_world(Phase6Events *events, int cache_id, int hp,
     g_npc_defs[0].size = 1;
     g_npc_defs[0].combat_level = 2;
     g_npc_defs[0].hitpoints = hp;
+    g_npc_defs[0].respawn_ticks = 25;
     g_npc_defs[0].stats[0] = 99;
     g_npc_defs[0].stats[1] = 1;
     g_npc_defs[0].stats[2] = 99;

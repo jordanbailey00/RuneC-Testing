@@ -3,8 +3,8 @@ format = "binary"
 path = "data/defs/npc_defs.bin"
 magic_label = "NDEF"
 magic_u32 = "0x4E444546"
-current_version = 4
-accepted_versions = [1, 2, 3, 4]
+current_version = 5
+accepted_versions = [1, 2, 3, 4, 5]
 endianness = "little"
 header = ["u32 magic", "u32 version", "u32 count"]
 producer = "tools/export_npc_defs_full.py"
@@ -21,5 +21,8 @@ row_fields = [
   "u8 aggressive, u16 max_hit, u8 attack_speed, u8 aggro_range, u16 slayer_level, u8 attack_types, u8 weakness, u8 immunities (v2+)",
   "u8 model_count, u32 model_ids[model_count] (v3+)",
   "options[5]: pstr8 option (v4+)",
+  "u8 wander_range, u16 respawn_ticks, u16 regen_ticks (v5+)",
+  "u8 hunt_target, u8 hunt_visibility, u8 hunt_strength, u8 hunt_flags, u8 hunt_range, u8 hunt_rate (v5+)",
+  "i32 transform_varbit, i32 transform_varp, u16 transform_count, i32 transform_ids[transform_count] (v5+)",
 ]
-compatibility = "Loader accepts versions 1 through 4 and rejects all other versions."
+compatibility = "Loader accepts versions 1 through 5. Versions 1 through 4 map legacy aggression to hunt policy and retain their historical lifecycle defaults."

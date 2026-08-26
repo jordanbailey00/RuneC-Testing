@@ -368,7 +368,7 @@ static int count_live_npcs_by_cache_id(const RcWorld *w, int npc_id) {
     int count = 0;
     for (int i = 0; i < w->npc_count; i++) {
         if (!w->npcs[i].active || w->npcs[i].is_dead) continue;
-        const RcNpcDef *def = rc_npc_def_for_npc(&w->npcs[i]);
+        const RcNpcDef *def = rc_npc_def_for_npc(w, &w->npcs[i]);
         if (def && def->id == npc_id) count++;
     }
     return count;
@@ -379,10 +379,20 @@ static int count_targetable_npcs_by_cache_id(const RcWorld *w, int npc_id) {
     for (int i = 0; i < w->npc_count; i++) {
         if (!w->npcs[i].active || w->npcs[i].is_dead) continue;
         if (w->npcs[i].player_untargetable) continue;
-        const RcNpcDef *def = rc_npc_def_for_npc(&w->npcs[i]);
+        const RcNpcDef *def = rc_npc_def_for_npc(w, &w->npcs[i]);
         if (def && def->id == npc_id) count++;
     }
     return count;
+}
+
+static RcNpc *find_live_npc_by_cache_id(RcWorld *w, int npc_id) {
+    for (int i = 0; i < w->npc_count; i++) {
+        RcNpc *npc = &w->npcs[i];
+        if (!npc->active || npc->is_dead) continue;
+        const RcNpcDef *def = rc_npc_def_for_npc(w, npc);
+        if (def && def->id == npc_id) return npc;
+    }
+    return NULL;
 }
 
 static int count_effects(const RcWorld *w, int kind) {
@@ -505,7 +515,7 @@ int main(void) {
     scurrius->mechanics[m_heal].prim(
         w, aidx, scurrius->mechanics[m_heal].param_block);
     assert(boss->current_hp > 100);
-    assert(boss->current_hp <= rc_npc_def_for_npc(boss)->hitpoints);
+    assert(boss->current_hp <= rc_npc_def_for_npc(w, boss)->hitpoints);
 
     // ---- 6. Phase-enter event wiring auto-fires Food Heal ------------
     w->encounter.active[aidx].current_phase = 0;   // back to opening phase
@@ -740,7 +750,7 @@ int main(void) {
     assert(rc_encounter_reveal_hidden_npcs(w, "Enormous Tentacle", -1) == 3);
     assert(count_targetable_npcs_by_cache_id(w, 5535) == 4);
     for (int i = 0; i < w->npc_count; i++) {
-        if (rc_npc_def_for_npc(&w->npcs[i])->id == 5535) {
+        if (rc_npc_def_for_npc(w, &w->npcs[i])->id == 5535) {
             w->npcs[i].is_dead = true;
         }
     }
@@ -765,11 +775,11 @@ int main(void) {
         (RcPrimParamsSpawnLeechNpc *)corp->mechanics[m_core].param_block;
     core_params_mut->spawn_chance_denominator = 1;
     for (int i = 0; i < w->npc_count; i++) {
-        if (rc_npc_def_for_npc(&w->npcs[i])->id == 388) {
-            w->npcs[i].active = false;
-        }
+        const RcNpcDef *def = rc_npc_def_for_npc(w, &w->npcs[i]);
+        if (w->npcs[i].active && def && def->id == 388)
+            assert(rc_npc_remove(w, (RcNpcId)w->npcs[i].uid));
     }
-    int core_pre = w->npc_count;
+    int core_pre = count_live_npcs_by_cache_id(w, 388);
     w->player.x = 3330;
     w->player.y = 3400;
     w->player.current_hp = 990;
@@ -781,23 +791,24 @@ int main(void) {
         .style = COMBAT_MELEE_STAB,
     };
     rc_event_fire(w, RC_EVT_NPC_DAMAGED, &corp_small_hit);
-    assert(w->npc_count == core_pre);
+    assert(count_live_npcs_by_cache_id(w, 388) == core_pre);
     RcPayloadNpcDamaged corp_large_hit = corp_small_hit;
     corp_large_hit.damage = 32;
     rc_event_fire(w, RC_EVT_NPC_DAMAGED, &corp_large_hit);
-    assert(w->npc_count == core_pre + 1);
-    assert(rc_npc_def_for_npc(&w->npcs[core_pre])->id == 388);
+    assert(count_live_npcs_by_cache_id(w, 388) == core_pre + 1);
+    RcNpc *dark_core = find_live_npc_by_cache_id(w, 388);
+    assert(dark_core);
     corp->mechanics[m_core].prim(
         w, corp_active, corp->mechanics[m_core].param_block);
-    assert(w->npc_count == core_pre + 1);
-    assert(w->npcs[core_pre].x == w->player.x + 1);
+    assert(count_live_npcs_by_cache_id(w, 388) == core_pre + 1);
+    assert(dark_core->x == w->player.x + 1);
     int hp_before_core_leech = w->player.current_hp;
     int boss_hp_before_core_leech = corp_boss->current_hp;
     corp->mechanics[m_core].prim(
         w, corp_active, corp->mechanics[m_core].param_block);
     assert(w->player.current_hp == hp_before_core_leech - 10);
     assert(corp_boss->current_hp == boss_hp_before_core_leech + 1);
-    w->npcs[core_pre].poison_damage = 2;
+    dark_core->poison_damage = 2;
     hp_before_core_leech = w->player.current_hp;
     boss_hp_before_core_leech = corp_boss->current_hp;
     w->tick = 41;
@@ -810,15 +821,15 @@ int main(void) {
         w, corp_active, corp->mechanics[m_core].param_block);
     assert(w->player.current_hp == hp_before_core_leech - 10);
     assert(corp_boss->current_hp == boss_hp_before_core_leech + 1);
-    w->npcs[core_pre].active = false;
-    core_pre = w->npc_count;
+    assert(rc_npc_remove(w, (RcNpcId)dark_core->uid));
+    core_pre = count_live_npcs_by_cache_id(w, 388);
     corp_boss->current_hp = 999;
     RcPayloadNpcAttack corp_attack = {
         .npc_id = (RcNpcId)corp_boss->uid,
         .style = COMBAT_MAGIC,
     };
     rc_event_fire(w, RC_EVT_NPC_ATTACK, &corp_attack);
-    assert(w->npc_count == core_pre + 1);
+    assert(count_live_npcs_by_cache_id(w, 388) == core_pre + 1);
     core_params_mut->spawn_chance_denominator = 8;
 
     int kril_spec_idx = rc_encounter_find_spec(w, 3129);
@@ -1066,7 +1077,7 @@ int main(void) {
         rc_event_fire(w, RC_EVT_NPC_ATTACK, &atk);
     }
     assert(w->npc_count == spawn_before + 1);
-    assert(rc_npc_def_for_npc(&w->npcs[spawn_before])->id == 8062);
+    assert(rc_npc_def_for_npc(w, &w->npcs[spawn_before])->id == 8062);
     assert(rc_player_freeze_ticks_remaining(w) == 24);
     assert(rc_encounter_scale_player_damage(
                w, w->npcs[vork_idx].uid, COMBAT_RANGED, 100) == 0);
@@ -1120,7 +1131,7 @@ int main(void) {
         w, zul_active, zulrah->mechanics[z_dive].param_block);
     assert(count_effects(w, RC_ENC_EFFECT_FORM_DIVE) == dive_effects + 1);
     assert(w->npcs[zul_idx].player_untargetable);
-    assert(rc_npc_def_for_npc(&w->npcs[zul_idx])->id == 2043);
+    assert(rc_npc_def_for_npc(w, &w->npcs[zul_idx])->id == 2043);
     for (int i = 0; i < 5; i++) rc_encounter_tick_effects(w);
     assert(!w->npcs[zul_idx].player_untargetable);
     w->encounter.active[vork_active].active = false;

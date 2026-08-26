@@ -19,6 +19,7 @@ static RcWorld *make_world(uint32_t seed) {
     strcpy(g_npc_defs[0].name, "Scheduling target");
     g_npc_defs[0].size = 1;
     g_npc_defs[0].hitpoints = 10;
+    g_npc_defs[0].respawn_ticks = 4;
     g_npc_defs[0].attack_speed = 4;
 
     RcWorldConfig cfg = rc_preset_base_only();

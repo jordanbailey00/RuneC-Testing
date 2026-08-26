@@ -12,6 +12,7 @@ enum {
     NDEF_V2 = 2,
     NDEF_V3 = 3,
     NDEF_V4 = 4,
+    NDEF_V5 = 5,
 };
 
 static int read_exact(FILE *f, void *out, size_t size, size_t count) {
@@ -43,7 +44,8 @@ int runec_npc_render_defs_load(RuneCNpcRenderDefs *defs, const char *path) {
         return 0;
     }
     if (magic != NDEF_MAGIC || (version != NDEF_V1 && version != NDEF_V2
-            && version != NDEF_V3 && version != NDEF_V4)) {
+            && version != NDEF_V3 && version != NDEF_V4
+            && version != NDEF_V5)) {
         fprintf(stderr, "npc_render_defs: bad header in %s\n", path);
         rc_asset_close(f);
         return 0;
@@ -126,6 +128,27 @@ int runec_npc_render_defs_load(RuneCNpcRenderDefs *defs, const char *path) {
                     rc_asset_close(f);
                     return 0;
                 }
+            }
+        }
+
+        if (version >= NDEF_V5) {
+            uint8_t wander;
+            uint16_t respawn, regen, transform_count;
+            uint8_t hunt[6];
+            int32_t transform_varbit, transform_varp;
+            if (!read_exact(f, &wander, sizeof(wander), 1)
+                    || !read_exact(f, &respawn, sizeof(respawn), 1)
+                    || !read_exact(f, &regen, sizeof(regen), 1)
+                    || !read_exact(f, hunt, sizeof(hunt[0]), 6)
+                    || !read_exact(f, &transform_varbit,
+                                   sizeof(transform_varbit), 1)
+                    || !read_exact(f, &transform_varp,
+                                   sizeof(transform_varp), 1)
+                    || !read_exact(f, &transform_count,
+                                   sizeof(transform_count), 1)
+                    || fseek(f, (long)transform_count * 4L, SEEK_CUR) != 0) {
+                rc_asset_close(f);
+                return 0;
             }
         }
 

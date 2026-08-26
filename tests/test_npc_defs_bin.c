@@ -42,6 +42,35 @@ int main(void) {
     assert(strcmp(g_npc_defs[glyph].name, "Ancestral Glyph") == 0);
     assert(g_npc_defs[nex].hitpoints >= 3400);
     assert(g_npc_defs[sol].hitpoints > 0);
+    int aggressive = rc_npc_def_find(1);
+    assert(aggressive >= 0);
+    assert(g_npc_defs[aggressive].wander_range == 0);
+    assert(g_npc_defs[aggressive].respawn_ticks == 25);
+    assert(g_npc_defs[aggressive].regen_ticks == 100);
+    assert(g_npc_defs[aggressive].hunt.target == RC_NPC_HUNT_PLAYER);
+    assert(g_npc_defs[aggressive].hunt.visibility
+           == RC_NPC_HUNT_VIS_LINE_OF_SIGHT);
+    assert(g_npc_defs[aggressive].hunt.flags
+           & RC_NPC_HUNT_CHECK_NOT_BUSY);
+
+    int transformed = rc_npc_def_find(471);
+    assert(transformed >= 0);
+    assert(g_npc_defs[transformed].transform_varp == 1306);
+    assert(g_npc_defs[transformed].transform_count == 5);
+    RcWorldConfig transform_cfg = rc_preset_base_only();
+    RcWorld *transform_world = rc_world_create_config(&transform_cfg);
+    assert(transform_world != NULL);
+    int transform_slot = rc_npc_spawn(transform_world, transformed,
+                                      3200, 3200, 0);
+    assert(transform_slot >= 0);
+    const RcNpcDef *active = rc_npc_def_for_npc(
+        transform_world, &transform_world->npcs[transform_slot]);
+    assert(active && active->id == 8690);
+    transform_world->varps[1306] = 3;
+    active = rc_npc_def_for_npc(
+        transform_world, &transform_world->npcs[transform_slot]);
+    assert(active && active->id == 8691);
+    rc_world_destroy(transform_world);
     RuneCNpcRenderDefs render_defs;
     assert(runec_npc_render_defs_load(&render_defs, path) > 10000);
     const RuneCNpcRenderDef *jad_render =
@@ -64,6 +93,11 @@ int main(void) {
     int spawned = rc_load_npc_spawns(spawn_world, spawns_path);
     assert(spawned > 20000);
     assert(spawn_world->npc_count == spawned);
+    assert(spawn_world->npcs[0].spawn_direction == 6);
+    assert(spawn_world->npcs[0].spawn_wander_range == 0);
+    int resident_count = spawn_world->npc_count;
+    assert(rc_load_npc_spawns(spawn_world, spawns_path) == 0);
+    assert(spawn_world->npc_count == resident_count);
     rc_world_destroy(spawn_world);
 
     g_npc_def_count = 0;

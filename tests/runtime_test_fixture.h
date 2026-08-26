@@ -19,7 +19,7 @@ static int rc_test_write_npc_defs(const char *path,
     if (!path || !defs || count <= 0) return 0;
     FILE *file = fopen(path, "wb");
     if (!file) return 0;
-    uint32_t header[] = {0x4E444546u, 4u, (uint32_t)count};
+    uint32_t header[] = {0x4E444546u, 5u, (uint32_t)count};
     int ok = fwrite(header, sizeof(header[0]), 3, file) == 3;
     for (int i = 0; ok && i < count; i++) {
         const RcNpcDef *def = &defs[i];
@@ -32,10 +32,10 @@ static int rc_test_write_npc_defs(const char *path,
         for (int j = 0; j < 6; j++) stats[j] = (uint16_t)def->stats[j];
         size_t name_size = strnlen(def->name, sizeof(def->name));
         uint8_t name_len = (uint8_t)name_size;
-        uint8_t aggressive = def->aggressive ? 1u : 0u;
+        uint8_t aggressive = def->hunt.target == RC_NPC_HUNT_PLAYER;
         uint16_t max_hit = (uint16_t)def->max_hit;
         uint8_t attack_speed = (uint8_t)def->attack_speed;
-        uint8_t aggro_range = (uint8_t)def->aggro_range;
+        uint8_t aggro_range = def->hunt.range;
         uint16_t slayer_level = (uint16_t)def->slayer_level;
         uint8_t attack_types = (uint8_t)def->attack_types;
         uint8_t weakness = (uint8_t)def->weakness;
@@ -67,6 +67,30 @@ static int rc_test_write_npc_defs(const char *path,
               && (!option_len
                   || rc_test_write(file, def->options[j], option_len));
         }
+        uint8_t wander = (uint8_t)def->wander_range;
+        uint16_t respawn = (uint16_t)def->respawn_ticks;
+        uint16_t regen = (uint16_t)def->regen_ticks;
+        uint8_t hunt[] = {
+            def->hunt.target,
+            def->hunt.visibility,
+            def->hunt.strength,
+            def->hunt.flags,
+            def->hunt.range,
+            def->hunt.rate,
+        };
+        int32_t transform_varbit = def->transform_varbit;
+        int32_t transform_varp = def->transform_varp;
+        uint16_t transform_count = 0;
+        ok = ok
+          && rc_test_write(file, &wander, sizeof(wander))
+          && rc_test_write(file, &respawn, sizeof(respawn))
+          && rc_test_write(file, &regen, sizeof(regen))
+          && rc_test_write(file, hunt, sizeof(hunt))
+          && rc_test_write(file, &transform_varbit,
+                           sizeof(transform_varbit))
+          && rc_test_write(file, &transform_varp, sizeof(transform_varp))
+          && rc_test_write(file, &transform_count,
+                           sizeof(transform_count));
     }
     if (fclose(file) != 0) ok = 0;
     return ok;

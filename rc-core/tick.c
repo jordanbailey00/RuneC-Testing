@@ -28,13 +28,13 @@ static void process_player_input(RcWorld *world) {
         rc_player_command_process(world);
 }
 
-static const RcNpcDef *npc_def_for(const RcNpc *npc) {
-    return npc ? rc_npc_def_get(npc->def_id) : NULL;
+static const RcNpcDef *npc_def_for(const RcWorld *world, const RcNpc *npc) {
+    return rc_npc_def_for_npc(world, npc);
 }
 
 static void spawn_npc_loot(RcWorld *world, const RcNpc *npc) {
     if (!world || !npc || !(world->enabled & RC_SUB_LOOT)) return;
-    const RcNpcDef *def = npc_def_for(npc);
+    const RcNpcDef *def = npc_def_for(world, npc);
     if (!def) return;
     int npc_id = def->id;
     RcLootDrop drops[RC_MAX_LOOT_DROPS];
@@ -244,9 +244,10 @@ static void process_player_movement(RcWorld *world) {
     }
 }
 
-static int nearest_npc_tile_to_player(const RcNpc *npc, const RcPlayer *p,
+static int nearest_npc_tile_to_player(const RcWorld *world, const RcNpc *npc,
+                                      const RcPlayer *p,
                                       int *tx, int *ty) {
-    const RcNpcDef *def = npc_def_for(npc);
+    const RcNpcDef *def = npc_def_for(world, npc);
     int size = def && def->size > 0 ? def->size : 1;
     RcTileBounds bounds;
     if (!npc || !p || !tx || !ty
@@ -260,8 +261,9 @@ static int nearest_npc_tile_to_player(const RcNpc *npc, const RcPlayer *p,
     return 1;
 }
 
-static int player_distance_to_npc(const RcPlayer *p, const RcNpc *npc) {
-    const RcNpcDef *def = npc_def_for(npc);
+static int player_distance_to_npc(const RcWorld *world, const RcPlayer *p,
+                                  const RcNpc *npc) {
+    const RcNpcDef *def = npc_def_for(world, npc);
     int size = def && def->size > 0 ? def->size : 1;
     RcTileBounds player_bounds, npc_bounds;
     int distance;
@@ -277,9 +279,10 @@ static int player_distance_to_npc(const RcPlayer *p, const RcNpc *npc) {
     return distance;
 }
 
-static void face_player_to_npc(RcPlayer *p, const RcNpc *npc) {
+static void face_player_to_npc(const RcWorld *world, RcPlayer *p,
+                               const RcNpc *npc) {
     int tx, ty;
-    if (!nearest_npc_tile_to_player(npc, p, &tx, &ty)) {
+    if (!nearest_npc_tile_to_player(world, npc, p, &tx, &ty)) {
         if (p) p->facing_entity = -1;
         return;
     }
@@ -292,7 +295,7 @@ static int npc_interaction_has_los(const RcWorld *world, const RcPlayer *p,
                                    const RcNpc *npc, int range) {
     if (!p || !npc || p->plane != npc->plane) return 0;
     if (range <= 1) return 1;
-    const RcNpcDef *def = npc_def_for(npc);
+    const RcNpcDef *def = npc_def_for(world, npc);
     int size = def && def->size > 0 ? def->size : 1;
     return rc_has_los_rect(&world->map, p->x, p->y, 1, 1,
                            npc->x, npc->y, size, size, p->plane);
@@ -301,7 +304,7 @@ static int npc_interaction_has_los(const RcWorld *world, const RcPlayer *p,
 static int route_player_toward_interaction_npc(RcWorld *world, RcPlayer *p,
                                                const RcNpc *npc, int range) {
     if (!world || !p || !npc || p->plane != npc->plane) return 0;
-    const RcNpcDef *def = npc_def_for(npc);
+    const RcNpcDef *def = npc_def_for(world, npc);
     int size = def && def->size > 0 ? def->size : 1;
     RcRouteTarget target = rc_route_target_rectangle(
         npc->x, npc->y, size, size, 1, range, false, range > 1);
@@ -442,7 +445,7 @@ static RcNpc *validate_pending_npc_interaction(RcWorld *world,
         pending->last_failure = RC_INTERACTION_FAIL_TARGET_DEAD;
         return NULL;
     }
-    const RcNpcDef *def = npc_def_for(npc);
+    const RcNpcDef *def = npc_def_for(world, npc);
     if (!def) {
         pending->last_failure = RC_INTERACTION_FAIL_INVALID_TARGET;
         return NULL;
@@ -654,7 +657,7 @@ static void process_player_interaction(RcWorld *world, int dispatch_ready) {
         }
         int range = p->interaction.approach_range > 0
                   ? p->interaction.approach_range : 1;
-        if (player_distance_to_npc(p, npc) > range) {
+        if (player_distance_to_npc(world, p, npc) > range) {
             if (!route_player_toward_interaction_npc(
                     world, p, npc, range)) {
                 rc_interaction_cancel(p, RC_INTERACTION_FAIL_CANNOT_REACH);
@@ -665,7 +668,7 @@ static void process_player_interaction(RcWorld *world, int dispatch_ready) {
             rc_interaction_cancel(p, RC_INTERACTION_FAIL_LOS_BLOCKED);
             return;
         }
-        face_player_to_npc(p, npc);
+        face_player_to_npc(world, p, npc);
         if (dispatch_ready) api_register_default_npc_handlers(world);
     } else if (p->interaction.target.kind == RC_INTERACTION_OBJECT) {
         if (!validate_pending_object_interaction(world, &p->interaction)) {
@@ -824,9 +827,9 @@ static void process_player_skilling(RcWorld *world) {
 // rc_resolve_player_hits — it fires RC_EVT_PLAYER_DAMAGED per hit.)
 
 static void resolve_npc_hits(RcWorld *world, RcNpc *npc) {
-    const RcNpcDef *def = npc_def_for(npc);
+    const RcNpcDef *def = npc_def_for(world, npc);
     bool was_alive = !npc->is_dead;
-    int death_source = -1;
+    int death_source = RC_HIT_SOURCE_STATUS;
     int w = 0;
     for (int i = 0; i < npc->num_pending_hits; i++) {
         RcPendingHit *h = &npc->pending_hits[i];
@@ -851,7 +854,7 @@ static void resolve_npc_hits(RcWorld *world, RcNpc *npc) {
         npc->current_hp -= damage;
         npc->last_hit = damage;
         npc->last_hit_timer = 4;
-        if (h->source_idx < 0) {
+        if (h->source_idx == RC_HIT_SOURCE_PLAYER) {
             RcCombatActorRef player_actor = {
                 .kind = RC_COMBAT_ACTOR_PLAYER,
                 .uid = 0,
@@ -866,9 +869,10 @@ static void resolve_npc_hits(RcWorld *world, RcNpc *npc) {
             npc->current_hp = 0;
             npc->is_dead = true;
             npc->death_timer = 3;
-            int respawn = def ? def->respawn_ticks : 0;
-            npc->respawn_timer = respawn > 0 ? respawn : 25;
+            npc->respawn_timer = npc->respawns && def
+                               ? def->respawn_ticks : 0;
             npc->target_uid = -1;
+            rc_npc_route_clear(npc, RC_MOVEMENT_NONE);
             death_source = h->source_idx;
             if (world->player.attack_target == npc->uid) {
                 world->player.attack_target = -1;
@@ -891,10 +895,11 @@ static void resolve_npc_hits(RcWorld *world, RcNpc *npc) {
     npc->combat.hp_max = def ? def->hitpoints : 0;
     // Fire death event once on the transition alive → dead.
     if (was_alive && npc->is_dead) {
-        if (death_source < 0) spawn_npc_loot(world, npc);
+        if (death_source == RC_HIT_SOURCE_PLAYER) spawn_npc_loot(world, npc);
         RcPayloadNpcEvent payload = {
             .npc_id = (uint32_t)npc->uid,
             .def_id = def ? (uint32_t)def->id : 0,
+            .spawn_key = npc->spawn_key,
         };
         rc_event_fire(world, RC_EVT_NPC_DIED, &payload);
     }
@@ -1012,23 +1017,27 @@ void rc_world_tick(RcWorld *world) {
     // Phase 2 — route planning (base): always runs.
     process_player_route(world);
 
-    // Phase 3 — NPC tick (base): position + wander + route advance.
-    // Encounter mechanics dispatch happens inside npc_tick when
-    // RC_SUB_ENCOUNTER is enabled.
+    // Phase 3 — NPC lifecycle and autonomous policy (base).
     for (int i = 0; i < world->npc_count; i++) {
         if (world->npcs[i].active) {
             rc_npc_tick(world, &world->npcs[i]);
         }
     }
 
-    // Phase 3.5 — NPC combat (COMBAT subsystem): after positions
-    // resolve, each NPC may queue an attack on its target.
+    // Phase 3.5 — NPC combat planning (COMBAT subsystem).
     if (on & RC_SUB_COMBAT) {
         for (int i = 0; i < world->npc_count; i++) {
             if (world->npcs[i].active) {
                 rc_combat_tick_npc(world, &world->npcs[i]);
             }
         }
+    }
+
+    // Phase 3.55 — one validated movement step per live NPC. Combat and
+    // autonomous policy both submit routes to this single owner.
+    for (int i = 0; i < world->npc_count; i++) {
+        if (world->npcs[i].active)
+            rc_npc_movement_tick(world, &world->npcs[i]);
     }
 
     // Phase 3.6 — encounter mechanic dispatcher.
@@ -1048,6 +1057,7 @@ void rc_world_tick(RcWorld *world) {
         rc_combat_tick_player_status(world);
         for (int i = 0; i < world->npc_count; i++) {
             if (world->npcs[i].active) {
+                rc_npc_status_tick(world, &world->npcs[i]);
                 resolve_npc_hits(world, &world->npcs[i]);
             }
         }
@@ -1075,7 +1085,8 @@ static RcNpc *api_find_npc_by_uid(RcWorld *world, int uid) {
     return rc_npc_resolve(world, uid);
 }
 
-static RcInteractionTarget api_npc_interaction_target(const RcNpc *npc) {
+static RcInteractionTarget api_npc_interaction_target(
+    const RcWorld *world, const RcNpc *npc) {
     RcInteractionTarget target = {0};
     target.kind = RC_INTERACTION_NPC;
     target.entity_uid = npc ? npc->uid : -1;
@@ -1093,7 +1104,7 @@ static RcInteractionTarget api_npc_interaction_target(const RcNpc *npc) {
     target.widget_id = -1;
     target.component_id = -1;
     target.ground_item_instance = -1;
-    const RcNpcDef *def = npc_def_for(npc);
+    const RcNpcDef *def = npc_def_for(world, npc);
     if (def) {
         int size = def->size > 0 ? def->size : 1;
         target.definition_id = def->id;
@@ -1307,7 +1318,7 @@ static RcInteractionHandlerResult api_default_npc_attack_handler(
             RC_INTERACTION_FAIL_INVALID_TARGET, "Invalid NPC attack");
     }
     RcNpc *npc = api_find_npc_by_uid(world, pending->target.entity_uid);
-    const RcNpcDef *def = npc_def_for(npc);
+    const RcNpcDef *def = npc_def_for(world, npc);
     if (!npc || npc->is_dead || !def) {
         return rc_interaction_result_failure(
             RC_INTERACTION_FAIL_TARGET_MISSING, "NPC target missing");
@@ -1359,7 +1370,7 @@ static RcInteractionHandlerResult api_default_npc_option_handler(
             RC_INTERACTION_FAIL_INVALID_TARGET, "Invalid NPC interaction");
     }
     RcNpc *npc = api_find_npc_by_uid(world, pending->target.entity_uid);
-    const RcNpcDef *def = npc_def_for(npc);
+    const RcNpcDef *def = npc_def_for(world, npc);
     if (!npc || npc->is_dead || !def) {
         return rc_interaction_result_failure(
             RC_INTERACTION_FAIL_TARGET_MISSING, "NPC target missing");
@@ -1579,11 +1590,11 @@ int rc_player_attack_npc(RcWorld *world, int npc_uid) {
     RcNpc *npc = api_find_npc_by_uid(world, npc_uid);
     if (!npc || npc->is_dead || npc->player_untargetable) return 0;
     if (npc->plane != world->player.plane) return 0;
-    const RcNpcDef *def = npc_def_for(npc);
+    const RcNpcDef *def = npc_def_for(world, npc);
     if (!def) return 0;
     int opt = api_npc_attack_option_index(def);
     if (opt < 0) return 0;
-    RcInteractionTarget target = api_npc_interaction_target(npc);
+    RcInteractionTarget target = api_npc_interaction_target(world, npc);
     target.content_group = RC_INTERACTION_CONTENT_GROUP_NPC_ATTACK;
     if (!rc_interaction_begin(&world->player, 0,
                               rc_interaction_op_from_option(opt),
@@ -1683,11 +1694,11 @@ void rc_player_interact_npc(RcWorld *world, int npc_uid, int opt) {
     RcNpc *npc = api_find_npc_by_uid(world, npc_uid);
     if (!npc || npc->is_dead) return;
     if (npc->plane != world->player.plane) return;
-    const RcNpcDef *def = npc_def_for(npc);
+    const RcNpcDef *def = npc_def_for(world, npc);
     if (!def) return;
     const char *option = rc_npc_def_option(def, opt);
     if (!option || !option[0]) return;
-    RcInteractionTarget target = api_npc_interaction_target(npc);
+    RcInteractionTarget target = api_npc_interaction_target(world, npc);
     int attack = rc_npc_def_option_is_attack(def, opt);
     if (attack) target.content_group = RC_INTERACTION_CONTENT_GROUP_NPC_ATTACK;
     int range = attack ? rc_player_attack_range(&world->player) : 1;
@@ -3059,7 +3070,7 @@ int rc_player_use_inventory_item_on_npc(RcWorld *world, int inv_slot,
     if (item_id < 0 || p->inventory[inv_slot].quantity <= 0) return 0;
     RcNpc *npc = api_find_npc_by_uid(world, npc_uid);
     if (!npc || npc->is_dead) return 0;
-    RcInteractionTarget target = api_npc_interaction_target(npc);
+    RcInteractionTarget target = api_npc_interaction_target(world, npc);
     int begun = rc_interaction_begin_with_source(
         p, 0, RC_INTERACTION_USE_ON, "Use", &target, 1, item_id,
         RC_INTERACTION_KEY_ANY, RC_INTERACTION_KEY_ANY,
@@ -3198,7 +3209,7 @@ int rc_player_cast_spell_on_npc(RcWorld *world, int spell_id, int npc_uid) {
     RcNpc *npc = api_find_npc_by_uid(world, npc_uid);
     if (!npc || npc->is_dead) return 0;
     if (npc->plane != world->player.plane) return 0;
-    RcInteractionTarget target = api_npc_interaction_target(npc);
+    RcInteractionTarget target = api_npc_interaction_target(world, npc);
     target.content_group = RC_INTERACTION_CONTENT_GROUP_NPC_ATTACK;
     int begun = rc_interaction_begin_with_source(
         &world->player, 0, RC_INTERACTION_SPELL_ON, "Cast", &target, 10,

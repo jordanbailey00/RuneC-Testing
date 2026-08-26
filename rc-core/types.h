@@ -376,13 +376,18 @@ enum {
     RC_HIT_TYPE_MAX = 2,
 };
 
+enum {
+    RC_HIT_SOURCE_STATUS = -2,
+    RC_HIT_SOURCE_PLAYER = -1,
+};
+
 typedef struct {
     int active;
     int damage;
     int max_hit;
     RcTick apply_tick;
     int attack_style;       // RcCombatStyle
-    int source_idx;         // -1 for player attacks on NPCs
+    int source_idx;         // player, status, or NPC uid
     int prayer_snapshot;    // locked prayer at snapshot tick
     RcTick prayer_lock_tick;
     uint8_t hit_type;
@@ -754,6 +759,20 @@ typedef struct {
     void *ctx;
 } RcInteractionHandlerEntry;
 
+typedef enum {
+    RC_NPC_LIFE_REMOVED = 0,
+    RC_NPC_LIFE_ALIVE,
+    RC_NPC_LIFE_DYING,
+    RC_NPC_LIFE_HIDDEN,
+} RcNpcLifePhase;
+
+typedef enum {
+    RC_NPC_ROUTE_NONE = 0,
+    RC_NPC_ROUTE_WANDER,
+    RC_NPC_ROUTE_CHASE,
+    RC_NPC_ROUTE_RETURN,
+} RcNpcRouteMode;
+
 // NPC (live instance)
 typedef struct {
     int def_id;             // index into definitions table
@@ -763,6 +782,7 @@ typedef struct {
     int spawn_x, spawn_y, spawn_plane;
     int spawn_hp;
     int current_hp;
+    int stats[6];
     int attack_timer;
     int death_timer;
     int respawn_timer;
@@ -777,10 +797,21 @@ typedef struct {
     bool is_dead;
     int wander_timer;
     int spawn_wander_range;
+    int regen_timer;
+    int hunt_timer;
     int attack_count;
     int prev_x, prev_y;
     int poison_damage;
     int poison_tick_counter;
+    int route_x[RC_MAX_ROUTE], route_y[RC_MAX_ROUTE];
+    int route_len, route_idx;
+    RcRouteTarget route_target;
+    bool route_continue;
+    RcRouteStatus route_status;
+    RcMovementResult movement_result;
+    uint8_t route_mode;
+    uint8_t spawn_direction;
+    bool respawns;
     bool disable_wander;
     bool force_player_max_hit;
     bool player_untargetable;

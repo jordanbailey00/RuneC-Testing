@@ -15,5 +15,15 @@ single full-world snapshot replaces both the row-scanned global NSPN file and
 the duplicate Varrock-only slice; indexing changes storage and access cost,
 not source rows or spawn ordering.
 
+The NPC runtime foundation upgrades the tracked definition snapshot to NDEF
+v5 and makes NSPI placement policy explicit. The deterministic migration keeps
+each prior v4 row prefix and reviewed gameplay value, adds transform metadata
+from RuneC's B237 cache, and serializes the legacy respawn, regeneration, and
+aggression behavior as policy rather than loader defaults. The available spawn
+source does not establish exact direction or wander values, so all current
+static placements use conservative south-facing and stationary values. Those
+values are an accepted bridge for later content reconciliation, not a claim of
+exact per-placement B237 behavior.
+
 Do not add new snapshots casually. Prefer b237/cache-derived exporters or
 human-readable content tables when the dataset can be rebuilt that way.

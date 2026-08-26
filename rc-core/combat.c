@@ -2,6 +2,7 @@
 #include "combat_formula.h"
 #include "combat_hit.h"
 #include "combat_profiles.h"
+#include "area_flags.h"
 #include "encounter.h"
 #include "events.h"
 #include "items.h"
@@ -17,7 +18,7 @@
 #include <stddef.h>   // NULL
 #include <string.h>
 
-static int npc_can_retaliate(const RcNpc *npc);
+static int npc_can_retaliate(const RcWorld *world, const RcNpc *npc);
 static int combat_can_attack_target(RcWorld *world, RcCombatActorRef attacker,
                                     RcCombatActorRef target);
 
@@ -55,33 +56,37 @@ int rc_combat_apply_regular_npc_attack_rules(
 
 // ---- Auto-attack tick --------------------------------------------------
 
-static int npc_footprint_size(const RcNpc *npc);
+static int npc_footprint_size(const RcWorld *world, const RcNpc *npc);
 
-static int npc_tile_bounds(const RcNpc *npc, RcTileBounds *bounds) {
+static int npc_tile_bounds(const RcWorld *world, const RcNpc *npc,
+                           RcTileBounds *bounds) {
     if (!npc || !bounds) return 0;
-    int size = npc_footprint_size(npc);
+    int size = npc_footprint_size(world, npc);
     return rc_tile_bounds_from_origin_size(
         npc->x, npc->y, size, size, npc->plane, bounds);
 }
 
-static int nearest_npc_tile_to_point(const RcNpc *npc, int px, int py,
+static int nearest_npc_tile_to_point(const RcWorld *world, const RcNpc *npc,
+                                     int px, int py,
                                      int *tx, int *ty) {
     RcTileBounds bounds;
-    if (!tx || !ty || !npc_tile_bounds(npc, &bounds)) return 0;
+    if (!tx || !ty || !npc_tile_bounds(world, npc, &bounds)) return 0;
     return rc_tile_rect_closest_point(&bounds.rect, px, py, tx, ty);
 }
 
-static int point_in_npc_footprint(const RcNpc *npc, int x, int y) {
+static int point_in_npc_footprint(const RcWorld *world, const RcNpc *npc,
+                                  int x, int y) {
     RcTileBounds bounds;
-    return npc_tile_bounds(npc, &bounds)
+    return npc_tile_bounds(world, npc, &bounds)
         && rc_tile_rect_contains(&bounds.rect, x, y);
 }
 
-static int distance_player_to_npc(const RcPlayer *p, const RcNpc *npc) {
+static int distance_player_to_npc(const RcWorld *world, const RcPlayer *p,
+                                  const RcNpc *npc) {
     int target_x, target_y;
     if (!p || !npc || p->plane != npc->plane
             || !nearest_npc_tile_to_point(
-                npc, p->x, p->y, &target_x, &target_y)) {
+                world, npc, p->x, p->y, &target_x, &target_y)) {
         return INT_MAX;
     }
     int distance = rc_tile_distance(p->x, p->y, p->plane,
@@ -89,7 +94,7 @@ static int distance_player_to_npc(const RcPlayer *p, const RcNpc *npc) {
     return distance >= 0 ? distance : INT_MAX;
 }
 
-static int npc_projectile_source_tile(const RcNpc *npc,
+static int npc_projectile_source_tile(const RcWorld *world, const RcNpc *npc,
                                       const RcPlayer *target,
                                       RcCombatStyle style,
                                       int *sx,
@@ -97,12 +102,14 @@ static int npc_projectile_source_tile(const RcNpc *npc,
     if (!npc || !target || !sx || !sy)
         return 0;
     (void)style;
-    return nearest_npc_tile_to_point(npc, target->x, target->y, sx, sy);
+    return nearest_npc_tile_to_point(world, npc, target->x, target->y,
+                                     sx, sy);
 }
 
-static void face_player_to_npc(RcPlayer *p, const RcNpc *npc) {
+static void face_player_to_npc(const RcWorld *world, RcPlayer *p,
+                               const RcNpc *npc) {
     int tx, ty;
-    if (!p || !nearest_npc_tile_to_point(npc, p->x, p->y, &tx, &ty)) {
+    if (!p || !nearest_npc_tile_to_point(world, npc, p->x, p->y, &tx, &ty)) {
         if (p) p->facing_entity = -1;
         return;
     }
@@ -115,13 +122,6 @@ static void face_npc_to_player(RcNpc *npc, const RcPlayer *p) {
     npc->facing_entity = 0;
     npc->facing_x = p->x;
     npc->facing_y = p->y;
-}
-
-static void face_npc_move_delta(RcNpc *npc, int dx, int dy) {
-    if (!npc || (!dx && !dy)) return;
-    npc->facing_entity = -1;
-    npc->facing_x = npc->x + dx;
-    npc->facing_y = npc->y + dy;
 }
 
 static int style_needs_los(RcCombatStyle style) {
@@ -417,7 +417,7 @@ static void emit_player_attack_event(
 ) {
     if (!world || !p || !target || !profiles) return;
     int target_x, target_y;
-    if (!nearest_npc_tile_to_point(target, p->x, p->y,
+    if (!nearest_npc_tile_to_point(world, target, p->x, p->y,
                                    &target_x, &target_y)) {
         return;
     }
@@ -431,7 +431,7 @@ static void emit_player_attack_event(
     event->source_uid = 0;
     event->target_uid = target->uid;
     event->source_definition_id = -1;
-    const RcNpcDef *target_def = rc_npc_def_for_npc(target);
+    const RcNpcDef *target_def = rc_npc_def_for_npc(world, target);
     event->target_definition_id = target_def ? target_def->id : -1;
     event->source_x = p->x;
     event->source_y = p->y;
@@ -472,7 +472,7 @@ static void emit_npc_attack_event(
 ) {
     if (!world || !npc || !def || !target) return;
     int source_x, source_y;
-    if (!npc_projectile_source_tile(npc, target, style,
+    if (!npc_projectile_source_tile(world, npc, target, style,
                                     &source_x, &source_y)) {
         return;
     }
@@ -552,7 +552,7 @@ static int has_player_attack_los(const RcWorld *world, const RcPlayer *p,
     if (!style_needs_los(style)) {
         return 1;
     }
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+    const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
     int size = def && def->size > 0 ? def->size : 1;
     return rc_has_los_rect(&world->map, p->x, p->y, 1, 1,
                            npc->x, npc->y, size, size, p->plane);
@@ -562,11 +562,12 @@ static int player_can_attack_npc_now(const RcWorld *world, const RcPlayer *p,
                                      const RcNpc *npc, int range,
                                      RcCombatStyle style, int *distance,
                                      int *los) {
-    int dist = distance_player_to_npc(p, npc);
+    int dist = distance_player_to_npc(world, p, npc);
     int line = has_player_attack_los(world, p, npc, style);
     if (distance) *distance = dist;
     if (los) *los = line;
-    if (style_is_melee(style) && point_in_npc_footprint(npc, p->x, p->y)) {
+    if (style_is_melee(style)
+            && point_in_npc_footprint(world, npc, p->x, p->y)) {
         return 0;
     }
     return dist <= range && line;
@@ -576,7 +577,7 @@ static int choose_player_attack_tile(const RcWorld *world, const RcPlayer *p,
                                      const RcNpc *npc, int range,
                                      RcCombatStyle style,
                                      RcRoute *out_route) {
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+    const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
     int size = def && def->size > 0 ? def->size : 1;
     if (!world || !p || !npc || !out_route || range < 1
             || range >= RC_WORLD_SIZE) return 0;
@@ -596,7 +597,7 @@ static int route_player_toward_npc(RcWorld *world, RcPlayer *p,
         rc_player_route_clear(p, RC_MOVEMENT_NO_ROUTE);
         return 0;
     }
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+    const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
     int size = def && def->size > 0 ? def->size : 1;
     RcRouteTarget target = rc_route_target_rectangle(
         npc->x, npc->y, size, size, 1, range, false,
@@ -609,11 +610,12 @@ static int npc_can_attack_player_now(const RcWorld *world, const RcNpc *npc,
                                      RcCombatStyle style, int *distance,
                                      int *los) {
     int tx, ty;
-    if (!nearest_npc_tile_to_point(npc, p->x, p->y, &tx, &ty)) return 0;
+    if (!nearest_npc_tile_to_point(world, npc, p->x, p->y, &tx, &ty))
+        return 0;
     int dist = rc_tile_distance(p->x, p->y, p->plane,
                                 tx, ty, npc->plane);
     if (dist < 0) return 0;
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+    const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
     int size = def && def->size > 0 ? def->size : 1;
     int line = style_needs_los(style)
                ? rc_has_los_rect(&world->map, npc->x, npc->y, size, size,
@@ -622,73 +624,6 @@ static int npc_can_attack_player_now(const RcWorld *world, const RcNpc *npc,
     if (distance) *distance = dist;
     if (los) *los = line;
     return dist <= range && line;
-}
-
-static void step_npc_toward_player(RcWorld *world, RcNpc *npc,
-                                   const RcPlayer *p) {
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
-    int size = def && def->size > 0 ? def->size : 1;
-    int tx, ty;
-    if (!nearest_npc_tile_to_point(npc, p->x, p->y, &tx, &ty)) return;
-    int sx = 0, sy = 0;
-    if (p->x > tx) sx = 1;
-    else if (p->x < tx) sx = -1;
-    if (p->y > ty) sy = 1;
-    else if (p->y < ty) sy = -1;
-    if (!sx && !sy && point_in_npc_footprint(npc, p->x, p->y)) {
-        if (p->x <= npc->x) sx = -1;
-        else sx = 1;
-        if (p->y <= npc->y) sy = -1;
-        else sy = 1;
-    }
-    int dx = 0, dy = 0;
-    if ((sx || sy) && rc_can_move_rect(&world->map, npc->x, npc->y,
-                                       size, size, sx, sy, npc->plane)) {
-        dx = sx;
-        dy = sy;
-    } else if (sx && rc_can_move_rect(&world->map, npc->x, npc->y,
-                                      size, size, sx, 0, npc->plane)) {
-        dx = sx;
-    } else if (sy && rc_can_move_rect(&world->map, npc->x, npc->y,
-                                      size, size, 0, sy, npc->plane)) {
-        dy = sy;
-    }
-    if (dx || dy) {
-        npc->prev_x = npc->x;
-        npc->prev_y = npc->y;
-        npc->x += dx;
-        npc->y += dy;
-        face_npc_to_player(npc, p);
-    }
-}
-
-static void step_npc_toward_tile(RcWorld *world, RcNpc *npc, int tx, int ty) {
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
-    int size = def && def->size > 0 ? def->size : 1;
-    int sx = 0, sy = 0;
-    if (tx > npc->x) sx = 1;
-    else if (tx < npc->x) sx = -1;
-    if (ty > npc->y) sy = 1;
-    else if (ty < npc->y) sy = -1;
-    int dx = 0, dy = 0;
-    if ((sx || sy) && rc_can_move_rect(&world->map, npc->x, npc->y,
-                                       size, size, sx, sy, npc->plane)) {
-        dx = sx;
-        dy = sy;
-    } else if (sx && rc_can_move_rect(&world->map, npc->x, npc->y,
-                                      size, size, sx, 0, npc->plane)) {
-        dx = sx;
-    } else if (sy && rc_can_move_rect(&world->map, npc->x, npc->y,
-                                      size, size, 0, sy, npc->plane)) {
-        dy = sy;
-    }
-    if (dx || dy) {
-        npc->prev_x = npc->x;
-        npc->prev_y = npc->y;
-        npc->x += dx;
-        npc->y += dy;
-        face_npc_move_delta(npc, dx, dy);
-    }
 }
 
 static int npc_spawn_distance(const RcNpc *npc) {
@@ -701,22 +636,76 @@ static int npc_spawn_distance(const RcNpc *npc) {
 }
 
 static int npc_leash_range(const RcNpcDef *def) {
-    int base = def->aggro_range > 0 ? def->aggro_range : def->wander_range;
+    int base = def->hunt.range > 0 ? def->hunt.range : def->wander_range;
     if (base < 1) base = 1;
     return base + 8;
 }
 
+static int npc_hunt_interval_ready(RcNpc *npc, const RcNpcDef *def) {
+    int rate = def->hunt.rate > 0 ? def->hunt.rate : 1;
+    npc->hunt_timer++;
+    if (npc->hunt_timer < rate) return 0;
+    npc->hunt_timer = 0;
+    return 1;
+}
+
+static int npc_hunt_player_visible(const RcWorld *world, const RcNpc *npc,
+                                   const RcNpcDef *def) {
+    int size = def->size > 0 ? def->size : 1;
+    if (def->hunt.visibility == RC_NPC_HUNT_VIS_NONE) return 1;
+    if (def->hunt.visibility == RC_NPC_HUNT_VIS_LINE_OF_SIGHT) {
+        return rc_has_los_rect(&world->map, npc->x, npc->y, size, size,
+                               world->player.x, world->player.y, 1, 1,
+                               npc->plane);
+    }
+    return rc_has_line_of_walk_rect(
+        &world->map, npc->x, npc->y, size, size,
+        world->player.x, world->player.y, 1, 1, npc->plane);
+}
+
+static int npc_hunt_target_not_busy(const RcWorld *world, const RcNpc *npc,
+                                    const RcNpcDef *def) {
+    if (!(def->hunt.flags & RC_NPC_HUNT_CHECK_NOT_BUSY)) return 1;
+    if (world->player_action.active
+            && world->player_action.owner != RC_ACTION_OWNER_COMBAT) {
+        return 0;
+    }
+    if (world->player.interaction.active) return 0;
+    return world->player.attack_target < 0
+        || world->player.attack_target == npc->uid;
+}
+
+enum {
+    NPC_HUNT_READY = 0,
+    NPC_HUNT_ACTIVE = 1,
+    NPC_HUNT_CONSUMED = 2,
+};
+
 static int npc_should_auto_attack_player(const RcWorld *world,
-                                         const RcNpc *npc,
+                                         RcNpc *npc,
                                          const RcNpcDef *def) {
-    if (!world || !npc || !def || !def->aggressive) return 0;
-    if (!npc_can_retaliate(npc)) return 0;
+    if (!world || !npc || !def
+            || def->hunt.target != RC_NPC_HUNT_PLAYER
+            || npc->combat.aggro_state == NPC_HUNT_CONSUMED) return 0;
+    if (!npc_hunt_interval_ready(npc, def)) return 0;
+    if (!npc_can_retaliate(world, npc)) return 0;
     if (world->player.current_hp <= 0 || world->player.plane != npc->plane) {
         return 0;
     }
-    int range = def->aggro_range > 0 ? def->aggro_range : def->wander_range;
-    if (range <= 0) range = 1;
-    if (distance_player_to_npc(&world->player, npc) > range) return 0;
+    int range = def->hunt.range;
+    if (range <= 0
+            || distance_player_to_npc(world, &world->player, npc) > range) {
+        return 0;
+    }
+    if (!npc_hunt_player_visible(world, npc, def)
+            || !npc_hunt_target_not_busy(world, npc, def)) return 0;
+    if (def->hunt.strength == RC_NPC_HUNT_STRENGTH_OUTSIDE_WILDERNESS
+            && rc_wilderness_level_at(world->player.x, world->player.y,
+                                      world->player.plane) <= 0
+            && rc_combat_level(&world->player.skills)
+                > def->combat_level * 2) {
+        return 0;
+    }
     RcCombatActorRef npc_actor = {
         .kind = RC_COMBAT_ACTOR_NPC,
         .uid = npc->uid,
@@ -732,13 +721,39 @@ static int npc_should_auto_attack_player(const RcWorld *world,
 static int npc_should_drop_target(const RcWorld *world, const RcNpc *npc,
                                   const RcNpcDef *def) {
     if (!world || !npc || !def) return 1;
-    if (!def->aggressive && npc->combat.aggro_state == 0) return 0;
     if (world->player.current_hp <= 0 || world->player.plane != npc->plane) {
         return 1;
     }
+    if (def->hunt.target == RC_NPC_HUNT_NONE
+            && npc->combat.aggro_state == NPC_HUNT_READY) return 0;
     int leash = npc_leash_range(def);
     return npc_spawn_distance(npc) > leash ||
-           distance_player_to_npc(&world->player, npc) > leash;
+           distance_player_to_npc(world, &world->player, npc) > leash;
+}
+
+static void route_npc_to_spawn(RcWorld *world, RcNpc *npc) {
+    RcRouteTarget target = rc_route_target_point(npc->spawn_x, npc->spawn_y);
+    if (npc->route_mode != RC_NPC_ROUTE_RETURN
+            || npc->route_target.x != target.x
+            || npc->route_target.y != target.y) {
+        (void)rc_npc_route_request(world, npc, &target,
+                                   RC_NPC_ROUTE_RETURN, false);
+    }
+}
+
+static void route_npc_to_player(RcWorld *world, RcNpc *npc, int range,
+                                RcCombatStyle style) {
+    RcRouteTarget target = rc_route_target_rectangle(
+        world->player.x, world->player.y, 1, 1, 1, range, false,
+        style_needs_los(style));
+    if (npc->route_mode != RC_NPC_ROUTE_CHASE
+            || npc->route_target.x != target.x
+            || npc->route_target.y != target.y
+            || npc->route_target.max_distance != target.max_distance
+            || npc->route_target.require_los != target.require_los) {
+        (void)rc_npc_route_request(world, npc, &target,
+                                   RC_NPC_ROUTE_CHASE, false);
+    }
 }
 
 void rc_award_player_combat_xp(RcWorld *world, int damage) {
@@ -806,8 +821,8 @@ static RcCombatActorState *combat_state_for_actor(RcWorld *world,
     return NULL;
 }
 
-static int npc_can_retaliate(const RcNpc *npc) {
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+static int npc_can_retaliate(const RcWorld *world, const RcNpc *npc) {
+    const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
     if (!npc || npc->is_dead || npc->player_untargetable || !def) {
         return 0;
     }
@@ -885,20 +900,21 @@ static RcCombatTargetRef combat_target_none(void) {
     return target;
 }
 
-static int npc_footprint_size(const RcNpc *npc) {
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+static int npc_footprint_size(const RcWorld *world, const RcNpc *npc) {
+    const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
     if (!def) return 1;
     int size = def->size;
     return size > 0 ? size : 1;
 }
 
-static RcCombatTargetRef combat_target_from_npc(const RcNpc *npc) {
+static RcCombatTargetRef combat_target_from_npc(const RcWorld *world,
+                                                const RcNpc *npc) {
     RcCombatTargetRef target = combat_target_none();
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+    const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
     if (!npc || !def) {
         return target;
     }
-    int size = npc_footprint_size(npc);
+    int size = npc_footprint_size(world, npc);
     target.kind = RC_COMBAT_ACTOR_NPC;
     target.uid = npc->uid;
     target.definition_id = def->id;
@@ -973,17 +989,17 @@ static void sync_player_combat_state_from_legacy(RcWorld *world,
     player->combat.auto_retaliate = player->auto_retaliate;
     if (player->attack_target >= 0) {
         RcNpc *target = find_npc_by_uid(world, player->attack_target);
-        if (!target || !rc_npc_def_for_npc(target)) {
+        if (!target || !rc_npc_def_for_npc(world, target)) {
             flags |= RC_COMBAT_STATE_INVALID_TARGET;
         } else if (target->is_dead) {
-            player->combat.target = combat_target_from_npc(target);
+            player->combat.target = combat_target_from_npc(world, target);
             flags |= RC_COMBAT_STATE_DEAD_TARGET;
         } else {
             int range = rc_player_attack_range(player);
             int distance = -1;
             int los = 0;
             player->combat.active = true;
-            player->combat.target = combat_target_from_npc(target);
+            player->combat.target = combat_target_from_npc(world, target);
             player->combat.attack_range = range;
             if (player_can_attack_npc_now(world, player, target, range,
                                           player->combat_style, &distance,
@@ -1010,9 +1026,9 @@ static void sync_npc_combat_state_from_legacy(RcWorld *world, RcNpc *npc) {
     npc->combat.distance_to_target = -1;
     npc->combat.line_of_sight = 0;
     npc->combat.hp_current = npc->current_hp;
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+    const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
     npc->combat.hp_max = def ? def->hitpoints : 0;
-    npc->combat.retaliates = npc_can_retaliate(npc);
+    npc->combat.retaliates = npc_can_retaliate(world, npc);
     npc->combat.in_multi_combat = world->multi_combat;
     npc->combat.last_hit_timer = npc->last_hit_timer;
     npc->combat.attack_count = npc->attack_count;
@@ -1056,7 +1072,7 @@ int rc_combat_start_player_vs_npc(struct RcWorld *world, int player_uid,
                                   int npc_uid) {
     if (!world || player_uid != 0) return 0;
     RcNpc *npc = find_npc_by_uid(world, npc_uid);
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+    const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
     if (!npc || npc->is_dead || npc->player_untargetable || !def) {
         return 0;
     }
@@ -1073,14 +1089,14 @@ int rc_combat_start_player_vs_npc(struct RcWorld *world, int player_uid,
     RcPlayer *player = &world->player;
     player->attack_target = npc->uid;
     player->attack_target_def_id = def->id;
-    if (npc_can_retaliate(npc) &&
+    if (npc_can_retaliate(world, npc) &&
             combat_can_attack_target(world, npc_actor, player_actor)) {
         npc->target_uid = 0;
         combat_register_attacker(&player->combat, npc_actor);
     }
     combat_register_attacker(&npc->combat, player_actor);
     rc_refresh_player_combat_style(player);
-    face_player_to_npc(player, npc);
+    face_player_to_npc(world, player, npc);
     face_npc_to_player(npc, player);
     sync_player_combat_state_from_legacy(world, player);
     sync_npc_combat_state_from_legacy(world, npc);
@@ -1093,10 +1109,10 @@ int rc_combat_start_npc_vs_player(struct RcWorld *world, int npc_uid,
     if (!world || player_uid != 0) return 0;
     RcNpc *npc = find_npc_by_uid(world, npc_uid);
     if (!npc || npc->is_dead || npc->player_untargetable ||
-            !rc_npc_def_for_npc(npc)) {
+            !rc_npc_def_for_npc(world, npc)) {
         return 0;
     }
-    if (!npc_can_retaliate(npc)) return 0;
+    if (!npc_can_retaliate(world, npc)) return 0;
     RcCombatActorRef npc_actor = {
         .kind = RC_COMBAT_ACTOR_NPC,
         .uid = npc->uid,
@@ -1285,7 +1301,7 @@ static void combat_tick_player_legacy(struct RcWorld *world) {
         p->attack_target_def_id = -1;
         return;
     }
-    const RcNpcDef *target_def = rc_npc_def_for_npc(target);
+    const RcNpcDef *target_def = rc_npc_def_for_npc(world, target);
     if (!target_def) {
         p->attack_target = -1;
         p->attack_target_def_id = -1;
@@ -1302,7 +1318,7 @@ static void combat_tick_player_legacy(struct RcWorld *world) {
         return;
     }
     rc_refresh_player_combat_style(p);
-    face_player_to_npc(p, target);
+    face_player_to_npc(world, p, target);
     int range = rc_player_attack_range(p);
     if (!player_can_attack_npc_now(world, p, target, range,
                                    p->combat_style, NULL, NULL)) {
@@ -1397,7 +1413,7 @@ static void combat_tick_player_legacy(struct RcWorld *world) {
     // NPC overhead prayer is not modelled — snapshot = 0.
     rc_queue_hit_meta(target->pending_hits, &target->num_pending_hits,
                       dmg, delay, p->combat_style,
-                      -1 /* player source */,
+                      RC_HIT_SOURCE_PLAYER,
                       0u /* NPC prayer snapshot */, world->tick,
                       0, calc.max_hit);
     p->manual_spell_cast = -1;
@@ -1413,21 +1429,27 @@ static void combat_tick_player_legacy(struct RcWorld *world) {
 static void combat_tick_npc_legacy(struct RcWorld *world, RcNpc *npc) {
     if (npc->is_dead || !npc->active) return;
     if (npc->player_untargetable) return;
-    const RcNpcDef *d = rc_npc_def_for_npc(npc);
+    const RcNpcDef *d = rc_npc_def_for_npc(world, npc);
     if (!d) return;
     if (npc->target_uid < 0) {
+        if (npc->combat.aggro_state == NPC_HUNT_ACTIVE) {
+            npc->combat.aggro_state =
+                (d->hunt.flags & RC_NPC_HUNT_KEEP_HUNTING)
+                ? NPC_HUNT_READY : NPC_HUNT_CONSUMED;
+        }
         if (npc_should_auto_attack_player(world, npc, d)) {
-            rc_combat_start_npc_vs_player(world, npc->uid, 0);
+            if (rc_combat_start_npc_vs_player(world, npc->uid, 0))
+                npc->combat.aggro_state = NPC_HUNT_ACTIVE;
         } else {
             int spawn_dist = npc_spawn_distance(npc);
             if (spawn_dist > npc_leash_range(d))
                 npc->combat.leash_state = 1;
             if (npc->combat.leash_state && spawn_dist > 0) {
-                step_npc_toward_tile(world, npc, npc->spawn_x, npc->spawn_y);
-                if (npc_spawn_distance(npc) == 0)
-                    npc->combat.leash_state = 0;
+                route_npc_to_spawn(world, npc);
             } else if (spawn_dist == 0) {
                 npc->combat.leash_state = 0;
+                if (npc->route_mode == RC_NPC_ROUTE_RETURN)
+                    rc_npc_route_clear(npc, RC_MOVEMENT_ARRIVED);
             }
             return;
         }
@@ -1437,13 +1459,18 @@ static void combat_tick_npc_legacy(struct RcWorld *world, RcNpc *npc) {
     if (npc->target_uid != 0 /* placeholder player uid */) return;
     if (npc_should_drop_target(world, npc, d)) {
         npc->target_uid = -1;
+        if (npc->combat.aggro_state == NPC_HUNT_ACTIVE) {
+            npc->combat.aggro_state =
+                (d->hunt.flags & RC_NPC_HUNT_KEEP_HUNTING)
+                ? NPC_HUNT_READY : NPC_HUNT_CONSUMED;
+        }
         npc->combat.leash_state = 1;
-        step_npc_toward_tile(world, npc, npc->spawn_x, npc->spawn_y);
+        route_npc_to_spawn(world, npc);
         return;
     }
     if (d->attack_speed <= 0 || d->max_hit <= 0) return;
 
-    int distance = distance_player_to_npc(p, npc);
+    int distance = distance_player_to_npc(world, p, npc);
     RcCombatStyle style = content_select_npc_style(
         world, npc, p, rc_combat_npc_preferred_style(d->attack_types));
     face_npc_to_player(npc, p);
@@ -1462,13 +1489,14 @@ static void combat_tick_npc_legacy(struct RcWorld *world, RcNpc *npc) {
         world, npc, style, default_npc_attack_range(d, style));
     npc->combat.selected_npc_style = style;
     npc->combat.last_npc_style = style;
-    npc->combat.aggro_state = d->aggressive ? 1 : 0;
     npc->combat.leash_state = 0;
     if (!npc_can_attack_player_now(world, npc, p, range, style, NULL, NULL)) {
-        step_npc_toward_player(world, npc, p);
+        route_npc_to_player(world, npc, range, style);
         if (npc->attack_timer > 0) npc->attack_timer--;
         return;
     }
+    if (npc->route_mode == RC_NPC_ROUTE_CHASE)
+        rc_npc_route_clear(npc, RC_MOVEMENT_ARRIVED);
     if (npc->attack_timer > 0) { npc->attack_timer--; return; }
 
     RcCombatCalc calc = rc_calc_npc_attack_style(npc->def_id, p, style);

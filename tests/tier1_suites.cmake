@@ -101,6 +101,7 @@ rc_add_tier1_suite(movement_pathfinding_los_routing
 # NPC definitions, indexed spawning, identity across active areas, movement,
 # interaction, combat lifecycle, and data-driven mechanics.
 rc_add_tier1_suite(npc_runtime
+    test_npc_runtime_foundation
     test_npc_defs_bin
     test_spawn_index
     test_spawn_slices_runtime

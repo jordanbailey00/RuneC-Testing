@@ -30,6 +30,10 @@ bool rc_has_los_rect(const RcWorldMap *map,
                      int src_x, int src_y, int src_width, int src_height,
                      int dest_x, int dest_y, int dest_width, int dest_height,
                      int plane);
+bool rc_has_line_of_walk_rect(
+    const RcWorldMap *map,
+    int src_x, int src_y, int src_width, int src_height,
+    int dest_x, int dest_y, int dest_width, int dest_height, int plane);
 
 // Get collision flags for a world tile
 uint32_t rc_get_flags(const RcWorldMap *map, int x, int y, int plane);

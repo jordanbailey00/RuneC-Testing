@@ -234,8 +234,8 @@ static bool one_in_four(RcWorld *world) {
     return rc_rng_range(&world->rng_state, 3) == 0;
 }
 
-static void heal_npc(RcNpc *npc, int amount) {
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+static void heal_npc(RcWorld *world, RcNpc *npc, int amount) {
+    const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
     if (!npc || amount <= 0 || !def) {
         return;
     }
@@ -313,23 +313,24 @@ static void regular_on_npc_hit_player(RcWorld *world,
 
     bool handled_heal = false;
     if (profile == RC_ACTIVITY_PROFILE_BARROWS_GUTHAN) {
-        if (one_in_four(world)) heal_npc(source, damage);
+        if (one_in_four(world)) heal_npc(world, source, damage);
         handled_heal = true;
     } else if (profile == RC_ACTIVITY_PROFILE_REVENANT_MALEDICTUS) {
-        if ((source->attack_count % 3) == 2) heal_npc(source, damage / 2);
+        if ((source->attack_count % 3) == 2)
+            heal_npc(world, source, damage / 2);
         handled_heal = true;
     } else if (profile == RC_ACTIVITY_PROFILE_BLOOD_MOON) {
         int hit_idx = source->attack_count % 3;
         int amount = hit_idx == 0 ? damage * 3 : damage * hit_idx;
         if (hit_idx == 0 && amount < 30) amount = 30;
         if (hit_idx == 0 && amount > 50) amount = 50;
-        heal_npc(source, amount);
+        heal_npc(world, source, amount);
         handled_heal = true;
     }
     if (!handled_heal &&
             ((tags & RC_MONSTER_TAG_HEALING) != 0 ||
              (activity & RC_ACTIVITY_BEHAVIOR_HEAL_ON_HIT) != 0)) {
-        heal_npc(source, damage / 4);
+        heal_npc(world, source, damage / 4);
     }
 
     uint64_t status_tags = tags;
@@ -455,7 +456,7 @@ static int regular_modify_npc_roll_damage(RcWorld *world, RcNpc *npc,
                                           RcCombatStyle style, int damage) {
     (void)world;
     (void)style;
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+    const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
     if (!npc || !def) {
         return damage;
     }
@@ -541,7 +542,7 @@ static void regular_after_npc_swing(RcWorld *world, RcNpc *npc,
 static int regular_modify_npc_attack_speed(RcWorld *world, RcNpc *npc,
                                            int default_speed) {
     (void)world;
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+    const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
     if (!npc || !def) {
         return default_speed;
     }

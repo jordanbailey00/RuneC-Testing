@@ -51,7 +51,7 @@ def read_ndef_ids(path: Path) -> set[int]:
         magic, version, count = struct.unpack("<III", read_exact(f, 12, path))
         if magic != NDEF_MAGIC:
             raise ValueError(f"{path}: bad NDEF magic")
-        if version not in (1, 2, 3, 4):
+        if version not in (1, 2, 3, 4, 5):
             raise ValueError(f"{path}: unsupported NDEF version {version}")
         for _ in range(count):
             npc_id = struct.unpack("<I", read_exact(f, 4, path))[0]
@@ -67,6 +67,10 @@ def read_ndef_ids(path: Path) -> set[int]:
                 for _ in range(5):
                     option_len = struct.unpack("<B", read_exact(f, 1, path))[0]
                     read_exact(f, option_len, path)
+            if version >= 5:
+                policy = read_exact(f, 21, path)
+                transform_count = struct.unpack_from("<H", policy, 19)[0]
+                read_exact(f, transform_count * 4, path)
             ids.add(npc_id)
     return ids
 

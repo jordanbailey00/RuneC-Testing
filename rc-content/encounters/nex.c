@@ -60,7 +60,7 @@ static void nex_ice_phase(struct RcWorld *world, int enc_idx) {
 static void nex_zaros_phase(struct RcWorld *world, int enc_idx) {
     nex_enter_phase(world, enc_idx, "Nex Zaros Phase", "", 0, 0);
     RcNpc *boss = nex_boss(world, enc_idx);
-    const RcNpcDef *def = rc_npc_def_for_npc(boss);
+    const RcNpcDef *def = rc_npc_def_for_npc(world, boss);
     if (!boss || !def) return;
     boss->current_hp += 500;
     if (boss->current_hp > def->hitpoints) {

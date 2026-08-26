@@ -47,13 +47,13 @@ static int find_npc_def_idx_by_cache_id(uint32_t npc_id) {
     return rc_npc_def_find((int)npc_id);
 }
 
-static int npc_hitpoints_cap(const RcNpc *npc) {
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+static int npc_hitpoints_cap(const RcWorld *world, const RcNpc *npc) {
+    const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
     return def ? def->hitpoints : 0;
 }
 
-static int npc_size_or_one(const RcNpc *npc) {
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+static int npc_size_or_one(const RcWorld *world, const RcNpc *npc) {
+    const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
     return def && def->size > 0 ? def->size : 1;
 }
 
@@ -278,7 +278,7 @@ static void prim_periodic_heal_boss(RcWorld *world, int enc_idx,
     if (!boss) return;
     if (!any_live_npc_named(world, p->alive_npc_name)) return;
 
-    int def_hp = npc_hitpoints_cap(boss);
+    int def_hp = npc_hitpoints_cap(world, boss);
     if (def_hp <= 0) return;
     boss->current_hp += p->heal_per_tick;
     if (boss->current_hp > def_hp) boss->current_hp = def_hp;
@@ -295,7 +295,7 @@ static void prim_heal_at_object(RcWorld *world, int enc_idx,
     RcNpc *boss = find_boss(world, a->boss_id);
     if (!boss) return;
 
-    int def_hp = npc_hitpoints_cap(boss);
+    int def_hp = npc_hitpoints_cap(world, boss);
     if (def_hp <= 0) return;
     int heal = p->heal_per_player;
     boss->current_hp += heal;
@@ -344,7 +344,7 @@ static void prim_teleport_on_incoming_attack(RcWorld *world, int enc_idx,
     RcActiveEncounter *a = &world->encounter.active[enc_idx];
     RcNpc *boss = find_boss(world, a->boss_id);
     if (!boss) return;
-    int max_hp = npc_hitpoints_cap(boss);
+    int max_hp = npc_hitpoints_cap(world, boss);
     if (max_hp <= 0) return;
     int hp_pct = boss->current_hp * 100 / max_hp;
     if (hp_pct < p->hp_min_pct || hp_pct > p->hp_max_pct) return;
@@ -450,9 +450,9 @@ static void prim_positional_aoe(RcWorld *world, int enc_idx,
     const RcPrimParamsPositionalAoe *p = params;
     RcActiveEncounter *a = &world->encounter.active[enc_idx];
     RcNpc *boss = find_boss(world, a->boss_id);
-    if (!boss || !rc_npc_def_for_npc(boss)) return;
+    if (!boss || !rc_npc_def_for_npc(world, boss)) return;
 
-    int size = npc_size_or_one(boss);
+    int size = npc_size_or_one(world, boss);
     RcPlayer *pl = &world->player;
     if (pl->plane != boss->plane) return;
     if (pl->x < boss->x || pl->x >= boss->x + size ||
@@ -509,7 +509,7 @@ static void prim_spawn_leech_npc(RcWorld *world, int enc_idx,
         pl->current_hp -= amount * 10;
         if (pl->current_hp < 0) pl->current_hp = 0;
         if (p->heals_boss) {
-            int cap = npc_hitpoints_cap(boss);
+            int cap = npc_hitpoints_cap(world, boss);
             if (cap > 0) {
                 boss->current_hp += amount;
                 if (boss->current_hp > cap) boss->current_hp = cap;
@@ -935,7 +935,7 @@ static void prim_quadrant_safe_zone_dot(RcWorld *world, int enc_idx,
         int heal = p->unsafe_dot_per_tick *
                    (p->heals_boss_multiplier_x10 ?
                     p->heals_boss_multiplier_x10 : 10) / 10;
-        int cap = npc_hitpoints_cap(boss);
+        int cap = npc_hitpoints_cap(world, boss);
         if (cap > 0) {
             boss->current_hp += heal;
             if (boss->current_hp > cap) boss->current_hp = cap;
@@ -1434,7 +1434,7 @@ static void prim_passive_heal_during_phase(RcWorld *world, int enc_idx,
     RcActiveEncounter *a = &world->encounter.active[enc_idx];
     RcNpc *boss = find_boss(world, a->boss_id);
     if (!boss || p->heal_per_tick == 0) return;
-    int cap = npc_hitpoints_cap(boss);
+    int cap = npc_hitpoints_cap(world, boss);
     if (cap <= 0) return;
     boss->current_hp += p->heal_per_tick;
     if (boss->current_hp > cap) boss->current_hp = cap;
@@ -1579,7 +1579,7 @@ static void prim_continuous_heal_unless_interrupted(RcWorld *world,
     RcActiveEncounter *a = &world->encounter.active[enc_idx];
     RcNpc *boss = find_boss(world, a->boss_id);
     if (!boss || p->heal_per_tick == 0) return;
-    int cap = npc_hitpoints_cap(boss);
+    int cap = npc_hitpoints_cap(world, boss);
     if (cap <= 0) return;
     boss->current_hp += p->heal_per_tick;
     if (boss->current_hp > cap) boss->current_hp = cap;
@@ -1653,7 +1653,7 @@ static void prim_spawn_colored_nylocas(RcWorld *world, int enc_idx,
                                 0, "Colored Nylocas", "");
     }
     if (p->heals_boss && p->heal_per_tick) {
-        int cap = npc_hitpoints_cap(boss);
+        int cap = npc_hitpoints_cap(world, boss);
         if (cap > 0) {
             boss->current_hp += p->heal_per_tick;
             if (boss->current_hp > cap) boss->current_hp = cap;
@@ -1748,7 +1748,7 @@ static void prim_heal_altars_player_must_disable(RcWorld *world, int enc_idx,
     if (disabled > altar_count) disabled = altar_count;
     int active_altars = altar_count - disabled;
     if (active_altars <= 0) return;
-    int cap = npc_hitpoints_cap(boss);
+    int cap = npc_hitpoints_cap(world, boss);
     if (cap <= 0) return;
     boss->current_hp += active_altars * p->heal_per_altar_per_tick;
     if (boss->current_hp > cap) boss->current_hp = cap;

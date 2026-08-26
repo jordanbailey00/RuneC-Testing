@@ -985,6 +985,11 @@ def read_npc_def_sequence_ids(path: Path) -> set[int]:
                     raise ValueError(f"truncated npc def option in {path}")
                 option_len = data[pos]
                 pos += 1 + option_len
+        if version >= 5:
+            if pos + 21 > len(data):
+                raise ValueError(f"truncated npc def v5 policy in {path}")
+            transform_count = struct.unpack_from("<H", data, pos + 19)[0]
+            pos += 21 + transform_count * 4
         if pos > len(data):
             raise ValueError(f"truncated npc def row in {path}")
     return out

@@ -33,6 +33,8 @@ enum {
     RC_EVT_PLAYER_ATTACK,
     RC_EVT_ITEM_DROPPED,
     RC_EVT_PLAYER_DIED,
+    RC_EVT_NPC_HIDDEN,
+    RC_EVT_NPC_RESPAWNED,
     RC_EVT_MAX
 };
 
@@ -80,7 +82,8 @@ void rc_events_init(RcEventBus *bus);
 typedef struct {
     uint32_t npc_id;           // NPC handle (uid)
     uint32_t def_id;           // registry-keyable identifier
-} RcPayloadNpcEvent;           // NPC spawn, death, and active-area removal
+    uint64_t spawn_key;        // stable static source identity; 0 = dynamic
+} RcPayloadNpcEvent;           // NPC lifecycle events
 
 typedef struct {
     uint32_t source_npc_id;    // attacker uid, or UINT32_MAX for player-self

@@ -1,6 +1,5 @@
 #include "world_state.h"
 
-#include "combat.h"
 #include "npc.h"
 
 #include <limits.h>
@@ -119,26 +118,8 @@ int rc_world_state_save_npcs(RcWorld *world) {
     return saved;
 }
 
-static void respawn_npc(RcNpc *npc) {
-    npc->x = npc->spawn_x;
-    npc->y = npc->spawn_y;
-    npc->plane = npc->spawn_plane;
-    npc->prev_x = npc->x;
-    npc->prev_y = npc->y;
-    npc->current_hp = npc->spawn_hp;
-    npc->death_timer = 0;
-    npc->respawn_timer = 0;
-    npc->is_dead = false;
-    npc->target_uid = -1;
-    npc->num_pending_hits = 0;
-    npc->poison_damage = 0;
-    npc->poison_tick_counter = 0;
-    npc->last_hit = -1;
-    npc->last_hit_timer = 0;
-    rc_combat_init_npc_state(npc);
-}
-
-static void reconcile_npc_elapsed(RcNpc *npc, RcTick elapsed) {
+static void reconcile_npc_elapsed(RcWorld *world, RcNpc *npc,
+                                  RcTick elapsed) {
     if (!npc || !npc->is_dead || elapsed == 0) return;
     RcTick death = npc->death_timer > 0 ? (RcTick)npc->death_timer : 0;
     if (elapsed <= death) {
@@ -147,13 +128,14 @@ static void reconcile_npc_elapsed(RcNpc *npc, RcTick elapsed) {
     }
     elapsed -= death;
     npc->death_timer = 0;
+    if (!npc->respawns) return;
     RcTick respawn = npc->respawn_timer > 0
                    ? (RcTick)npc->respawn_timer : 0;
     if (elapsed < respawn) {
         npc->respawn_timer -= (int)elapsed;
         return;
     }
-    respawn_npc(npc);
+    rc_npc_reset_life(world, npc);
 }
 
 static void apply_npc_state(RcWorld *world, RcNpc *npc,
@@ -161,7 +143,7 @@ static void apply_npc_state(RcWorld *world, RcNpc *npc,
     *npc = state->npc;
     RcTick elapsed = world->tick >= state->saved_tick
                    ? world->tick - state->saved_tick : 0;
-    reconcile_npc_elapsed(npc, elapsed);
+    reconcile_npc_elapsed(world, npc, elapsed);
 }
 
 int rc_world_state_restore_npcs(RcWorld *world) {

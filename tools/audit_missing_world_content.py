@@ -87,7 +87,7 @@ def read_pstr(data: bytes, pos: int, size_fmt: str = "<H") -> tuple[str, int]:
 def parse_npc_defs(path: Path) -> dict[int, NpcDef]:
     data = path.read_bytes()
     magic, version, count = struct.unpack_from("<III", data, 0)
-    if magic != NDEF_MAGIC or version not in (1, 2, 3, 4):
+    if magic != NDEF_MAGIC or version not in (1, 2, 3, 4, 5):
         raise ValueError(f"{path}: unsupported NDEF header")
     pos = 12
     out: dict[int, NpcDef] = {}
@@ -108,6 +108,9 @@ def parse_npc_defs(path: Path) -> dict[int, NpcDef]:
             for _slot in range(5):
                 option_len = data[pos]
                 pos += 1 + option_len
+        if version >= 5:
+            transform_count = struct.unpack_from("<H", data, pos + 19)[0]
+            pos += 21 + transform_count * 4
         out[npc_id] = NpcDef(name=name)
     return out
 

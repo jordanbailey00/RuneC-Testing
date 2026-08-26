@@ -146,6 +146,14 @@ def write_reports(installed: list[dict[str, Any]]) -> None:
                 "  - no external checkout, wiki cache, private-server source, or wrong-game source is read during rebuild",
             ]
         )
+        if report_name == "npc_defs_full.txt":
+            lines.append(
+                "  - NDEF v5 makes inherited lifecycle and hunt policy explicit; exact per-NPC values remain content reconciliation"
+            )
+        elif report_name == "spawn_sources.txt":
+            lines.append(
+                "  - placement direction and wander use conservative south-facing and stationary values pending source review"
+            )
         (REPORTS / report_name).write_text("\n".join(lines) + "\n")
 
 

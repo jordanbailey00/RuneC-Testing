@@ -25,7 +25,7 @@ BINARY_SCHEMAS: dict[str, tuple[str, int, tuple[int, ...]]] = {
     "items": ("IDEF", 2, (1, 2)),
     "mrdt": ("MRDT", 1, (1,)),
     "normalization": ("NORM", 1, (1,)),
-    "npc_defs": ("NDEF", 4, (1, 2, 3, 4)),
+    "npc_defs": ("NDEF", 5, (1, 2, 3, 4, 5)),
     "object_behaviors": ("OBHV", 2, (1, 2)),
     "object_defs": ("ODEF", 2, (1, 2)),
     "object_placements": ("OPLI", 1, (1,)),

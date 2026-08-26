@@ -277,6 +277,47 @@ bool rc_has_los(const RcWorldMap *map, int x0, int y0, int x1, int y1,
     return rc_has_los_rect(map, x0, y0, 1, 1, x1, y1, 1, 1, plane);
 }
 
+bool rc_has_line_of_walk_rect(
+    const RcWorldMap *map,
+    int src_x, int src_y, int src_width, int src_height,
+    int dest_x, int dest_y, int dest_width, int dest_height, int plane) {
+    RcTileBounds source, destination;
+    if (!rc_tile_bounds_from_origin_size(src_x, src_y, src_width, src_height,
+                                         plane, &source)
+            || !rc_tile_bounds_from_origin_size(dest_x, dest_y, dest_width,
+                                                dest_height, plane,
+                                                &destination)) {
+        return false;
+    }
+    int x = line_coordinate(src_x, dest_x, src_width);
+    int y = line_coordinate(src_y, dest_y, src_height);
+    int end_x = line_coordinate(dest_x, src_x, dest_width);
+    int end_y = line_coordinate(dest_y, src_y, dest_height);
+    int delta_x = abs(end_x - x);
+    int delta_y = abs(end_y - y);
+    int step_x = x < end_x ? 1 : -1;
+    int step_y = y < end_y ? 1 : -1;
+    int error = delta_x - delta_y;
+
+    while (x != end_x || y != end_y) {
+        int twice_error = error * 2;
+        int dx = 0;
+        int dy = 0;
+        if (twice_error > -delta_y) {
+            error -= delta_y;
+            dx = step_x;
+        }
+        if (twice_error < delta_x) {
+            error += delta_x;
+            dy = step_y;
+        }
+        if (!rc_can_move(map, x, y, dx, dy, plane)) return false;
+        x += dx;
+        y += dy;
+    }
+    return true;
+}
+
 RcRouteTarget rc_route_target_point(int x, int y) {
     RcRouteTarget target = {
         .x = x,

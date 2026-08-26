@@ -15,7 +15,7 @@ static void whisperer_enter_shadow_realm(struct RcWorld *world, int enc_idx) {
     RcNpc *npc = rc_npc_resolve(world, a->boss_id);
     if (npc) {
         npc->current_hp += 140;
-        const RcNpcDef *def = rc_npc_def_for_npc(npc);
+        const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
         if (def) {
             int cap = def->hitpoints;
             if (npc->current_hp > cap) npc->current_hp = cap;

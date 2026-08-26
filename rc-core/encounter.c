@@ -184,7 +184,7 @@ static bool live_npc_with_id(const RcWorld *world, uint32_t npc_id) {
     for (int i = 0; i < world->npc_count; i++) {
         const RcNpc *npc = &world->npcs[i];
         if (!npc->active || npc->is_dead) continue;
-        const RcNpcDef *def = rc_npc_def_for_npc(npc);
+        const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
         if (def && (uint32_t)def->id == npc_id) return true;
     }
     return false;
@@ -195,7 +195,7 @@ static bool live_npc_named(const RcWorld *world, const char *name) {
     for (int i = 0; i < world->npc_count; i++) {
         const RcNpc *npc = &world->npcs[i];
         if (!npc->active || npc->is_dead) continue;
-        const RcNpcDef *def = rc_npc_def_for_npc(npc);
+        const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
         if (def && strcmp(def->name, name) == 0) return true;
     }
     return false;
@@ -208,7 +208,7 @@ static bool spawned_and_all_dead_named(const RcWorld *world,
     for (int i = 0; i < world->npc_count; i++) {
         const RcNpc *npc = &world->npcs[i];
         if (!npc->active) continue;
-        const RcNpcDef *def = rc_npc_def_for_npc(npc);
+        const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
         if (!def || strcmp(def->name, name) != 0) continue;
         seen = true;
         if (!npc->is_dead) return false;
@@ -420,8 +420,8 @@ static void drain_player_skill(RcPlayer *p, int skill, int amount) {
     }
 }
 
-static void heal_npc_to_def_cap(RcNpc *npc, int amount) {
-    const RcNpcDef *def = rc_npc_def_for_npc(npc);
+static void heal_npc_to_def_cap(RcWorld *world, RcNpc *npc, int amount) {
+    const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
     if (!npc || amount <= 0 || !def) {
         return;
     }
@@ -502,7 +502,8 @@ static void apply_attack_effect(RcWorld *world, RcActiveEncounter *a,
         }
         if (attack->effect_pct) {
             RcNpc *boss = find_npc_by_uid(world, a->boss_id);
-            heal_npc_to_def_cap(boss, ((int)damage * attack->effect_pct) / 100);
+            heal_npc_to_def_cap(world, boss,
+                                ((int)damage * attack->effect_pct) / 100);
         }
     } else if (attack->effect_id == RC_ENC_ATTACK_EFFECT_SPLIT_PROJECTILES) {
         if (damage == 0) return;
@@ -878,7 +879,7 @@ static void tick_active(RcWorld *world, RcActiveEncounter *a) {
         // Pass-1 shortcut: compute hp_pct off the def's hitpoints
         // (the max-hp at spawn). Pass 2 tracks max_hp on the NPC
         // instance so re-heals after phase revert compute correctly.
-        const RcNpcDef *def = rc_npc_def_for_npc(boss);
+        const RcNpcDef *def = rc_npc_def_for_npc(world, boss);
         int def_hp = def ? def->hitpoints : 0;
         if (def_hp <= 0) continue;
         int hp_pct = boss->current_hp * 100 / def_hp;
@@ -1120,7 +1121,7 @@ int rc_encounter_scale_player_damage(RcWorld *world,
                 (const RcPrimParamsHealOnAttack *)m->param_block;
             RcNpc *boss = find_npc_by_uid(world, active->boss_id);
             if (boss && p->heal_per_attack) {
-                heal_npc_to_def_cap(boss, p->heal_per_attack);
+                heal_npc_to_def_cap(world, boss, p->heal_per_attack);
             }
             if (p->cancel_player_attack) return 0;
         }
@@ -1187,7 +1188,7 @@ int rc_encounter_reveal_hidden_npcs(RcWorld *world, const char *npc_name,
     for (int i = 0; i < world->npc_count; i++) {
         RcNpc *npc = &world->npcs[i];
         if (!npc->active || npc->is_dead || !npc->player_untargetable) continue;
-        const RcNpcDef *def = rc_npc_def_for_npc(npc);
+        const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
         if (!def || strcmp(def->name, npc_name) != 0) continue;
         npc->player_untargetable = false;
         revealed++;

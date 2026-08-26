@@ -35,6 +35,12 @@ def scan_npc_anim_ids(ndef_path):
                 for _ in range(5):
                     ol, = struct.unpack("<B", f.read(1))
                     f.read(ol)           # option text
+            if ver >= 5:
+                policy = f.read(21)
+                if len(policy) != 21:
+                    raise EOFError("truncated NDEF v5 policy")
+                transform_count = struct.unpack_from("<H", policy, 19)[0]
+                f.read(4 * transform_count)
     return ids
 
 

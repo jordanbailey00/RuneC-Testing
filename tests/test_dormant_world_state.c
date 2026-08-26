@@ -71,7 +71,7 @@ static void write_ground_fixture(void) {
 static RcNpc *first_persistent_npc(RcWorld *world) {
     for (int i = 0; i < world->npc_count; i++) {
         RcNpc *npc = &world->npcs[i];
-        const RcNpcDef *def = rc_npc_def_for_npc(npc);
+        const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
         if (npc->active && npc->spawn_key != 0 && def
                 && def->hitpoints > 0) {
             return npc;
@@ -161,6 +161,7 @@ int main(void) {
 
     RcNpc *partial_death = NULL;
     RcNpc *partial_respawn = NULL;
+    RcNpc *nonrespawning = NULL;
     for (int i = 0; i < world->npc_count; i++) {
         RcNpc *candidate = &world->npcs[i];
         if (!candidate->active || candidate->spawn_key == 0
@@ -168,14 +169,14 @@ int main(void) {
             continue;
         }
         if (!partial_death) partial_death = candidate;
-        else {
-            partial_respawn = candidate;
-            break;
-        }
+        else if (!partial_respawn) partial_respawn = candidate;
+        else if (!nonrespawning) nonrespawning = candidate;
     }
-    assert(partial_death != NULL && partial_respawn != NULL);
+    assert(partial_death != NULL && partial_respawn != NULL
+           && nonrespawning != NULL);
     uint64_t partial_death_key = partial_death->spawn_key;
     uint64_t partial_respawn_key = partial_respawn->spawn_key;
+    uint64_t nonrespawning_key = nonrespawning->spawn_key;
     partial_death->is_dead = true;
     partial_death->current_hp = 0;
     partial_death->death_timer = 30;
@@ -184,6 +185,11 @@ int main(void) {
     partial_respawn->current_hp = 0;
     partial_respawn->death_timer = 3;
     partial_respawn->respawn_timer = 40;
+    nonrespawning->is_dead = true;
+    nonrespawning->current_hp = 0;
+    nonrespawning->death_timer = 3;
+    nonrespawning->respawn_timer = 0;
+    nonrespawning->respawns = false;
 
     RcGroundItem *static_item = static_ground_item(world, 995);
     assert(static_item != NULL && static_item->active);
@@ -249,6 +255,11 @@ int main(void) {
     assert(partial_respawn != NULL && partial_respawn->is_dead);
     assert(partial_respawn->death_timer == 0);
     assert(partial_respawn->respawn_timer == 23);
+    nonrespawning = npc_with_spawn_key(world, nonrespawning_key);
+    assert(nonrespawning != NULL && nonrespawning->is_dead);
+    assert(nonrespawning->death_timer == 0 && !nonrespawning->respawns);
+    rc_npc_tick(world, nonrespawning);
+    assert(npc_with_spawn_key(world, nonrespawning_key) == NULL);
 
     static_item = static_ground_item(world, 995);
     assert(static_item != NULL);

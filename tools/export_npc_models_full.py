@@ -69,6 +69,10 @@ def read_ndef_models(path: Path) -> dict[int, dict[str, Any]]:
                 for _ in range(5):
                     option_len = struct.unpack("<B", read_exact(f, 1))[0]
                     read_exact(f, option_len)
+            if version >= 5:
+                policy = read_exact(f, 21)
+                transform_count = struct.unpack_from("<H", policy, 19)[0]
+                read_exact(f, transform_count * 4)
             out[npc_id] = {"name": name, "models": models}
     return out
 

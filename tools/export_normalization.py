@@ -120,7 +120,7 @@ def parse_npcs() -> dict[int, dict[str, object]]:
     pos = 0
     magic, version, count = struct.unpack_from("<III", data, pos)
     pos += 12
-    if magic != NDEF_MAGIC or version not in (1, 2, 3, 4):
+    if magic != NDEF_MAGIC or version not in (1, 2, 3, 4, 5):
         raise ValueError("bad npc_defs.bin")
     rows: dict[int, dict[str, object]] = {}
     for _ in range(count):
@@ -139,6 +139,9 @@ def parse_npcs() -> dict[int, dict[str, object]]:
             for _ in range(5):
                 option_len = data[pos]
                 pos += 1 + option_len
+        if version >= 5:
+            transform_count = struct.unpack_from("<H", data, pos + 19)[0]
+            pos += 21 + transform_count * 4
         key = key_name(name)
         rows[int(npc_id)] = {
             "id": int(npc_id),

@@ -154,7 +154,7 @@ int runec_dev_validation_prepare_encounter(RcWorld *world,
         npc->is_dead = false;
         npc->death_timer = 0;
         npc->respawn_timer = 0;
-        const RcNpcDef *def = rc_npc_def_for_npc(npc);
+        const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
         if (def) {
             npc->current_hp = def->hitpoints;
         }

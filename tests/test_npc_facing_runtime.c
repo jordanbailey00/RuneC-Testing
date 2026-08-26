@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "api.h"
@@ -41,15 +42,15 @@ static void seed_facing_npc_def(void) {
     strcpy(g_npc_defs[0].name, "Facing test");
 }
 
-static void test_spawn_has_no_fake_target_facing(void) {
+static void test_spawn_uses_explicit_direction(void) {
     seed_facing_npc_def();
     RcWorld *world = facing_world();
     int idx = rc_npc_spawn(world, 0, 3200, 3200, 0);
     assert(idx >= 0);
     RcNpc *npc = &world->npcs[idx];
     assert(npc->facing_entity == -1);
-    assert(npc->facing_x == -1);
-    assert(npc->facing_y == -1);
+    assert(npc->facing_x == 3200);
+    assert(npc->facing_y == 3199);
     rc_world_destroy(world);
 }
 
@@ -61,6 +62,7 @@ static void test_wander_keeps_last_move_direction(void) {
     RcNpc *npc = &world->npcs[idx];
 
     rc_npc_tick(world, npc);
+    rc_npc_movement_tick(world, npc);
 
     assert(npc->x == 3201);
     assert(npc->y == 3200);
@@ -77,17 +79,24 @@ static void test_repeated_wander_moves_from_current_tile(void) {
     assert(idx >= 0);
     RcNpc *npc = &world->npcs[idx];
 
-    rc_npc_tick(world, npc);
-    assert(npc->x == 3201);
-    assert(npc->y == 3200);
-
-    for (int i = 0; i < 7; i++)
+    int moved = 0;
+    for (int i = 0; i < 8; i++) {
+        int before_x = npc->x;
+        int before_y = npc->y;
         rc_npc_tick(world, npc);
-
-    assert(npc->prev_x == 3201);
-    assert(npc->prev_y == 3200);
-    assert(npc->x == 3200);
-    assert(npc->y == 3201);
+        rc_npc_movement_tick(world, npc);
+        int dx = npc->x - before_x;
+        int dy = npc->y - before_y;
+        if (dx || dy) {
+            moved++;
+            assert(npc->facing_entity == -1);
+            assert(npc->facing_x == npc->x + dx);
+            assert(npc->facing_y == npc->y + dy);
+        }
+    }
+    assert(moved > 0);
+    assert(abs(npc->x - npc->spawn_x) <= npc->spawn_wander_range);
+    assert(abs(npc->y - npc->spawn_y) <= npc->spawn_wander_range);
     rc_world_destroy(world);
 }
 
@@ -104,6 +113,7 @@ static void test_idle_return_walks_instead_of_snapping(void) {
     npc->wander_timer = 499;
 
     rc_npc_tick(world, npc);
+    rc_npc_movement_tick(world, npc);
 
     assert(npc->prev_x == 3203);
     assert(npc->prev_y == 3200);
@@ -116,7 +126,7 @@ static void test_idle_return_walks_instead_of_snapping(void) {
 }
 
 int main(void) {
-    test_spawn_has_no_fake_target_facing();
+    test_spawn_uses_explicit_direction();
     test_wander_keeps_last_move_direction();
     test_repeated_wander_moves_from_current_tile();
     test_idle_return_walks_instead_of_snapping();

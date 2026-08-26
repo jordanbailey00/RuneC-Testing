@@ -12,8 +12,9 @@ source rows: 24110
 unresolved required activity markers: 0
 
 installed files:
-  - data/spawns/world.npc-spawns.indexed.bin bytes=1006524 sha256=c8935413cf452d0088fe371aea240d6ff36ea151a7d81f0f594347af038105c0
+  - data/spawns/world.npc-spawns.indexed.bin bytes=1006524 sha256=6948070c8a50cc9ca789aaa661204aec4d7a205fb32153039660502ebe073700
 
 accepted simplifications:
   - this first-release bridge preserves the reviewed runtime snapshot while semantic source tables are normalized later
   - no external checkout, wiki cache, private-server source, or wrong-game source is read during rebuild
+  - placement direction and wander use conservative south-facing and stationary values pending source review
