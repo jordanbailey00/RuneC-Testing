@@ -31,11 +31,11 @@ NPCLIST = DATA_OSRS / "NPCList_OSRS.json"
 OUT = ROOT / "data"
 REPORTS = ROOT / "tools/reports"
 
-# NPCList_OSRS does not carry direction or wander range. These are explicit,
-# conservative placement values: south-facing and stationary. Reviewed content
-# can replace either value without changing the runtime contract.
+# NPCList_OSRS does not carry direction or wander range. Direction remains a
+# conservative south-facing value; 255 explicitly inherits the definition's
+# reviewed/default wander policy while preserving zero for stationary spawns.
 DEFAULT_DIRECTION = 6
-DEFAULT_WANDER = 0
+DEFAULT_WANDER = 255
 
 
 def load_npclist() -> list[dict]:

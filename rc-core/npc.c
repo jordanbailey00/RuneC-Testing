@@ -189,7 +189,7 @@ int rc_load_npc_defs_into(const char *path, RcNpcDef *defs, int max_defs,
         d->combat_level = cl;
         d->hitpoints = hp;
         for (int j = 0; j < 6; j++) d->stats[j] = stats[j];
-        d->wander_range = version < NDEF_V5 ? 5 : 0;
+        d->wander_range = 5;
         d->respawn_ticks = 25;
         d->regen_ticks = version < NDEF_V5 ? 0 : 100;
         d->transform_varbit = -1;
@@ -612,7 +612,8 @@ static int load_npc_spawns_filtered(RcWorld *world, const char *path,
         }
         RcNpcSpawnConfig config = {
             .spawn_key = rc_spawn_index_record_key(path, source_order, 0),
-            .wander_range = wander_range,
+            .wander_range = wander_range == RC_NPC_SPAWN_WANDER_USE_DEF
+                          ? -1 : wander_range,
             .direction = direction,
             .flags = rc_npc_def_get(def_idx)->respawn_ticks > 0
                    ? RC_NPC_SPAWN_RESPAWNS : 0,

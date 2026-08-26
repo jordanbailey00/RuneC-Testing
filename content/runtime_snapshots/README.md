@@ -20,9 +20,11 @@ v5 and makes NSPI placement policy explicit. The deterministic migration keeps
 each prior v4 row prefix and reviewed gameplay value, adds transform metadata
 from RuneC's B237 cache, and serializes the legacy respawn, regeneration, and
 aggression behavior as policy rather than loader defaults. The available spawn
-source does not establish exact direction or wander values, so all current
-static placements use conservative south-facing and stationary values. Those
-values are an accepted bridge for later content reconciliation, not a claim of
+source does not establish exact direction or per-placement wander values, so
+current static placements use conservative south-facing direction and an
+explicit marker that inherits the definition's five-tile OSRS server default.
+Zero remains available for reviewed stationary definitions or placements.
+These values are a bridge for later content reconciliation, not a claim of
 exact per-placement B237 behavior.
 
 Do not add new snapshots casually. Prefer b237/cache-derived exporters or

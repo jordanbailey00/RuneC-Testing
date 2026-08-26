@@ -322,7 +322,7 @@ DEF_REBUILD_SPECS = (
                 "data/spawns/world.npc-spawns.indexed.bin",
             ),
         ),
-        authority="tracked RuneC-owned reviewed runtime snapshot; direction/wander simplification accepted for first release",
+        authority="tracked RuneC-owned reviewed runtime snapshot; direction is conservative and unspecified wander inherits definition policy",
     ),
     RuntimeOutputSpec(
         dataset="varbits_varps",

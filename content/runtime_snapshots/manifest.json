@@ -40,7 +40,7 @@
     {
       "bytes": 2254713,
       "path": "data/defs/npc_defs.bin",
-      "sha256": "718705383226b92fc9119be70cc12aa3199e9b3ce83a1ee7522718ae53f0e146"
+      "sha256": "71beacb80ce0c836ab42f60bd5471631feb15c0a1540cdab2a4fcbb30cb19195"
     },
     {
       "bytes": 228996,
@@ -105,7 +105,7 @@
     {
       "bytes": 1006524,
       "path": "data/spawns/world.npc-spawns.indexed.bin",
-      "sha256": "6948070c8a50cc9ca789aaa661204aec4d7a205fb32153039660502ebe073700"
+      "sha256": "4c3eb2ceefc46550e29e4e91d7847ceebabda082f61c4b708b3e133725de2136"
     }
   ],
   "format": "runec-runtime-snapshot-manifest-v1"

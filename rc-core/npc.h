@@ -5,6 +5,7 @@
 
 #define RC_NPC_OPTION_COUNT 5
 #define RC_NPC_OPTION_LEN 32
+#define RC_NPC_SPAWN_WANDER_USE_DEF 255
 
 typedef enum {
     RC_NPC_HUNT_NONE = 0,

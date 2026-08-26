@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
 import spawn_index
+import migrate_npc_runtime_foundation as npc_migration
 
 
 class SpawnIndexTests(unittest.TestCase):
@@ -31,6 +32,38 @@ class SpawnIndexTests(unittest.TestCase):
             self.assertEqual(header[3], 4 + spawn_index.NPC_PAYLOAD.size)
             self.assertEqual(header[4], 2)
             self.assertEqual(header[5:9], (1, 1, 1, 0))
+
+    def test_npc_migration_repairs_only_missing_wander_policy(self) -> None:
+        rows = [
+            (10, 3200, 3456, 0, 2, 0, 0),
+            (11, 3201, 3456, 0, 4, 7, 0),
+        ]
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.bin"
+            repaired = root / "repaired.bin"
+            preserved = root / "preserved.bin"
+            spawn_index.write_npc_spawns(source, rows)
+
+            npc_migration.write_spawns(source, repaired, True)
+            self.assertEqual(
+                spawn_index.read_npc_spawns(repaired),
+                [
+                    (10, 3200, 3456, 0, 6, 255, 0),
+                    (11, 3201, 3456, 0, 6, 255, 0),
+                ],
+            )
+
+            npc_migration.write_spawns(source, preserved, False)
+            self.assertEqual(spawn_index.read_npc_spawns(preserved), rows)
+
+        policy = (0, 25, 100, 0, 0, 0, 0, 0, 0, -1, -1)
+        row = npc_migration.NpcRow(10, b"", False, 0, policy)
+        self.assertEqual(npc_migration.derived_policy(row, False), policy)
+        self.assertEqual(
+            npc_migration.derived_policy(row, True)[0],
+            npc_migration.DEFAULT_WANDER_RANGE,
+        )
 
     def test_ground_items_round_trip(self) -> None:
         rows = [

@@ -133,7 +133,7 @@ def blank_def(npc_id: int) -> dict[str, Any]:
         "attack_anim": -1,
         "death_anim": -1,
         "aggressive": False,
-        "wander_range": 0,
+        "wander_range": 5,
         "respawn_ticks": 25,
         "regen_ticks": 100,
         "transform_varbit": -1,

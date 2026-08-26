@@ -11,5 +11,5 @@ runtime output: data/spawns/world.npc-spawns.indexed.bin
 
 accepted simplifications:
   - the reviewed source does not establish exact placement direction or wander policy
-  - current rows explicitly use conservative south-facing and stationary values pending content reconciliation
+  - current rows use conservative south-facing direction and inherit definition wander policy pending content reconciliation
   - mapsquare indexing preserves source rows and source ordering

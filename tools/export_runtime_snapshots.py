@@ -152,7 +152,7 @@ def write_reports(installed: list[dict[str, Any]]) -> None:
             )
         elif report_name == "spawn_sources.txt":
             lines.append(
-                "  - placement direction and wander use conservative south-facing and stationary values pending source review"
+                "  - placement direction is conservatively south-facing; unspecified wander inherits the definition policy pending exact source review"
             )
         (REPORTS / report_name).write_text("\n".join(lines) + "\n")
 

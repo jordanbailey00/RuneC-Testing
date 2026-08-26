@@ -27,7 +27,9 @@ HUNT_CHECK_NOT_BUSY = 1 << 0
 HUNT_KEEP_HUNTING = 1 << 1
 DEFAULT_RESPAWN_TICKS = 25
 DEFAULT_REGEN_TICKS = 100
+DEFAULT_WANDER_RANGE = 5
 DEFAULT_SPAWN_DIRECTION = 6
+SPAWN_WANDER_USE_DEF = 255
 
 
 @dataclass(frozen=True)
@@ -104,14 +106,18 @@ def cache_transforms(cache: Path) -> dict[int, tuple[int, int, list[int]]]:
     return result
 
 
-def derived_policy(row: NpcRow) -> tuple[int, ...]:
+def derived_policy(row: NpcRow, repair_missing_wander: bool) -> tuple[int, ...]:
     if row.policy is not None:
-        return row.policy
+        policy = list(row.policy)
+        if repair_missing_wander:
+            policy[0] = DEFAULT_WANDER_RANGE
+        return tuple(policy)
     if not row.aggressive:
-        return (0, DEFAULT_RESPAWN_TICKS, DEFAULT_REGEN_TICKS,
+        return (DEFAULT_WANDER_RANGE, DEFAULT_RESPAWN_TICKS,
+                DEFAULT_REGEN_TICKS,
                 0, 0, 0, 0, 0, 0, -1, -1)
     return (
-        0,
+        DEFAULT_WANDER_RANGE,
         DEFAULT_RESPAWN_TICKS,
         DEFAULT_REGEN_TICKS,
         HUNT_PLAYER,
@@ -125,14 +131,18 @@ def derived_policy(row: NpcRow) -> tuple[int, ...]:
     )
 
 
-def write_ndef(source: Path, output: Path, cache: Path) -> None:
+def write_ndef(source: Path, output: Path, cache: Path) -> bool:
     rows = read_rows(source)
+    repair_missing_wander = bool(rows) and (
+        all(row.policy is None for row in rows)
+        or all(row.policy is not None and row.policy[0] == 0 for row in rows)
+    )
     transforms_by_id = cache_transforms(cache)
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("wb") as handle:
         handle.write(struct.pack("<III", NDEF_MAGIC, NDEF_V5, len(rows)))
         for row in rows:
-            policy = list(derived_policy(row))
+            policy = list(derived_policy(row, repair_missing_wander))
             varbit, varp, transforms = transforms_by_id.get(
                 row.npc_id, (policy[9], policy[10], [])
             )
@@ -147,13 +157,17 @@ def write_ndef(source: Path, output: Path, cache: Path) -> None:
                                      len(transforms)))
             for transform in transforms:
                 handle.write(struct.pack("<i", transform))
+    return repair_missing_wander
 
 
-def write_spawns(source: Path, output: Path) -> None:
+def write_spawns(source: Path, output: Path,
+                 repair_missing_wander: bool) -> None:
     rows = read_npc_spawns(source)
     normalized = [
-        (npc_id, x, y, plane, DEFAULT_SPAWN_DIRECTION, wander, flags)
-        for npc_id, x, y, plane, _direction, wander, flags in rows
+        (npc_id, x, y, plane,
+         DEFAULT_SPAWN_DIRECTION if repair_missing_wander else direction,
+         SPAWN_WANDER_USE_DEF if repair_missing_wander else wander, flags)
+        for npc_id, x, y, plane, direction, wander, flags in rows
     ]
     write_npc_spawns(output, normalized)
 
@@ -166,8 +180,10 @@ def main() -> int:
     parser.add_argument("--spawn-source", type=Path, required=True)
     parser.add_argument("--spawn-output", type=Path, required=True)
     args = parser.parse_args()
-    write_ndef(args.npc_source, args.npc_output, args.cache)
-    write_spawns(args.spawn_source, args.spawn_output)
+    repair_missing_wander = write_ndef(
+        args.npc_source, args.npc_output, args.cache
+    )
+    write_spawns(args.spawn_source, args.spawn_output, repair_missing_wander)
     print(f"wrote NDEF v5 to {args.npc_output}")
     print(f"wrote explicit spawn policy to {args.spawn_output}")
     return 0
