@@ -7,6 +7,7 @@
 #include "interaction.h"
 #include "items.h"
 #include "npc.h"
+#include "object_runtime.h"
 #include "skills.h"
 #include "traversal.h"
 
@@ -106,10 +107,10 @@ void rc_player_set_autocast_spell(RcWorld *world, int spell_idx,
                                   int defensive);
 void rc_player_eat(RcWorld *world, int inv_slot);
 void rc_player_drink(RcWorld *world, int inv_slot);
-int  rc_player_move_inventory_item(RcWorld *world, int from_slot,
-                                   int to_slot);
-void rc_player_equip(RcWorld *world, int inv_slot);
-void rc_player_unequip(RcWorld *world, int equip_slot);
+RcItemActionResult rc_player_move_inventory_item(RcWorld *world,
+                                                 int from_slot, int to_slot);
+RcItemActionResult rc_player_equip(RcWorld *world, int inv_slot);
+RcItemActionResult rc_player_unequip(RcWorld *world, int equip_slot);
 void rc_player_interact_npc(RcWorld *world, int npc_uid, int option);
 void rc_player_interact_object(RcWorld *world, int obj_id, int option);
 int  rc_player_interact_object_at(RcWorld *world, int obj_id, int x, int y,
@@ -158,6 +159,9 @@ int  rc_world_object_active_state(const RcWorld *world, int obj_id, int x,
 int  rc_world_object_active_state_by_key(const RcWorld *world,
                                          uint64_t placement_key,
                                          RcObjectState *out);
+int  rc_world_object_option_supported(const RcWorld *world, int obj_id,
+                                      int x, int y, int plane,
+                                      uint64_t placement_key, int option);
 int  rc_player_open_storage_object(RcWorld *world, int obj_id, int option);
 int  rc_player_open_storage_npc(RcWorld *world, int npc_uid, int option);
 int  rc_player_close_storage(RcWorld *world);
@@ -167,8 +171,8 @@ int  rc_bank_deposit_slot(RcWorld *world, int inv_slot, int quantity);
 int  rc_bank_withdraw_slot(RcWorld *world, int bank_slot, int quantity);
 int  rc_player_apply_traversal(RcWorld *world, const RcTraversalEdge *edge);
 int  rc_player_apply_recipe(RcWorld *world, const RcRecipe *recipe);
-void rc_player_drop_item(RcWorld *world, int inv_slot);
-void rc_player_pickup_item(RcWorld *world, int ground_item_idx);
+RcItemActionResult rc_player_drop_item(RcWorld *world, int inv_slot);
+RcItemActionResult rc_player_pickup_item(RcWorld *world, int ground_item_idx);
 
 // State read (frontend reads, never writes)
 const RcPlayer *rc_get_player(const RcWorld *world);

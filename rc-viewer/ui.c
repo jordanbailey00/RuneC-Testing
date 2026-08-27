@@ -1001,6 +1001,17 @@ static void set_context_action_op(RuneCUiState *ui, int action_index, int op) {
     ui->context_action_op[action_index] = op;
 }
 
+static void set_item_slot_context(RuneCUiState *ui, Vector2 pos,
+                                  const RuneCUiSlot *slot) {
+    const char *actions[RUNEC_UI_ITEM_ACTIONS];
+    int count = slot ? slot->action_count : 0;
+    if (count > RUNEC_UI_ITEM_ACTIONS) count = RUNEC_UI_ITEM_ACTIONS;
+    for (int i = 0; i < count; i++) actions[i] = slot->actions[i];
+    set_context(ui, pos, slot ? slot->label : "Item", actions, count);
+    for (int i = 0; slot && i < count; i++)
+        set_context_action_op(ui, i, slot->action_ops[i]);
+}
+
 void runec_ui_open_context(RuneCUiState *ui, Vector2 pos, const char *title,
                            const char **actions, int action_count) {
     if (!ui || !actions || action_count <= 0)
@@ -1651,12 +1662,12 @@ static int handle_context_click(RuneCUiState *ui, Vector2 mouse) {
                 } else {
                     ui->last_intent.kind = RUNEC_UI_INTENT_INVENTORY_ACTION;
                     ui->last_intent.primary = ui->context_source_slot;
-                    ui->last_intent.secondary = i;
+                    ui->last_intent.secondary = op;
                 }
             } else if (ui->context_source_kind == RUNEC_UI_CONTEXT_EQUIPMENT) {
                 ui->last_intent.kind = RUNEC_UI_INTENT_EQUIPMENT_ACTION;
                 ui->last_intent.primary = ui->context_source_slot;
-                ui->last_intent.secondary = i;
+                ui->last_intent.secondary = op;
             } else if (ui->context_source_kind == RUNEC_UI_CONTEXT_PRAYER) {
                 if (strcmp(action, "Activate") == 0) {
                     ui->last_intent.kind = RUNEC_UI_INTENT_PRAYER_SLOT;
@@ -3061,13 +3072,12 @@ int runec_ui_handle_input(RuneCUiState *ui, int screen_w, int screen_h) {
         if (ui->active_tab == RUNEC_UI_TAB_INVENTORY) {
             int slot = ui_inventory_slot_at(ui, &layout, mouse);
             if (slot >= 0) {
-                static const char *actions[] = {"Use", "Examine", "Drop"};
                 static const char *empty_actions[] = {"Cancel"};
                 const char *title = ui->inventory[slot].enabled
                     ? ui->inventory[slot].label
                     : "Empty inventory slot";
                 if (ui->inventory[slot].enabled) {
-                    set_context(ui, mouse, title, actions, 3);
+                    set_item_slot_context(ui, mouse, &ui->inventory[slot]);
                     set_context_source(ui, RUNEC_UI_CONTEXT_INVENTORY, slot,
                                        ui->inventory[slot].item_id);
                 } else {
@@ -3079,8 +3089,13 @@ int runec_ui_handle_input(RuneCUiState *ui, int screen_w, int screen_h) {
         if (ui->active_tab == RUNEC_UI_TAB_EQUIPMENT) {
             int slot = ui_equipment_slot_at(ui, &layout, mouse);
             if (slot >= 0) {
-                static const char *actions[] = {"Remove", "Examine"};
-                set_context(ui, mouse, g_equipment_names[slot], actions, 2);
+                if (ui->equipment[slot].enabled)
+                    set_item_slot_context(ui, mouse, &ui->equipment[slot]);
+                else {
+                    static const char *empty_actions[] = {"Cancel"};
+                    set_context(ui, mouse, g_equipment_names[slot],
+                                empty_actions, 1);
+                }
                 set_context_source(ui, RUNEC_UI_CONTEXT_EQUIPMENT, slot,
                                    ui->equipment[slot].item_id);
                 return 1;

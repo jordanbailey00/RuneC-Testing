@@ -6,6 +6,7 @@
 #include "player_actions.h"
 #include "player_command.h"
 
+#include <limits.h>
 #include <string.h>
 
 static int has_word(const char *s, const char *word) {
@@ -126,10 +127,12 @@ static int unnoted_item_id(int item_id) {
 }
 
 static int bank_add_global(RcInvSlot *bank, uint8_t *tabs,
-                           int item_id, int quantity, int new_tab) {
+                           int item_id, int quantity, uint32_t state_id,
+                           int new_tab) {
     item_id = unnoted_item_id(item_id);
     for (int i = 0; i < RC_BANK_SIZE; i++) {
-        if (bank[i].item_id == item_id) {
+        if (bank[i].item_id == item_id && bank[i].state_id == state_id) {
+            if (bank[i].quantity > INT_MAX - quantity) return -1;
             bank[i].quantity += quantity;
             return i;
         }
@@ -138,6 +141,7 @@ static int bank_add_global(RcInvSlot *bank, uint8_t *tabs,
         if (bank[i].item_id == -1) {
             bank[i].item_id = item_id;
             bank[i].quantity = quantity;
+            bank[i].state_id = state_id;
             if (tabs) tabs[i] = (uint8_t)(new_tab < 0 ? 0 : new_tab);
             return i;
         }
@@ -146,11 +150,14 @@ static int bank_add_global(RcInvSlot *bank, uint8_t *tabs,
 }
 
 static int bank_add_tabbed(RcInvSlot *bank, uint8_t *tabs,
-                           int item_id, int quantity, int tab) {
+                           int item_id, int quantity, uint32_t state_id,
+                           int tab) {
     item_id = unnoted_item_id(item_id);
     if (tab < 0) tab = 0;
     for (int i = 0; i < RC_BANK_SIZE; i++) {
-        if (bank[i].item_id == item_id && tabs && tabs[i] == (uint8_t)tab) {
+        if (bank[i].item_id == item_id && bank[i].state_id == state_id
+                && tabs && tabs[i] == (uint8_t)tab) {
+            if (bank[i].quantity > INT_MAX - quantity) return -1;
             bank[i].quantity += quantity;
             return i;
         }
@@ -159,6 +166,7 @@ static int bank_add_tabbed(RcInvSlot *bank, uint8_t *tabs,
         if (bank[i].item_id == -1) {
             bank[i].item_id = item_id;
             bank[i].quantity = quantity;
+            bank[i].state_id = state_id;
             if (tabs) tabs[i] = (uint8_t)tab;
             return i;
         }
@@ -171,8 +179,10 @@ int rc_bank_add_item(RcWorld *world, int item_id, int quantity) {
             quantity <= 0) {
         return -1;
     }
-    return bank_add_global(world->player.bank, world->player.bank_tab,
-                           item_id, quantity, 0);
+    int slot = bank_add_global(world->player.bank, world->player.bank_tab,
+                               item_id, quantity, 0, 0);
+    if (slot >= 0) world->player.bank_revision++;
+    return slot;
 }
 
 int rc_bank_add_item_tab(RcWorld *world, int item_id, int quantity, int tab) {
@@ -180,13 +190,20 @@ int rc_bank_add_item_tab(RcWorld *world, int item_id, int quantity, int tab) {
             quantity <= 0) {
         return -1;
     }
-    return bank_add_tabbed(world->player.bank, world->player.bank_tab,
-                           item_id, quantity, tab);
+    int slot = bank_add_tabbed(world->player.bank, world->player.bank_tab,
+                               item_id, quantity, 0, tab);
+    if (slot >= 0) world->player.bank_revision++;
+    return slot;
 }
 
 int rc_bank_deposit_slot(RcWorld *world, int inv_slot, int quantity) {
     if (rc_player_command_should_queue(world)) {
-        int args[8] = {inv_slot, quantity, 0, 0, 0, 0, 0, 0};
+        uint32_t generation = world && inv_slot >= 0
+                            && inv_slot < RC_INVENTORY_SIZE
+                            ? world->player.inventory[inv_slot].generation : 0;
+        int args[8] = {
+            inv_slot, quantity, (int)generation, 0, 0, 0, 0, 0
+        };
         return rc_player_command_submit(world, RC_PLAYER_COMMAND_BANK_DEPOSIT,
                                         RC_ACTION_CATEGORY_BACKGROUND,
                                         args, 0);
@@ -197,20 +214,42 @@ int rc_bank_deposit_slot(RcWorld *world, int inv_slot, int quantity) {
         return -1;
     }
     if (inv_slot < 0 || inv_slot >= RC_INVENTORY_SIZE) return -1;
-    RcInvSlot *slot = &world->player.inventory[inv_slot];
-    if (slot->item_id < 0 || slot->quantity <= 0) return -1;
-    int move = quantity <= 0 || quantity > slot->quantity
-             ? slot->quantity : quantity;
-    if (bank_add_global(world->player.bank, world->player.bank_tab,
-                        slot->item_id, move, 0) < 0) return -1;
-    slot->quantity -= move;
-    if (slot->quantity == 0) slot->item_id = -1;
+    RcInvSlot item = world->player.inventory[inv_slot];
+    if (item.item_id < 0 || item.quantity <= 0) return -1;
+    int move = quantity <= 0 || quantity > item.quantity
+             ? item.quantity : quantity;
+    RcInvSlot staged_bank[RC_BANK_SIZE];
+    uint8_t staged_tabs[RC_BANK_SIZE];
+    memcpy(staged_bank, world->player.bank, sizeof(staged_bank));
+    memcpy(staged_tabs, world->player.bank_tab, sizeof(staged_tabs));
+    if (bank_add_global(staged_bank, staged_tabs, item.item_id, move,
+                        item.state_id, 0) < 0) {
+        return -1;
+    }
+    RcItemTransaction tx;
+    RcItemActionResult result = rc_item_tx_begin(&tx, world);
+    if (result.code == RC_ITEM_RESULT_OK) {
+        result = rc_item_tx_remove_slot(
+            &tx, inv_slot, move, item.generation);
+    }
+    if (result.code != RC_ITEM_RESULT_OK
+            || rc_item_tx_commit(&tx).code != RC_ITEM_RESULT_OK) {
+        return -1;
+    }
+    memcpy(world->player.bank, staged_bank, sizeof(staged_bank));
+    memcpy(world->player.bank_tab, staged_tabs, sizeof(staged_tabs));
+    world->player.bank_revision++;
     return move;
 }
 
 int rc_bank_withdraw_slot(RcWorld *world, int bank_slot, int quantity) {
     if (rc_player_command_should_queue(world)) {
-        int args[8] = {bank_slot, quantity, 0, 0, 0, 0, 0, 0};
+        uint32_t revision = world ? world->player.bank_revision : 0;
+        int item_id = world && bank_slot >= 0 && bank_slot < RC_BANK_SIZE
+                    ? world->player.bank[bank_slot].item_id : -1;
+        int args[8] = {
+            bank_slot, quantity, (int)revision, item_id, 0, 0, 0, 0
+        };
         return rc_player_command_submit(world,
                                         RC_PLAYER_COMMAND_BANK_WITHDRAW,
                                         RC_ACTION_CATEGORY_BACKGROUND,
@@ -222,26 +261,33 @@ int rc_bank_withdraw_slot(RcWorld *world, int bank_slot, int quantity) {
         return -1;
     }
     if (bank_slot < 0 || bank_slot >= RC_BANK_SIZE) return -1;
-    RcInvSlot *slot = &world->player.bank[bank_slot];
-    if (slot->item_id < 0 || slot->quantity <= 0) return -1;
-    int move = quantity <= 0 || quantity > slot->quantity
-             ? slot->quantity : quantity;
-    const RcItemDef *def = rc_item_def_get(slot->item_id);
-    int moved = 0;
-    if (def && def->stackable) {
-        moved = rc_inv_add(world->player.inventory, slot->item_id, move) >= 0
-              ? move : 0;
-    } else {
-        while (moved < move &&
-               rc_inv_add(world->player.inventory, slot->item_id, 1) >= 0) {
-            moved++;
+    RcInvSlot item = world->player.bank[bank_slot];
+    if (item.item_id < 0 || item.quantity <= 0) return -1;
+    int move = quantity <= 0 || quantity > item.quantity
+             ? item.quantity : quantity;
+    const RcItemDef *def = rc_item_def_get(item.item_id);
+    if (!def) return -1;
+    if (!def->stackable) {
+        int free_slots = 0;
+        for (int i = 0; i < RC_INVENTORY_SIZE; i++) {
+            if (world->player.inventory[i].item_id < 0) free_slots++;
         }
+        if (move > free_slots) move = free_slots;
     }
-    if (!moved) return -1;
-    slot->quantity -= moved;
-    if (slot->quantity == 0) {
-        slot->item_id = -1;
-        world->player.bank_tab[bank_slot] = 0;
-    }
-    return moved;
+    if (move <= 0) return -1;
+
+    RcItemTransaction tx;
+    RcItemActionResult result = rc_item_tx_begin(&tx, world);
+    if (result.code == RC_ITEM_RESULT_OK)
+        result = rc_item_tx_add(&tx, item.item_id, move, item.state_id);
+    if (result.code != RC_ITEM_RESULT_OK) return -1;
+
+    RcInvSlot staged = item;
+    staged.quantity -= move;
+    if (staged.quantity == 0) staged = (RcInvSlot){.item_id = -1};
+    if (rc_item_tx_commit(&tx).code != RC_ITEM_RESULT_OK) return -1;
+    world->player.bank[bank_slot] = staged;
+    if (staged.item_id < 0) world->player.bank_tab[bank_slot] = 0;
+    world->player.bank_revision++;
+    return move;
 }

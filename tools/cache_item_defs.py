@@ -30,6 +30,7 @@ def item_def_to_dict(defn: ItemDef) -> dict[str, Any]:
     return {
         "id": defn.item_id,
         "name": defn.name or "null",
+        "examine": defn.examine,
         "members": defn.members,
         "tradeable": defn.tradeable,
         "stackable": defn.stackable,

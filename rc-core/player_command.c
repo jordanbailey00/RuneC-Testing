@@ -3,6 +3,7 @@
 #include "api.h"
 #include "combat.h"
 #include "interaction.h"
+#include "items.h"
 #include "pathfinding.h"
 #include "skills.h"
 #include "storage.h"
@@ -125,6 +126,46 @@ static void set_action(RcWorld *world, RcPlayerActionOwner owner,
     action->ready_tick = ready_tick;
 }
 
+static int reject_stale_item_command(RcWorld *world, int slot,
+                                     int equipment) {
+    int item_id = -1;
+    if (world) {
+        if (equipment && slot >= 0 && slot < RC_EQUIP_COUNT)
+            item_id = world->player.equipment[slot].item_id;
+        else if (!equipment && slot >= 0 && slot < RC_INVENTORY_SIZE)
+            item_id = world->player.inventory[slot].item_id;
+        world->player.last_item_action = (RcItemActionResult){
+            .code = RC_ITEM_RESULT_STALE,
+            .item_id = item_id,
+            .slot = slot,
+            .required_skill = -1,
+        };
+    }
+    return 0;
+}
+
+static int inventory_reference_matches(RcWorld *world, int slot,
+                                       uint32_t generation) {
+    if (!world || slot < 0 || slot >= RC_INVENTORY_SIZE
+            || world->player.inventory[slot].item_id < 0
+            || world->player.inventory[slot].quantity <= 0
+            || world->player.inventory[slot].generation != generation) {
+        return reject_stale_item_command(world, slot, 0);
+    }
+    return 1;
+}
+
+static int equipment_reference_matches(RcWorld *world, int slot,
+                                       uint32_t generation) {
+    if (!world || slot < 0 || slot >= RC_EQUIP_COUNT
+            || world->player.equipment[slot].item_id < 0
+            || world->player.equipment[slot].quantity <= 0
+            || world->player.equipment[slot].generation != generation) {
+        return reject_stale_item_command(world, slot, 1);
+    }
+    return 1;
+}
+
 void rc_player_action_refresh(RcWorld *world) {
     if (!world) return;
     RcPlayer *player = &world->player;
@@ -194,37 +235,65 @@ static int execute_command(RcWorld *world, const RcPlayerCommand *command) {
     case RC_PLAYER_COMMAND_SET_AUTOCAST:
         rc_player_set_autocast_spell(world, a[0], a[1]); return 1;
     case RC_PLAYER_COMMAND_MOVE_INVENTORY:
-        return rc_player_move_inventory_item(world, a[0], a[1]);
+        return rc_item_result_accepted(
+            rc_player_move_inventory_item_expected(
+                world, a[0], a[1], (uint32_t)a[2]));
     case RC_PLAYER_COMMAND_EQUIP:
-        rc_player_equip(world, a[0]); return 1;
+        return rc_item_result_accepted(
+            rc_player_equip_expected(world, a[0], (uint32_t)a[1]));
     case RC_PLAYER_COMMAND_UNEQUIP:
-        rc_player_unequip(world, a[0]); return 1;
+        return rc_item_result_accepted(
+            rc_player_unequip_expected(world, a[0], (uint32_t)a[1]));
     case RC_PLAYER_COMMAND_INTERACT_NPC:
         rc_player_interact_npc(world, a[0], a[1]); return 1;
     case RC_PLAYER_COMMAND_INTERACT_OBJECT:
         return rc_player_interact_object_placement(
             world, a[0], a[1], a[2], a[3], command->key, a[4]);
     case RC_PLAYER_COMMAND_INTERACT_INVENTORY:
+        if (!inventory_reference_matches(world, a[0], (uint32_t)a[2]))
+            return 0;
         return rc_player_interact_inventory_item(world, a[0], a[1]);
     case RC_PLAYER_COMMAND_INTERACT_EQUIPMENT:
+        if (!equipment_reference_matches(world, a[0], (uint32_t)a[2]))
+            return 0;
         return rc_player_interact_equipment_item(world, a[0], a[1]);
     case RC_PLAYER_COMMAND_WIDGET_ACTION:
         return rc_player_widget_action(world, a[0], a[1], a[2]);
     case RC_PLAYER_COMMAND_USE_ITEM_ON_NPC:
+        if (!inventory_reference_matches(world, a[0], (uint32_t)a[2]))
+            return 0;
         return rc_player_use_inventory_item_on_npc(world, a[0], a[1]);
     case RC_PLAYER_COMMAND_USE_ITEM_ON_ITEM:
+        if (!inventory_reference_matches(world, a[0], (uint32_t)a[2])
+                || !inventory_reference_matches(world, a[1],
+                                                 (uint32_t)a[3])) {
+            return 0;
+        }
         return rc_player_use_inventory_item_on_inventory_item(
             world, a[0], a[1]);
     case RC_PLAYER_COMMAND_USE_ITEM_ON_OBJECT:
+        if (!inventory_reference_matches(world, a[0], (uint32_t)a[5]))
+            return 0;
         return rc_player_use_inventory_item_on_object_placement(
             world, a[0], a[1], a[2], a[3], a[4], command->key);
     case RC_PLAYER_COMMAND_USE_ITEM_ON_GROUND:
+        if (!inventory_reference_matches(world, a[0], (uint32_t)a[2]))
+            return 0;
+        if (a[1] < 0 || a[1] >= world->ground_item_count
+                || world->ground_items[a[1]].uid != a[3]
+                || world->ground_items[a[1]].version != a[4]) {
+            return reject_stale_item_command(world, a[0], 0);
+        }
         return rc_player_use_inventory_item_on_ground_item(world, a[0], a[1]);
     case RC_PLAYER_COMMAND_USE_ITEM_ON_WIDGET:
+        if (!inventory_reference_matches(world, a[0], (uint32_t)a[3]))
+            return 0;
         return rc_player_use_inventory_item_on_widget(world, a[0], a[1], a[2]);
     case RC_PLAYER_COMMAND_CAST_ON_NPC:
         return rc_player_cast_spell_on_npc(world, a[0], a[1]);
     case RC_PLAYER_COMMAND_CAST_ON_ITEM:
+        if (!inventory_reference_matches(world, a[1], (uint32_t)a[2]))
+            return 0;
         return rc_player_cast_spell_on_inventory_item(world, a[0], a[1]);
     case RC_PLAYER_COMMAND_CAST_ON_OBJECT:
         return rc_player_cast_spell_on_object_placement(
@@ -240,8 +309,15 @@ static int execute_command(RcWorld *world, const RcPlayerCommand *command) {
     case RC_PLAYER_COMMAND_CLOSE_STORAGE:
         return rc_player_close_storage(world);
     case RC_PLAYER_COMMAND_BANK_DEPOSIT:
+        if (!inventory_reference_matches(world, a[0], (uint32_t)a[2]))
+            return 0;
         return rc_bank_deposit_slot(world, a[0], a[1]) >= 0;
     case RC_PLAYER_COMMAND_BANK_WITHDRAW:
+        if (!world || a[0] < 0 || a[0] >= RC_BANK_SIZE
+                || world->player.bank_revision != (uint32_t)a[2]
+                || world->player.bank[a[0]].item_id != a[3]) {
+            return reject_stale_item_command(world, a[0], 0);
+        }
         return rc_bank_withdraw_slot(world, a[0], a[1]) >= 0;
     case RC_PLAYER_COMMAND_APPLY_TRAVERSAL: {
         if (!(world->enabled & RC_SUB_TRAVERSAL)
@@ -267,9 +343,22 @@ static int execute_command(RcWorld *world, const RcPlayerCommand *command) {
         return recipe && rc_player_apply_recipe(world, recipe);
     }
     case RC_PLAYER_COMMAND_DROP_ITEM:
-        rc_player_drop_item(world, a[0]); return 1;
-    case RC_PLAYER_COMMAND_PICKUP_ITEM:
-        rc_player_pickup_item(world, a[0]); return 1;
+        return rc_item_result_accepted(
+            rc_player_drop_item_expected(world, a[0], (uint32_t)a[1]));
+    case RC_PLAYER_COMMAND_PICKUP_ITEM: {
+        if (a[0] < 0 || a[0] >= world->ground_item_count
+                || world->ground_items[a[0]].uid != a[1]
+                || world->ground_items[a[0]].version != a[2]) {
+            world->player.last_item_action = (RcItemActionResult){
+                .code = RC_ITEM_RESULT_STALE,
+                .item_id = -1,
+                .slot = a[0],
+                .required_skill = -1,
+            };
+            return 0;
+        }
+        return rc_item_result_accepted(rc_player_pickup_item(world, a[0]));
+    }
     default:
         return 0;
     }

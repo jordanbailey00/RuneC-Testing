@@ -3,8 +3,8 @@ format = "binary"
 path = "data/defs/items.bin"
 magic_label = "IDEF"
 magic_u32 = "0x49444546"
-current_version = 2
-accepted_versions = [1, 2]
+current_version = 3
+accepted_versions = [1, 2, 3]
 endianness = "little"
 header = ["u32 magic", "u32 version", "u32 count"]
 producer = "tools/export_items.py"
@@ -15,13 +15,15 @@ row_fields = [
   "record: u32 id",
   "record: u16 flags and u8 kind (v2); u8 flags only in v1",
   "record: pstr8 name",
-  "record: u16 weight_cg",
+  "record: i32 weight_grams (v3); u16 legacy weight (v1/v2)",
   "record: u32 highalch",
   "record: u32 lowalch",
   "record: u32 value",
   "record: u32 linked_id_item, linked_id_noted, linked_id_placeholder, buy_limit (v2)",
   "record: u32 wear_model_ids[7] (v2)",
-  "optional equipment block: u8 slot, u8 req_count, reqs, i16 bonuses[14]",
-  "optional weapon block: u8 attack_speed, u8 weapon_type, u8 stance_bits, stance names",
+  "record: u16 metadata_flags, i8 wearpos[3], u16 equip_conflicts (v3)",
+  "record: pstr8 inventory_actions[5], ground_actions[5], examine (v3)",
+  "optional equipment block: u8 slot, u8 req_count, u8 combat_level (v3), reqs, i16 bonuses[14]",
+  "optional weapon block: u8 attack_speed, u8 weapon_type, u8 stance_bits, i8 attack_range (v3), stance names",
 ]
-compatibility = "Loader accepts versions 1 and 2."
+compatibility = "Loader accepts versions 1, 2, and 3; current exports use v3."

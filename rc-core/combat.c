@@ -219,17 +219,14 @@ static void content_on_npc_hit_player(RcWorld *world, const RcPendingHit *hit,
     }
 }
 
-static int equipment_consume_one(RcPlayer *p, int slot) {
-    if (!p || slot < 0 || slot >= RC_EQUIP_COUNT) return 0;
-    RcInvSlot *item = &p->equipment[slot];
-    if (item->item_id < 0 || item->quantity <= 0) return 0;
-    item->quantity--;
-    if (item->quantity <= 0) {
-        item->item_id = -1;
-        item->quantity = 0;
-    }
-    rc_recalc_bonuses(p);
-    return 1;
+static int equipment_consume_one(RcWorld *world, int slot) {
+    if (!world || slot < 0 || slot >= RC_EQUIP_COUNT) return 0;
+    RcItemTransaction tx;
+    RcItemActionResult result = rc_item_tx_begin(&tx, world);
+    if (result.code == RC_ITEM_RESULT_OK)
+        result = rc_item_tx_remove_equipment(&tx, slot, 1, UINT32_MAX);
+    if (result.code == RC_ITEM_RESULT_OK) result = rc_item_tx_commit(&tx);
+    return result.code == RC_ITEM_RESULT_OK;
 }
 
 static int player_has_ranged_resource(const RcPlayer *p) {
@@ -244,15 +241,16 @@ static int player_has_ranged_resource(const RcPlayer *p) {
            p->equipment[EQUIP_AMMO].quantity > 0;
 }
 
-static int player_consume_ranged_resource(RcPlayer *p) {
+static int player_consume_ranged_resource(RcWorld *world) {
+    RcPlayer *p = world ? &world->player : NULL;
     if (!p || p->combat_style != COMBAT_RANGED) return 1;
     const RcInvSlot *weapon_slot = &p->equipment[EQUIP_WEAPON];
     const RcItemDef *weapon = rc_item_def_get(weapon_slot->item_id);
     if (weapon && weapon->stackable && weapon_slot->quantity > 0 &&
             weapon->equip_slot == EQUIP_WEAPON) {
-        return equipment_consume_one(p, EQUIP_WEAPON);
+        return equipment_consume_one(world, EQUIP_WEAPON);
     }
-    return equipment_consume_one(p, EQUIP_AMMO);
+    return equipment_consume_one(world, EQUIP_AMMO);
 }
 
 static int inventory_quantity(const RcInvSlot *inv, int item_id) {
@@ -289,21 +287,20 @@ static int content_player_has_spell_runes(const RcWorld *world,
     return fallback_player_has_spell_runes(p, spell);
 }
 
-static int fallback_player_consume_spell_runes(RcPlayer *p,
+static int fallback_player_consume_spell_runes(RcWorld *world,
                                                const RcSpellDef *spell) {
+    RcPlayer *p = world ? &world->player : NULL;
     if (!p || !spell || !fallback_player_has_spell_runes(p, spell)) return 0;
+    RcItemTransaction tx;
+    RcItemActionResult result = rc_item_tx_begin(&tx, world);
     for (int i = 0; i < spell->rune_count; i++) {
         int item_id = (int)spell->runes[i].item_id;
-        int left = (int)spell->runes[i].qty;
-        for (int slot = 0; slot < RC_INVENTORY_SIZE && left > 0; slot++) {
-            if (p->inventory[slot].item_id != item_id) continue;
-            int removed = rc_inv_remove_quantity(p->inventory, slot, left);
-            left -= removed;
-        }
-        if (left > 0) return 0;
+        int quantity = (int)spell->runes[i].qty;
+        if (quantity > 0 && result.code == RC_ITEM_RESULT_OK)
+            result = rc_item_tx_remove_item(&tx, item_id, quantity);
     }
-    rc_recalc_bonuses(p);
-    return 1;
+    if (result.code == RC_ITEM_RESULT_OK) result = rc_item_tx_commit(&tx);
+    return result.code == RC_ITEM_RESULT_OK;
 }
 
 static int content_player_consume_spell_runes(RcWorld *world, RcPlayer *p,
@@ -313,7 +310,7 @@ static int content_player_consume_spell_runes(RcWorld *world, RcPlayer *p,
         return world->combat_hooks.player_consume_spell_runes(world, p,
                                                               spell);
     }
-    return fallback_player_consume_spell_runes(p, spell);
+    return fallback_player_consume_spell_runes(world, spell);
 }
 
 static const RcSpellDef *player_selected_combat_spell(const RcPlayer *p) {
@@ -1396,7 +1393,7 @@ static void combat_tick_player_legacy(struct RcWorld *world) {
         timing_profile, rc_combat_hit_delay_for_style(p->combat_style));
 
     if (p->combat_style == COMBAT_RANGED &&
-            !player_consume_ranged_resource(p)) {
+            !player_consume_ranged_resource(world)) {
         return;
     }
     if (p->combat_style == COMBAT_MAGIC &&

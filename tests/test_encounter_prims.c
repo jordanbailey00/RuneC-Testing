@@ -51,6 +51,7 @@
 #include "runtime_test_fixture.h"
 
 #define RC_TEST_ENCOUNTERS_BIN RC_TEST_SOURCE_DIR "/data/defs/encounters.bin"
+#define RC_TEST_ITEMS_BIN RC_TEST_SOURCE_DIR "/data/defs/items.bin"
 
 static char g_npc_fixture_path[256];
 
@@ -423,12 +424,16 @@ int main(void) {
                                   g_npc_def_count));
 
     RcWorldConfig cfg = rc_preset_base_only();
-    cfg.subsystems = RC_SUB_COMBAT | RC_SUB_ENCOUNTER;
+    cfg.subsystems = RC_SUB_COMBAT | RC_SUB_ENCOUNTER
+                    | RC_SUB_INVENTORY | RC_SUB_EQUIPMENT;
     cfg.seed = 99;
     cfg.npc_defs_path = g_npc_fixture_path;
+    cfg.items_path = RC_TEST_ITEMS_BIN;
     cfg.encounters_path = RC_TEST_ENCOUNTERS_BIN;
     RcWorld *w = rc_world_create_config(&cfg);
     assert(w && (w->enabled & RC_SUB_ENCOUNTER));
+    install_item_stubs();
+    rc_item_use_defs(g_item_defs, g_item_def_count);
     assert(w->encounter.registry_count == 50);
     // Register OSRS content modules. Pattern for all callers — see
     // rc-content/README.md. Currently a no-op (modules are scaffolding)
@@ -743,9 +748,15 @@ int main(void) {
         }
     }
     assert(whirlpool != NULL);
+    assert(rc_encounter_object_option_supported(
+        w, 0, "Whirlpool", whirlpool->x, whirlpool->y,
+        whirlpool->plane, 0));
     assert(rc_encounter_interact_object(w, 0, "Whirlpool",
                                         whirlpool->x, whirlpool->y,
                                         whirlpool->plane, 0) == 1);
+    assert(!rc_encounter_object_option_supported(
+        w, 0, "Whirlpool", whirlpool->x, whirlpool->y,
+        whirlpool->plane, 0));
     assert(count_targetable_npcs_by_cache_id(w, 5535) == 1);
     assert(rc_encounter_reveal_hidden_npcs(w, "Enormous Tentacle", -1) == 3);
     assert(count_targetable_npcs_by_cache_id(w, 5535) == 4);
@@ -1186,13 +1197,11 @@ int main(void) {
     int cheb = dx > dy ? dx : dy;
     assert(cheb >= 2 && cheb <= 5);
 
-    memset(w->player.inventory, 0xFF, sizeof(w->player.inventory));
     for (int i = 0; i < RC_INVENTORY_SIZE; i++) {
-        w->player.inventory[i].quantity = 0;
+        w->player.inventory[i] = (RcInvSlot){.item_id = -1};
     }
     for (int i = 0; i < RC_EQUIP_COUNT; i++) {
-        w->player.equipment[i].item_id = -1;
-        w->player.equipment[i].quantity = 0;
+        w->player.equipment[i] = (RcInvSlot){.item_id = -1};
     }
     w->player.equipment[EQUIP_WEAPON].item_id = 0;
     w->player.equipment[EQUIP_WEAPON].quantity = 1;

@@ -1264,35 +1264,40 @@ void rc_encounter_tick_effects(RcWorld *world) {
     world->encounter_effect_count = last_active + 1;
 }
 
-int rc_encounter_interact_object(RcWorld *world, int obj_id,
-                                 const char *object_name,
-                                 int x, int y, int plane, int opt) {
+typedef struct {
+    int effect_index;
+    int encounter_slot;
+    int mechanic_index;
+} RcEncounterObjectMatch;
+
+static int find_encounter_object_match(const RcWorld *world, int obj_id,
+                                       const char *object_name,
+                                       int x, int y, int plane, int opt,
+                                       RcEncounterObjectMatch *out) {
     (void)obj_id;
     (void)opt;
-    if (!world || !object_name || !object_name[0]) return 0;
+    if (!world || !object_name || !object_name[0] || !out) return 0;
+    *out = (RcEncounterObjectMatch){-1, -1, -1};
     for (int i = 0; i < world->encounter_effect_count; i++) {
-        RcEncounterEffect *e = &world->encounter_effects[i];
+        const RcEncounterEffect *e = &world->encounter_effects[i];
         if (!e->active || e->kind != RC_ENC_EFFECT_HIDDEN_OBJECT) continue;
         if (strcmp(e->name, object_name) != 0) continue;
         if (x >= 0 && y >= 0 && plane >= 0 &&
                 (e->x != x || e->y != y || e->plane != plane)) {
             continue;
         }
-        if (rc_encounter_reveal_hidden_npcs(world, e->target_name, 1) <= 0) {
-            return 0;
-        }
-        e->active = false;
+        out->effect_index = i;
         return 1;
     }
 
     for (int slot = 0; slot < RC_ENC_MAX_ACTIVE; slot++) {
-        RcActiveEncounter *a = &world->encounter.active[slot];
+        const RcActiveEncounter *a = &world->encounter.active[slot];
         if (!a->active || a->spec_idx >= world->encounter.registry_count) {
             continue;
         }
-        RcEncounterSpec *spec = &world->encounter.registry[a->spec_idx];
+        const RcEncounterSpec *spec = &world->encounter.registry[a->spec_idx];
         for (int i = 0; i < spec->mechanic_count; i++) {
-            RcEncounterMechanic *m = &spec->mechanics[i];
+            const RcEncounterMechanic *m = &spec->mechanics[i];
             if (!m->prim) continue;
             if (m->primitive_id == RC_PRIM_OBJECT_INTERACTION_TICKED) {
                 const RcPrimParamsObjectInteractionTicked *p =
@@ -1306,44 +1311,84 @@ int rc_encounter_interact_object(RcWorld *world, int obj_id,
                     }
                 }
                 if (!matches) continue;
-                if (a->active_mechanic_idx < spec->mechanic_count &&
-                        spec->mechanics[a->active_mechanic_idx].primitive_id ==
-                            RC_PRIM_DAMAGE_REDUCTION_UNTIL_TRIGGER) {
-                    a->active_mechanic_idx = 0xFFu;
-                    a->active_mechanic_ticks = 0;
-                }
-                return 1;
             }
-            if (m->primitive_id == RC_PRIM_HEAL_ALTARS_PLAYER_MUST_DISABLE) {
+            else if (m->primitive_id == RC_PRIM_HEAL_ALTARS_PLAYER_MUST_DISABLE) {
                 if (!contains_ci(object_name, "altar")) continue;
                 const RcPrimParamsHealAltars *p =
                     (const RcPrimParamsHealAltars *)m->param_block;
                 if (!p->disable_on_click) continue;
-                uint8_t altar_count = p->altar_count ? p->altar_count : 4;
-                if (a->mechanic_progress < altar_count) {
-                    a->mechanic_progress++;
-                }
-                return 1;
             }
-            if (m->primitive_id == RC_PRIM_OBJECT_ITEM_INTERACTION) {
+            else if (m->primitive_id == RC_PRIM_OBJECT_ITEM_INTERACTION) {
                 if (!phase_matches(m, a->current_phase)) continue;
                 if (!contains_ci(object_name, "herb")) continue;
-                const RcPrimParamsObjectItemInteraction *p =
-                    (const RcPrimParamsObjectItemInteraction *)m->param_block;
-                a->mechanic_progress++;
-                uint8_t needed = p->correct_herbs_to_wake
-                                 ? p->correct_herbs_to_wake : 1;
-                if (a->mechanic_progress >= needed) {
-                    a->mechanic_progress = 0;
-                    if (p->advance_to[0]) {
-                        rc_encounter_set_phase(world, slot, p->advance_to);
-                    }
-                }
-                return 1;
             }
+            else continue;
+            out->encounter_slot = slot;
+            out->mechanic_index = i;
+            return 1;
         }
     }
     return 0;
+}
+
+int rc_encounter_object_option_supported(const RcWorld *world, int obj_id,
+                                         const char *object_name,
+                                         int x, int y, int plane, int opt) {
+    RcEncounterObjectMatch match;
+    return find_encounter_object_match(world, obj_id, object_name,
+                                       x, y, plane, opt, &match);
+}
+
+int rc_encounter_interact_object(RcWorld *world, int obj_id,
+                                 const char *object_name,
+                                 int x, int y, int plane, int opt) {
+    RcEncounterObjectMatch match;
+    if (!find_encounter_object_match(world, obj_id, object_name,
+                                     x, y, plane, opt, &match)) {
+        return 0;
+    }
+    if (match.effect_index >= 0) {
+        RcEncounterEffect *effect = &world->encounter_effects[match.effect_index];
+        if (rc_encounter_reveal_hidden_npcs(
+                world, effect->target_name, 1) <= 0) {
+            return 0;
+        }
+        effect->active = false;
+        return 1;
+    }
+
+    RcActiveEncounter *active = &world->encounter.active[match.encounter_slot];
+    RcEncounterSpec *spec = &world->encounter.registry[active->spec_idx];
+    RcEncounterMechanic *mechanic = &spec->mechanics[match.mechanic_index];
+    if (mechanic->primitive_id == RC_PRIM_OBJECT_INTERACTION_TICKED) {
+        if (active->active_mechanic_idx < spec->mechanic_count &&
+                spec->mechanics[active->active_mechanic_idx].primitive_id ==
+                    RC_PRIM_DAMAGE_REDUCTION_UNTIL_TRIGGER) {
+            active->active_mechanic_idx = 0xFFu;
+            active->active_mechanic_ticks = 0;
+        }
+        return 1;
+    }
+    if (mechanic->primitive_id == RC_PRIM_HEAL_ALTARS_PLAYER_MUST_DISABLE) {
+        const RcPrimParamsHealAltars *params =
+            (const RcPrimParamsHealAltars *)mechanic->param_block;
+        uint8_t altar_count = params->altar_count ? params->altar_count : 4;
+        if (active->mechanic_progress < altar_count)
+            active->mechanic_progress++;
+        return 1;
+    }
+    const RcPrimParamsObjectItemInteraction *params =
+        (const RcPrimParamsObjectItemInteraction *)mechanic->param_block;
+    active->mechanic_progress++;
+    uint8_t needed = params->correct_herbs_to_wake
+                   ? params->correct_herbs_to_wake : 1;
+    if (active->mechanic_progress >= needed) {
+        active->mechanic_progress = 0;
+        if (params->advance_to[0])
+            rc_encounter_set_phase(world, match.encounter_slot,
+                                   params->advance_to);
+    }
+    return 1;
 }
 
 void rc_encounter_on_npc_spawned(RcWorld *world, int evt,

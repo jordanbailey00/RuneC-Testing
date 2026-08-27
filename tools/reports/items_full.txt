@@ -15,7 +15,7 @@ wiki bonus overrides applied: 0
 cache equipment fallbacks applied: 360
 wiki bonus rows not resolved to current item defs: 0
 equipment rows: 5227
-weapon rows: 1245
+weapon rows: 1138
 rows with model linkage: 19096
 rows with linked_id_item: 15307
 rows with linked_id_noted: 4719

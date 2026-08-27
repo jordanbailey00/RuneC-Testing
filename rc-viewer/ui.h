@@ -86,6 +86,16 @@ typedef struct RuneCUiIntent {
     char text[RUNEC_UI_CHAT_INPUT_MAX];
 } RuneCUiIntent;
 
+enum {
+    RUNEC_UI_ITEM_ACTIONS = 8,
+    RUNEC_UI_ITEM_ACTION_LEN = 24,
+    RUNEC_UI_ITEM_OP_USE = -1,
+    RUNEC_UI_ITEM_OP_EQUIP = -2,
+    RUNEC_UI_ITEM_OP_DROP = -3,
+    RUNEC_UI_ITEM_OP_EXAMINE = -4,
+    RUNEC_UI_ITEM_OP_REMOVE = -5,
+};
+
 typedef struct RuneCUiSlot {
     uint32_t item_id;
     uint32_t icon_item_id;
@@ -93,6 +103,9 @@ typedef struct RuneCUiSlot {
     char label[24];
     int enabled;
     int category;
+    int action_count;
+    char actions[RUNEC_UI_ITEM_ACTIONS][RUNEC_UI_ITEM_ACTION_LEN];
+    int action_ops[RUNEC_UI_ITEM_ACTIONS];
 } RuneCUiSlot;
 
 typedef enum RuneCUiMinimapDotKind {

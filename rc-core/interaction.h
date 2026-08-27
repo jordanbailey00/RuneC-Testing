@@ -43,6 +43,8 @@ int  rc_interaction_register_world_handler(
 int  rc_interaction_world_handler_count(const RcWorld *world);
 int  rc_interaction_find_world_handler(
     const RcWorld *world, const RcInteractionDispatchKey *key);
+int  rc_interaction_has_specific_world_handler(
+    const RcWorld *world, const RcInteractionDispatchKey *key);
 RcInteractionHandlerResult rc_interaction_dispatch(RcWorld *world,
                                                    RcPlayer *player);
 

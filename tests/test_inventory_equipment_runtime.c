@@ -62,7 +62,8 @@ int main(void) {
     int old_from = rc_inv_add(p->inventory, 1048, 1);
     int old_to = rc_inv_free_slot(p->inventory);
     assert(old_from >= 0 && old_to >= 0);
-    assert(rc_player_move_inventory_item(world, old_from, old_to));
+    assert(rc_item_result_accepted(
+        rc_player_move_inventory_item(world, old_from, old_to)));
     rc_world_tick(world);
     assert(p->inventory[old_to].item_id == 1048);
     assert(p->inventory[old_from].item_id == -1);

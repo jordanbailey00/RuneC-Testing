@@ -80,7 +80,7 @@ def load_runtime_item_ids(path: Path) -> set[int]:
     if len(data) < 12:
         raise ValueError(f"{path}: too short for IDEF header")
     magic, version, count = struct.unpack_from("<III", data, 0)
-    if magic != IDEF_MAGIC or version not in (1, 2):
+    if magic != IDEF_MAGIC or version not in (1, 2, 3):
         raise ValueError(f"{path}: unsupported IDEF header")
     pos = 12
     ids: set[int] = set()

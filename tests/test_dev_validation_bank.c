@@ -20,6 +20,13 @@ static int find_item_by_name(const char *name) {
     return -1;
 }
 
+static void clear_player_items(RcWorld *world) {
+    for (int i = 0; i < RC_INVENTORY_SIZE; i++)
+        world->player.inventory[i] = (RcInvSlot){.item_id = -1};
+    for (int i = 0; i < RC_EQUIP_COUNT; i++)
+        world->player.equipment[i] = (RcInvSlot){.item_id = -1};
+}
+
 static void assert_validation_item_equips(RcWorld *world, const char *name,
                                           int equip_slot) {
     int item_id = find_item_by_name(name);
@@ -28,8 +35,7 @@ static void assert_validation_item_equips(RcWorld *world, const char *name,
     assert(def);
     assert(def->equippable);
     assert(def->equip_slot == equip_slot);
-    memset(world->player.inventory, 0xff, sizeof(world->player.inventory));
-    memset(world->player.equipment, 0xff, sizeof(world->player.equipment));
+    clear_player_items(world);
     assert(rc_inv_add(world->player.inventory, item_id, 1) == 0);
     rc_player_equip(world, 0);
     rc_world_tick(world);
@@ -89,7 +95,7 @@ int main(void) {
     rc_world_tick(world);
     assert(world->player.bank[stack_slot].quantity == 1);
 
-    memset(world->player.inventory, 0xff, sizeof(world->player.inventory));
+    clear_player_items(world);
     assert(gear_slot >= 0);
     int gear_before = world->player.bank[gear_slot].quantity;
     int gear_withdraw =

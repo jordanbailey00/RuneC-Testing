@@ -11,6 +11,7 @@ enum {
     IDEF_MAGIC = 0x49444546,
     IDEF_V1 = 1,
     IDEF_V2 = 2,
+    IDEF_V3 = 3,
 };
 
 static int read_u8(const unsigned char **p, const unsigned char *end,
@@ -63,7 +64,8 @@ static int parse_render_record(RuneCItemDefRenderMap *map,
     if (p + name_len > end) return 0;
     p += name_len;
 
-    if (!read_u16(&p, end, &flags16)
+    if ((version >= IDEF_V3 ? !read_u32(&p, end, &tmp)
+                            : !read_u16(&p, end, &flags16))
             || !read_u32(&p, end, &tmp)
             || !read_u32(&p, end, &tmp)
             || !read_u32(&p, end, &tmp)) {
@@ -132,7 +134,8 @@ int runec_item_def_render_map_load(RuneCItemDefRenderMap *map,
         runec_item_def_render_map_free(map);
         return 0;
     }
-    if (magic != IDEF_MAGIC || (version != IDEF_V1 && version != IDEF_V2)) {
+    if (magic != IDEF_MAGIC || (version != IDEF_V1 && version != IDEF_V2
+            && version != IDEF_V3)) {
         fprintf(stderr, "item_render_defs: bad header in %s\n", path);
         rc_asset_close(f);
         runec_item_def_render_map_free(map);

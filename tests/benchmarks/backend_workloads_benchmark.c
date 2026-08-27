@@ -24,6 +24,7 @@
 #define OTRP_PATH RC_TEST_SOURCE_DIR "/data/defs/object_transports.bin"
 #define TRAV_PATH RC_TEST_SOURCE_DIR "/data/defs/traversal_edges.bin"
 #define NPC_PATH RC_TEST_SOURCE_DIR "/data/defs/npc_defs.bin"
+#define ITEM_PATH RC_TEST_SOURCE_DIR "/data/defs/items.bin"
 #define SPAWN_PATH \
     RC_TEST_SOURCE_DIR "/data/spawns/world.npc-spawns.indexed.bin"
 
@@ -38,6 +39,7 @@ typedef enum RcWorkloadMode {
     RC_WORKLOAD_MIXED_AGENT,
     RC_WORKLOAD_NPC_IDLE,
     RC_WORKLOAD_NPC_COMBAT,
+    RC_WORKLOAD_ITEMS,
 } RcWorkloadMode;
 
 typedef struct RcBenchConfig {
@@ -77,6 +79,7 @@ static const char *mode_name(RcWorkloadMode mode) {
     case RC_WORKLOAD_MIXED_AGENT: return "mixed-agent";
     case RC_WORKLOAD_NPC_IDLE: return "npc-idle";
     case RC_WORKLOAD_NPC_COMBAT: return "npc-combat";
+    case RC_WORKLOAD_ITEMS: return "items";
     }
     return "unknown";
 }
@@ -99,6 +102,7 @@ static RcWorkloadMode parse_mode(const char *s) {
         return RC_WORKLOAD_MIXED_AGENT;
     if (strcmp(s, "npc-idle") == 0) return RC_WORKLOAD_NPC_IDLE;
     if (strcmp(s, "npc-combat") == 0) return RC_WORKLOAD_NPC_COMBAT;
+    if (strcmp(s, "items") == 0) return RC_WORKLOAD_ITEMS;
     fprintf(stderr, "unknown mode: %s\n", s);
     exit(2);
 }
@@ -106,7 +110,7 @@ static RcWorkloadMode parse_mode(const char *s) {
 static void print_usage(const char *argv0) {
     fprintf(stderr,
             "usage: %s [--mode all|path|object|spawn|load|reset|edge|mixed|"
-            "npc-idle|npc-combat]"
+            "npc-idle|npc-combat|items]"
             " [--envs N] [--ops N] [--warmup N] [--active N]\n",
             argv0);
 }
@@ -617,6 +621,72 @@ static void bench_many_npc(int envs, int ticks, int active, int combat) {
     free(worlds);
 }
 
+static RcWorld *make_item_world(uint32_t seed) {
+    RcWorldConfig cfg = rc_preset_base_only();
+    cfg.seed = seed;
+    cfg.subsystems = RC_SUB_INVENTORY | RC_SUB_EQUIPMENT;
+    cfg.items_path = ITEM_PATH;
+    RcWorld *world = rc_world_create_config(&cfg);
+    if (!world) {
+        fprintf(stderr, "failed to create item benchmark world\n");
+        exit(1);
+    }
+    return world;
+}
+
+static void bench_item_actions(int envs, int ops, int warmup) {
+    RcWorld **worlds = calloc((size_t)envs, sizeof(*worlds));
+    if (!worlds) {
+        fprintf(stderr, "failed to allocate item worlds\n");
+        exit(1);
+    }
+    for (int env = 0; env < envs; env++) {
+        worlds[env] = make_item_world(10000u + (uint32_t)env);
+        if (rc_inv_add(worlds[env]->player.inventory, 4151, 1) != 0
+                || rc_inv_add(worlds[env]->player.inventory, 995, 1000) != 1) {
+            fprintf(stderr, "failed to seed item benchmark inventory\n");
+            exit(1);
+        }
+    }
+
+    int total = warmup + ops;
+    double start = 0.0;
+    for (int step = 0; step < total; step++) {
+        if (step == warmup) start = now_seconds();
+        for (int env = 0; env < envs; env++) {
+            RcWorld *world = worlds[env];
+            world->in_tick = true;
+            rc_player_equip(world, 0);
+            rc_player_unequip(world, EQUIP_WEAPON);
+            if (!rc_item_result_accepted(
+                    rc_player_move_inventory_item(world, 0, 2))
+                    || !rc_item_result_accepted(
+                        rc_player_move_inventory_item(world, 2, 0))) {
+                fprintf(stderr, "item benchmark mutation failed at step %d\n",
+                        step);
+                exit(1);
+            }
+            world->in_tick = false;
+            if (world->player.inventory[0].item_id != 4151
+                    || world->player.equipment[EQUIP_WEAPON].item_id >= 0) {
+                fprintf(stderr, "item benchmark invariant failed at step %d\n",
+                        step);
+                exit(1);
+            }
+        }
+    }
+    double elapsed = now_seconds() - start;
+    int units = envs * ops;
+    print_rate("item-container-round-trips", units, elapsed);
+    printf("mutations_per_unit: 4\n");
+    printf("envs: %d\nops_per_env: %d\nwarmup_ops_per_env: %d\n",
+           envs, ops, warmup);
+
+    for (int env = 0; env < envs; env++)
+        rc_world_destroy(worlds[env]);
+    free(worlds);
+}
+
 static void run_all(const RcBenchConfig *cfg) {
     bench_load_full();
     bench_path_actions(cfg->envs, cfg->ops, cfg->warmup);
@@ -690,6 +760,9 @@ int main(int argc, char **argv) {
         break;
     case RC_WORKLOAD_NPC_COMBAT:
         bench_many_npc(cfg.envs, cfg.ops, cfg.active, 1);
+        break;
+    case RC_WORKLOAD_ITEMS:
+        bench_item_actions(cfg.envs, cfg.ops, cfg.warmup);
         break;
     }
     return 0;

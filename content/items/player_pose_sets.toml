@@ -1,0 +1,253 @@
+schema_version = 1
+
+# RuneC-owned player base-animation data for the weapon models exported by the
+# first-release viewer. Item IDs and names are reconciled against RuneC's B237
+# definitions during export. Pose values were reviewed from the modern OSRS
+# B233 cache-enricher evidence; the reference repository is not an input or a
+# dependency. A value of -1 intentionally retains the normal human animation
+# for that movement state.
+
+[[pose]]
+name = "whip"
+ready_anim = -1
+walk_anim = 1660
+run_anim = 1661
+items = [
+  { id = 4151, name = "Abyssal whip" },
+  { id = 12006, name = "Abyssal tentacle" },
+]
+
+[[pose]]
+name = "chainmace"
+ready_anim = 244
+walk_anim = 247
+run_anim = 248
+items = [
+  { id = 22545, name = "Viggora's chainmace" },
+  { id = 27660, name = "Ursine chainmace" },
+]
+
+[[pose]]
+name = "sword-ready"
+ready_anim = 809
+walk_anim = -1
+run_anim = -1
+items = [
+  { id = 22324, name = "Ghrazi rapier" },
+  { id = 22613, name = "Vesta's longsword" },
+  { id = 23995, name = "Blade of saeldor" },
+  { id = 24551, name = "Blade of saeldor (c)" },
+  { id = 24617, name = "Vesta's blighted longsword" },
+  { id = 26219, name = "Osmumten's fang" },
+]
+
+[[pose]]
+name = "staff-and-polearm"
+ready_anim = 813
+walk_anim = 1205
+run_anim = 1210
+items = [
+  { id = 1249, name = "Dragon spear" },
+  { id = 1379, name = "Staff" },
+  { id = 1381, name = "Staff of air" },
+  { id = 1385, name = "Staff of earth" },
+  { id = 1387, name = "Staff of fire" },
+  { id = 3204, name = "Dragon halberd" },
+  { id = 4675, name = "Ancient staff" },
+  { id = 4710, name = "Ahrim's staff" },
+  { id = 4726, name = "Guthan's warspear" },
+  { id = 5730, name = "Dragon spear(p++)" },
+  { id = 6526, name = "Toktz-mej-tal" },
+  { id = 10010, name = "Butterfly net" },
+  { id = 11791, name = "Staff of the dead" },
+  { id = 11889, name = "Zamorakian hasta" },
+  { id = 11907, name = "Trident of the seas" },
+  { id = 12899, name = "Trident of the swamp" },
+  { id = 12900, name = "Uncharged toxic trident" },
+  { id = 12904, name = "Toxic staff of the dead" },
+  { id = 12926, name = "Toxic blowpipe" },
+  { id = 21006, name = "Kodai wand" },
+  { id = 22296, name = "Staff of light" },
+  { id = 22323, name = "Sanguinesti staff" },
+  { id = 22481, name = "Sanguinesti staff (uncharged)" },
+  { id = 22516, name = "Dawnbringer" },
+  { id = 22555, name = "Thammaron's sceptre" },
+  { id = 23987, name = "Crystal halberd" },
+  { id = 24144, name = "Staff of balance" },
+  { id = 27665, name = "Accursed sceptre" },
+  { id = 27679, name = "Accursed sceptre (a)" },
+  { id = 29000, name = "Eclipse atlatl" },
+  { id = 29796, name = "Noxious halberd" },
+]
+
+[[pose]]
+name = "dragon-hunter-lance"
+ready_anim = 813
+walk_anim = 1205
+run_anim = 2563
+items = [
+  { id = 22978, name = "Dragon hunter lance" },
+]
+
+[[pose]]
+name = "abyssal-bludgeon"
+ready_anim = 1652
+walk_anim = 3293
+run_anim = 2847
+items = [
+  { id = 13263, name = "Abyssal bludgeon" },
+]
+
+[[pose]]
+name = "granite-maul"
+ready_anim = 1662
+walk_anim = 1663
+run_anim = 1664
+items = [
+  { id = 4153, name = "Granite maul" },
+  { id = 12848, name = "Granite maul" },
+]
+
+[[pose]]
+name = "spear-high"
+ready_anim = 1713
+walk_anim = 1703
+run_anim = 1707
+items = [
+  { id = 11824, name = "Zamorakian spear" },
+  { id = 28988, name = "Blue moon spear" },
+]
+
+[[pose]]
+name = "verac-flail"
+ready_anim = 2061
+walk_anim = 2060
+run_anim = -1
+items = [
+  { id = 4755, name = "Verac's flail" },
+]
+
+[[pose]]
+name = "dharok-greataxe"
+ready_anim = 2065
+walk_anim = 2064
+run_anim = -1
+items = [
+  { id = 4718, name = "Dharok's greataxe" },
+]
+
+[[pose]]
+name = "chinchompa"
+ready_anim = 3175
+walk_anim = 3177
+run_anim = 3178
+items = [
+  { id = 11959, name = "Black chinchompa" },
+]
+
+[[pose]]
+name = "abyssal-dagger-ready"
+ready_anim = 3296
+walk_anim = -1
+run_anim = -1
+items = [
+  { id = 13265, name = "Abyssal dagger" },
+  { id = 13271, name = "Abyssal dagger (p++)" },
+]
+
+[[pose]]
+name = "nightmare-staff"
+ready_anim = 4504
+walk_anim = 1205
+run_anim = 1210
+items = [
+  { id = 24422, name = "Nightmare staff" },
+  { id = 24423, name = "Harmonised nightmare staff" },
+  { id = 24424, name = "Volatile nightmare staff" },
+  { id = 24425, name = "Eldritch nightmare staff" },
+]
+
+[[pose]]
+name = "crossbow"
+ready_anim = 4591
+walk_anim = 4226
+run_anim = 4228
+items = [
+  { id = 767, name = "Phoenix crossbow" },
+  { id = 837, name = "Crossbow" },
+  { id = 9185, name = "Rune crossbow" },
+  { id = 11785, name = "Armadyl crossbow" },
+  { id = 21012, name = "Dragon hunter crossbow" },
+  { id = 21902, name = "Dragon crossbow" },
+  { id = 26374, name = "Zaryte crossbow" },
+]
+
+[[pose]]
+name = "godsword"
+ready_anim = 7053
+walk_anim = 7052
+run_anim = 7043
+items = [
+  { id = 11802, name = "Armadyl godsword" },
+  { id = 11804, name = "Bandos godsword" },
+  { id = 11806, name = "Saradomin godsword" },
+  { id = 11808, name = "Zamorak godsword" },
+  { id = 12809, name = "Saradomin's blessed sword" },
+  { id = 26233, name = "Ancient godsword" },
+]
+
+[[pose]]
+name = "ballista"
+ready_anim = 7220
+walk_anim = 7223
+run_anim = 7221
+items = [
+  { id = 19478, name = "Light ballista" },
+  { id = 19481, name = "Heavy ballista" },
+]
+
+[[pose]]
+name = "dinhs-bulwark"
+ready_anim = 7508
+walk_anim = 7510
+run_anim = 7509
+items = [
+  { id = 21015, name = "Dinh's bulwark" },
+]
+
+[[pose]]
+name = "elder-maul"
+ready_anim = 7518
+walk_anim = 7520
+run_anim = 7519
+items = [
+  { id = 21003, name = "Elder maul" },
+]
+
+[[pose]]
+name = "scythe"
+ready_anim = 8057
+walk_anim = -1
+run_anim = -1
+items = [
+  { id = 22325, name = "Scythe of vitur" },
+  { id = 22486, name = "Scythe of vitur (uncharged)" },
+]
+
+[[pose]]
+name = "tumekens-shadow"
+ready_anim = 9494
+walk_anim = 1703
+run_anim = 1707
+items = [
+  { id = 27275, name = "Tumeken's shadow" },
+]
+
+[[pose]]
+name = "venator-bow"
+ready_anim = 9857
+walk_anim = 9859
+run_anim = 9860
+items = [
+  { id = 27610, name = "Venator bow" },
+]

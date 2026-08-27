@@ -35,7 +35,7 @@ int main(void) {
     assert(rc_load_item_defs(ITEMS_PATH) > 30000);
     assert(rc_load_recipes(RECIPES_PATH) == 3413);
     assert(rc_load_skill_drops(SKILL_DROPS_PATH) == 961);
-    assert(rc_load_gathering_nodes(GATHERING_PATH) == 34096);
+    assert(rc_load_gathering_nodes(GATHERING_PATH) == 33290);
 
     const RcRecipe *bronze = rc_recipe_find_output(2349);
     assert(bronze != NULL);
@@ -72,6 +72,9 @@ int main(void) {
     assert(node != NULL);
     assert(node->skill == 4);
     assert(node->action_mask != 0);
+    assert(node->placement_key != 0);
+    assert(node->replacement_obj_id == -1);
+    assert(node->respawn_ticks == 20);
     assert(rc_gathering_node_find(1161, 1, 1, 0) == NULL);
     assert(rc_gathering_node_find(1161, -1, 3692, 0) == NULL);
 

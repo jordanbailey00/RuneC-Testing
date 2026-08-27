@@ -56,29 +56,11 @@ static int api_route_player(RcWorld *world, const RcRouteTarget *target,
                             int entity_width, int entity_height,
                             int allow_alternative);
 static void process_player_interaction(RcWorld *world, int dispatch_ready);
-static RcObjectState *object_state_find(RcWorld *world, int obj_id,
-                                        int x, int y, int plane);
-static const RcObjectState *object_state_find_const(const RcWorld *world,
-                                                    int obj_id, int x, int y,
-                                                    int plane);
-static RcObjectState *object_state_find_by_key(RcWorld *world,
-                                               uint64_t placement_key);
-static const RcObjectState *object_state_find_by_key_const(
-    const RcWorld *world, uint64_t placement_key);
-static int object_state_matches_target(const RcObjectState *st, int obj_id,
-                                       int x, int y, int plane);
 static int object_exact_placement(int obj_id, int x, int y, int plane,
                                   RcObjectPlacement *out);
-static int object_exact_placement_key(int obj_id, int x, int y, int plane,
-                                      uint64_t placement_key,
-                                      RcObjectPlacement *out);
 static int current_object_placement(const RcWorld *world, int obj_id,
                                     int x, int y, int plane,
                                     RcObjectPlacement *out);
-static int current_object_placement_key(const RcWorld *world, int obj_id,
-                                        int x, int y, int plane,
-                                        uint64_t placement_key,
-                                        RcObjectPlacement *out);
 static int placement_dimensions(const RcObjectDef *def,
                                 const RcObjectPlacement *placement,
                                 int *out_w, int *out_l);
@@ -89,12 +71,18 @@ static int rotate_block_access_flags(int flags, int angle);
 static const RcTraversalEdge *object_traversal_edge(
     const RcWorld *world, int obj_id, int x, int y, int plane, int opt,
     uint64_t placement_key);
-static int object_option_available(const RcObjectDef *def,
+static const RcTraversalEdge *object_effective_traversal_edge(
+    const RcWorld *world, int obj_id, int x, int y, int plane, int opt,
+    uint64_t placement_key, RcTraversalEdge *inferred);
+static int infer_vertical_climb_edge(int obj_id, int x, int y, int plane,
+                                    int opt, RcTraversalEdge *out);
+static int object_option_available(const RcWorld *world, int obj_id,
+                                   int x, int y, int plane,
+                                   uint64_t placement_key,
+                                   const RcObjectDef *def,
                                    const RcObjectBehavior *behavior,
                                    const RcTraversalEdge *edge, int opt);
 static int string_has_ci(const char *s, const char *needle);
-static void apply_door_collision(RcWorld *world, int obj_id, int x, int y,
-                                 int plane, int open);
 static void start_player_action_lock(RcWorld *world, int lock_ticks);
 static void schedule_player_traversal(RcWorld *world,
                                       const RcTraversalEdge *edge,
@@ -402,7 +390,7 @@ static int route_player_toward_interaction_target(RcWorld *world, RcPlayer *p,
         range > 0 ? 1 : 0, range, range == 0, range > 1);
     if (t->kind == RC_INTERACTION_OBJECT) {
         RcObjectPlacement placement;
-        if (current_object_placement_key(
+        if (rc_world_object_current_placement(
                 world, t->definition_id, t->tile_x, t->tile_y,
                 t->plane, t->placement_key, &placement)) {
             if (placement.type <= 3) {
@@ -500,47 +488,39 @@ static int validate_pending_object_interaction(RcWorld *world,
         return 0;
     }
     int opt = api_option_from_interaction_op(pending->op);
-    const RcObjectDef *def = rc_object_def_get(pending->target.definition_id);
-    const RcObjectBehavior *behavior =
-        rc_object_behavior_get(pending->target.definition_id);
-    const RcTraversalEdge *edge = object_traversal_edge(
-        world, pending->target.definition_id, pending->target.tile_x,
-        pending->target.tile_y, pending->target.plane, opt,
-        pending->target.placement_key);
+    int obj_id = pending->target.definition_id;
+    RcObjectPlacement placement = {0};
+    int placed = pending->target.tile_x >= 0 && pending->target.tile_y >= 0
+              && pending->target.plane >= 0;
+    if (placed && rc_object_has_placements()) {
+        if (!rc_world_object_current_placement(
+                world, obj_id, pending->target.tile_x,
+                pending->target.tile_y, pending->target.plane,
+                pending->target.placement_key, &placement)) {
+            pending->last_failure = RC_INTERACTION_FAIL_TARGET_MISSING;
+            return 0;
+        }
+        obj_id = (int)placement.obj_id;
+    }
+    const RcObjectDef *def = rc_object_def_get(obj_id);
     if (!def) {
         pending->last_failure = RC_INTERACTION_FAIL_INVALID_TARGET;
-        return 0;
-    }
-    if (pending->target.tile_x >= 0 && pending->target.tile_y >= 0
-            && pending->target.plane >= 0
-            && rc_object_has_placements()
-            && !current_object_placement_key(
-                world, pending->target.definition_id,
-                pending->target.tile_x, pending->target.tile_y,
-                pending->target.plane, pending->target.placement_key, NULL)) {
-        pending->last_failure = RC_INTERACTION_FAIL_TARGET_MISSING;
         return 0;
     }
     RcObjectState *state = NULL;
     if (pending->target.tile_x >= 0 && pending->target.tile_y >= 0 &&
             pending->target.plane >= 0) {
         state = pending->target.placement_key
-            ? object_state_find_by_key(world, pending->target.placement_key)
-            : object_state_find(world, pending->target.definition_id,
+            ? rc_world_object_state_find_key(world, pending->target.placement_key)
+            : rc_world_object_state_find(world, pending->target.definition_id,
                                 pending->target.tile_x,
                                 pending->target.tile_y,
                                 pending->target.plane);
-        if (state && !object_state_matches_target(
+        if (state && !rc_world_object_state_matches(
                 state, pending->target.definition_id, pending->target.tile_x,
                 pending->target.tile_y, pending->target.plane)) {
             pending->last_failure = RC_INTERACTION_FAIL_TARGET_MISSING;
             return 0;
-        }
-        if (state) {
-            const RcObjectBehavior *base_behavior =
-                rc_object_behavior_get(state->base_obj_id);
-            if (base_behavior)
-                behavior = base_behavior;
         }
     }
     if (pending->op == RC_INTERACTION_USE_ON) {
@@ -553,7 +533,10 @@ static int validate_pending_object_interaction(RcWorld *world,
             pending->last_failure = RC_INTERACTION_FAIL_INVALID_SOURCE;
             return 0;
         }
-    } else if (!object_option_available(def, behavior, edge, opt)) {
+    } else if (!rc_world_object_option_supported(
+                    world, obj_id, pending->target.tile_x,
+                    pending->target.tile_y, pending->target.plane,
+                    pending->target.placement_key, opt)) {
         pending->last_failure = RC_INTERACTION_FAIL_OPTION_UNAVAILABLE;
         return 0;
     }
@@ -565,13 +548,10 @@ static int validate_pending_object_interaction(RcWorld *world,
         pending->last_failure = RC_INTERACTION_FAIL_TARGET_VERSION_CHANGED;
         return 0;
     }
-    RcObjectPlacement placement;
-    if (current_object_placement_key(world, pending->target.definition_id,
-                                     pending->target.tile_x,
-                                     pending->target.tile_y,
-                                     pending->target.plane,
-                                     pending->target.placement_key,
-                                     &placement)) {
+    if (placed && (placement.key || rc_world_object_current_placement(
+            world, obj_id, pending->target.tile_x, pending->target.tile_y,
+            pending->target.plane, pending->target.placement_key,
+            &placement))) {
         int w = 1, l = 1;
         placement_dimensions(def, &placement, &w, &l);
         pending->target.footprint_width = w;
@@ -623,6 +603,45 @@ static int validate_pending_ground_item_interaction(
     return 1;
 }
 
+static int validate_pending_item_references(
+    const RcPlayer *player, RcPendingInteraction *pending) {
+    if (!player || !pending) return 0;
+    if (pending->source_item_id >= 0
+            && pending->source_inventory_slot >= 0) {
+        int slot = pending->source_inventory_slot;
+        if (slot < 0 || slot >= RC_INVENTORY_SIZE
+                || player->inventory[slot].item_id
+                    != pending->source_item_id
+                || player->inventory[slot].generation
+                    != pending->source_item_generation) {
+            pending->last_failure = RC_INTERACTION_FAIL_INVALID_SOURCE;
+            return 0;
+        }
+    }
+    if (pending->target.kind == RC_INTERACTION_INVENTORY_ITEM) {
+        int slot = pending->target.inventory_slot;
+        if (slot < 0 || slot >= RC_INVENTORY_SIZE
+                || player->inventory[slot].item_id
+                    != pending->target.definition_id
+                || player->inventory[slot].generation
+                    != pending->target.item_generation) {
+            pending->last_failure = RC_INTERACTION_FAIL_TARGET_VERSION_CHANGED;
+            return 0;
+        }
+    } else if (pending->target.kind == RC_INTERACTION_EQUIPMENT_ITEM) {
+        int slot = pending->target.equipment_slot;
+        if (slot < 0 || slot >= RC_EQUIP_COUNT
+                || player->equipment[slot].item_id
+                    != pending->target.definition_id
+                || player->equipment[slot].generation
+                    != pending->target.item_generation) {
+            pending->last_failure = RC_INTERACTION_FAIL_TARGET_VERSION_CHANGED;
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static void finish_interaction_result(RcPlayer *p,
                                       RcInteractionHandlerResult result) {
     if (result.code == RC_INTERACTION_HANDLER_CONTINUE_APPROACH) {
@@ -645,6 +664,10 @@ static void finish_interaction_result(RcPlayer *p,
 static void process_player_interaction(RcWorld *world, int dispatch_ready) {
     if (!world || !world->player.interaction.active) return;
     RcPlayer *p = &world->player;
+    if (!validate_pending_item_references(p, &p->interaction)) {
+        rc_interaction_cancel(p, p->interaction.last_failure);
+        return;
+    }
     if (p->interaction.target.kind == RC_INTERACTION_NPC) {
         RcNpc *npc = validate_pending_npc_interaction(world, &p->interaction);
         if (!npc) {
@@ -759,16 +782,6 @@ static int api_prepare_spatial_interaction(RcWorld *world) {
     return p->interaction.active;
 }
 
-static void mark_object_depleted(RcWorld *world, RcObjectState *st,
-                                 RcTick respawn_tick) {
-    st->flags |= RC_OBJECT_STATE_DEPLETED;
-    st->respawn_tick = respawn_tick;
-    if (world->next_object_respawn_tick <= 0
-            || respawn_tick < world->next_object_respawn_tick) {
-        world->next_object_respawn_tick = respawn_tick;
-    }
-}
-
 static void process_player_combat(RcWorld *world) {
     rc_combat_tick_player(world);
 }
@@ -784,39 +797,26 @@ static void process_player_skilling(RcWorld *world) {
             world->player.skill_action, world->player.skill_target_x,
             world->player.skill_target_y, world->player.plane);
         if (node) {
-            int respawn = 8;
-            if (node->skill == RC_OBJ_SKILL_FARMING) respawn = 20;
-            else if (node->skill == RC_OBJ_SKILL_FISHING) respawn = 4;
-            for (int i = 0; i < world->object_state_count; i++) {
-                RcObjectState *st = &world->object_states[i];
-                if (st->base_obj_id == (int)node->obj_id
-                        && st->x == world->player.skill_target_x
-                        && st->y == world->player.skill_target_y
-                        && st->plane == world->player.plane) {
-                    mark_object_depleted(world, st, world->tick + respawn);
-                    world->player.skill_action = 0;
-                    return;
+            RcObjectPlacement base;
+            RcObjectMutationResult result = RC_OBJECT_MUTATION_NOT_FOUND;
+            if (rc_object_placement_find_key(
+                    node->placement_key, node->x, node->y, node->plane,
+                    &base)) {
+                if (node->replacement_obj_id >= 0) {
+                    RcObjectPlacement replacement = base;
+                    replacement.obj_id = (uint32_t)node->replacement_obj_id;
+                    result = rc_world_object_replace(
+                        world, &base, &replacement, node->respawn_ticks,
+                        RC_OBJECT_STATE_DEPLETED);
+                } else {
+                    result = rc_world_object_delete(
+                        world, &base, node->respawn_ticks,
+                        RC_OBJECT_STATE_DEPLETED);
                 }
             }
-            if (world->object_state_count < RC_MAX_OBJECT_STATES) {
-                RcObjectState *st =
-                    &world->object_states[world->object_state_count++];
-                st->base_obj_id = (int)node->obj_id;
-                st->active_obj_id = (int)node->obj_id;
-                st->x = world->player.skill_target_x;
-                st->y = world->player.skill_target_y;
-                st->plane = world->player.plane;
-                st->placement_key = 0;
-                st->active_x = st->x;
-                st->active_y = st->y;
-                st->active_plane = st->plane;
-                st->base_type = 10;
-                st->base_rotation = 0;
-                st->active_type = st->base_type;
-                st->active_rotation = st->base_rotation;
-                st->revert_tick = 0;
-                st->flags = 0;
-                mark_object_depleted(world, st, world->tick + respawn);
+            if (result != RC_OBJECT_MUTATION_OK) {
+                world->player.interaction.last_failure =
+                    RC_INTERACTION_FAIL_INVALID_TARGET;
             }
         }
     }
@@ -922,59 +922,8 @@ static void check_deaths(RcWorld *world) {
     rc_event_fire(world, RC_EVT_PLAYER_DIED, &payload);
 }
 
-static void schedule_object_state_tick(RcWorld *world, RcTick tick) {
-    if (!world || tick <= 0) return;
-    if (world->next_object_respawn_tick <= 0
-            || tick < world->next_object_respawn_tick) {
-        world->next_object_respawn_tick = tick;
-    }
-}
-
-static void reset_object_state_active(RcObjectState *st) {
-    if (!st) return;
-    st->active_obj_id = st->base_obj_id;
-    st->active_x = st->x;
-    st->active_y = st->y;
-    st->active_plane = st->plane;
-    st->active_type = st->base_type;
-    st->active_rotation = st->base_rotation;
-    st->revert_tick = 0;
-    st->flags &= (uint8_t)~(RC_OBJECT_STATE_OPEN | RC_OBJECT_STATE_DYNAMIC);
-}
-
 static void tick_respawns(RcWorld *world) {
-    if (!world) return;
-    if (world->next_object_respawn_tick <= 0
-            || world->tick < world->next_object_respawn_tick) {
-        return;
-    }
-    RcTick next = 0;
-    for (int i = 0; i < world->object_state_count; i++) {
-        RcObjectState *st = &world->object_states[i];
-        if ((st->flags & RC_OBJECT_STATE_DYNAMIC) != 0
-                && st->revert_tick > 0) {
-            if (world->tick >= st->revert_tick) {
-                int was_open = (st->flags & RC_OBJECT_STATE_OPEN) != 0;
-                if (was_open) {
-                    apply_door_collision(world, st->base_obj_id, st->x,
-                                         st->y, st->plane, 0);
-                }
-                reset_object_state_active(st);
-            } else if (next == 0 || st->revert_tick < next) {
-                next = st->revert_tick;
-            }
-        }
-        if ((st->flags & RC_OBJECT_STATE_DEPLETED) != 0
-                && st->respawn_tick > 0) {
-            if (world->tick >= st->respawn_tick) {
-                st->flags &= (uint8_t)~RC_OBJECT_STATE_DEPLETED;
-                st->respawn_tick = 0;
-            } else if (next == 0 || st->respawn_tick < next) {
-                next = st->respawn_tick;
-            }
-        }
-    }
-    world->next_object_respawn_tick = next;
+    rc_world_objects_tick(world);
 }
 
 static void tick_ground_items(RcWorld *world) {
@@ -1146,7 +1095,7 @@ static RcInteractionTarget api_placed_object_interaction_target(
         return target;
 
     RcObjectPlacement placement;
-    if (current_object_placement_key(world, obj_id, x, y, plane,
+    if (rc_world_object_current_placement(world, obj_id, x, y, plane,
                                      placement_key, &placement)) {
         target.placement_key = placement.key;
         if (!(placement.rotation & 1u))
@@ -1197,6 +1146,8 @@ static RcInteractionTarget api_inventory_item_interaction_target(
     target.footprint_height = 0;
     target.inventory_slot = slot;
     target.equipment_slot = -1;
+    target.item_generation = slot >= 0 && slot < RC_INVENTORY_SIZE
+                           ? player->inventory[slot].generation : 0;
     target.widget_id = -1;
     target.component_id = -1;
     target.ground_item_instance = -1;
@@ -1220,6 +1171,8 @@ static RcInteractionTarget api_equipment_item_interaction_target(
     target.footprint_height = 0;
     target.inventory_slot = -1;
     target.equipment_slot = slot;
+    target.item_generation = slot >= 0 && slot < RC_EQUIP_COUNT
+                           ? player->equipment[slot].generation : 0;
     target.widget_id = -1;
     target.component_id = -1;
     target.ground_item_instance = -1;
@@ -1714,177 +1667,23 @@ void rc_player_interact_object(RcWorld *world, int obj_id, int opt) {
     (void)rc_player_interact_object_at(world, obj_id, -1, -1, -1, opt);
 }
 
-static RcObjectState *object_state_find(RcWorld *world, int obj_id,
-                                        int x, int y, int plane) {
-    if (!world || x < 0 || y < 0 || plane < 0) return NULL;
-    for (int i = 0; i < world->object_state_count; i++) {
-        RcObjectState *st = &world->object_states[i];
-        int base_match = st->x == x && st->y == y && st->plane == plane;
-        int active_match = st->active_x == x && st->active_y == y
-                         && st->active_plane == plane;
-        if ((base_match || active_match)
-                && (st->base_obj_id == obj_id
-                    || st->active_obj_id == obj_id)) {
-            return st;
-        }
-    }
-    return NULL;
-}
-
-static const RcObjectState *object_state_find_const(const RcWorld *world,
-                                                    int obj_id, int x, int y,
-                                                    int plane) {
-    if (!world || x < 0 || y < 0 || plane < 0) return NULL;
-    for (int i = 0; i < world->object_state_count; i++) {
-        const RcObjectState *st = &world->object_states[i];
-        int base_match = st->x == x && st->y == y && st->plane == plane;
-        int active_match = st->active_x == x && st->active_y == y
-                         && st->active_plane == plane;
-        if ((base_match || active_match)
-                && (st->base_obj_id == obj_id
-                    || st->active_obj_id == obj_id)) {
-            return st;
-        }
-    }
-    return NULL;
-}
-
-static RcObjectState *object_state_find_by_key(RcWorld *world,
-                                               uint64_t placement_key) {
-    if (!world || placement_key == 0) return NULL;
-    for (int i = 0; i < world->object_state_count; i++) {
-        RcObjectState *st = &world->object_states[i];
-        if (st->placement_key == placement_key)
-            return st;
-    }
-    return NULL;
-}
-
-static const RcObjectState *object_state_find_by_key_const(
-    const RcWorld *world, uint64_t placement_key) {
-    if (!world || placement_key == 0) return NULL;
-    for (int i = 0; i < world->object_state_count; i++) {
-        const RcObjectState *st = &world->object_states[i];
-        if (st->placement_key == placement_key)
-            return st;
-    }
-    return NULL;
-}
-
-static void object_state_to_placement(const RcObjectState *st,
-                                      RcObjectPlacement *out) {
-    if (!st || !out) return;
-    memset(out, 0, sizeof(*out));
-    uint16_t mapsquare;
-    if (!rc_world_to_mapsquare(st->active_x, st->active_y,
-                               &mapsquare, NULL, NULL)
-            || !rc_plane_valid(st->active_plane)) {
-        return;
-    }
-    out->obj_id = (uint32_t)st->active_obj_id;
-    out->key = st->placement_key;
-    out->x = (uint16_t)st->active_x;
-    out->y = (uint16_t)st->active_y;
-    out->mapsquare = mapsquare;
-    out->plane = (uint8_t)st->active_plane;
-    out->type = st->active_type;
-    out->rotation = st->active_rotation;
-}
-
-static int object_state_matches_target(const RcObjectState *st, int obj_id,
-                                       int x, int y, int plane) {
-    if (!st) return 0;
-    if (obj_id >= 0 && st->base_obj_id != obj_id
-            && st->active_obj_id != obj_id) {
-        return 0;
-    }
-    if (x < 0 || y < 0 || plane < 0)
-        return 1;
-    int base_match = st->x == x && st->y == y && st->plane == plane;
-    int active_match = st->active_x == x && st->active_y == y
-                     && st->active_plane == plane;
-    return base_match || active_match;
-}
-
-static RcObjectState *object_state_get_key(RcWorld *world, int obj_id,
-                                           int x, int y, int plane,
-                                           uint64_t placement_key) {
-    if (!rc_world_tile_valid(x, y, plane)) return NULL;
-    RcObjectState *st = placement_key
-        ? object_state_find_by_key(world, placement_key)
-        : object_state_find(world, obj_id, x, y, plane);
-    if (st && placement_key
-            && !object_state_matches_target(st, obj_id, x, y, plane)) {
-        return NULL;
-    }
-    if (st || !world || world->object_state_count >= RC_MAX_OBJECT_STATES) {
-        return st;
-    }
-    st = &world->object_states[world->object_state_count++];
-    st->placement_key = 0;
-    st->base_obj_id = obj_id;
-    st->active_obj_id = obj_id;
-    st->x = x;
-    st->y = y;
-    st->plane = plane;
-    st->active_x = x;
-    st->active_y = y;
-    st->active_plane = plane;
-    st->base_type = 10;
-    st->base_rotation = 0;
-    st->active_type = st->base_type;
-    st->active_rotation = st->base_rotation;
-    st->respawn_tick = 0;
-    st->revert_tick = 0;
-    st->flags = 0;
-    RcObjectPlacement placement;
-    if (object_exact_placement_key(obj_id, x, y, plane, placement_key,
-                                   &placement)) {
-        st->placement_key = placement.key;
-        st->base_type = placement.type;
-        st->base_rotation = placement.rotation;
-        st->active_type = placement.type;
-        st->active_rotation = placement.rotation;
-    }
-    return st;
-}
-
-static RcObjectState *object_state_get(RcWorld *world, int obj_id,
-                                       int x, int y, int plane) {
-    return object_state_get_key(world, obj_id, x, y, plane, 0);
-}
-
 static int object_exact_placement(int obj_id, int x, int y, int plane,
                                   RcObjectPlacement *out) {
-    if (obj_id < 0 || x < 0 || y < 0 || plane < 0) return 0;
-    RcObjectPlacement rows[32];
-    int count = rc_object_placements_at(x, y, plane, rows, 32);
-    for (int i = 0; i < count; i++) {
-        if ((int)rows[i].obj_id != obj_id) continue;
-        if (out) *out = rows[i];
-        return 1;
+    if (!out || obj_id < 0 || !rc_world_tile_valid(x, y, plane)) return 0;
+    uint16_t mapsquare;
+    if (!rc_world_to_mapsquare(x, y, &mapsquare, NULL, NULL)) return 0;
+    int count = 0;
+    int matches = 0;
+    const RcObjectPlacement *rows = rc_object_region_placements(
+        mapsquare, &count);
+    for (int i = 0; rows && i < count; i++) {
+        if ((int)rows[i].obj_id == obj_id && rows[i].x == x
+                && rows[i].y == y && rows[i].plane == plane) {
+            *out = rows[i];
+            matches++;
+        }
     }
-    return 0;
-}
-
-static int object_exact_placement_key(int obj_id, int x, int y, int plane,
-                                      uint64_t placement_key,
-                                      RcObjectPlacement *out) {
-    if (placement_key == 0)
-        return object_exact_placement(obj_id, x, y, plane, out);
-    if (x < 0 || y < 0 || plane < 0)
-        return 0;
-    RcObjectPlacement rows[32];
-    int count = rc_object_placements_at(x, y, plane, rows, 32);
-    for (int i = 0; i < count; i++) {
-        if (rows[i].key != placement_key)
-            continue;
-        if (obj_id >= 0 && (int)rows[i].obj_id != obj_id)
-            continue;
-        if (out) *out = rows[i];
-        return 1;
-    }
-    return 0;
+    return matches == 1;
 }
 
 static int placement_dimensions(const RcObjectDef *def,
@@ -1906,32 +1705,7 @@ static int placement_dimensions(const RcObjectDef *def,
 static int current_object_placement(const RcWorld *world, int obj_id,
                                     int x, int y, int plane,
                                     RcObjectPlacement *out) {
-    return current_object_placement_key(world, obj_id, x, y, plane, 0, out);
-}
-
-static int current_object_placement_key(const RcWorld *world, int obj_id,
-                                        int x, int y, int plane,
-                                        uint64_t placement_key,
-                                        RcObjectPlacement *out) {
-    if (placement_key != 0) {
-        const RcObjectState *st =
-            object_state_find_by_key_const(world, placement_key);
-        if (st) {
-            if (!object_state_matches_target(st, obj_id, x, y, plane))
-                return 0;
-            if (out) object_state_to_placement(st, out);
-            return 1;
-        }
-        return object_exact_placement_key(obj_id, x, y, plane, placement_key,
-                                          out);
-    }
-    if (object_exact_placement(obj_id, x, y, plane, out))
-        return 1;
-    const RcObjectState *st = object_state_find_const(world, obj_id, x, y,
-                                                      plane);
-    if (!st) return 0;
-    if (out) object_state_to_placement(st, out);
-    return 1;
+    return rc_world_object_current_placement(world, obj_id, x, y, plane, 0, out);
 }
 
 static int wall_side_reaches(const RcObjectPlacement *p, int tx, int ty) {
@@ -2006,7 +1780,7 @@ static int tile_reaches_object_target(const RcWorld *world,
     if (!target || target->kind != RC_INTERACTION_OBJECT)
         return 0;
     RcObjectPlacement placement;
-    if (!current_object_placement_key(world, target->definition_id,
+    if (!rc_world_object_current_placement(world, target->definition_id,
                                       target->tile_x, target->tile_y,
                                       target->plane,
                                       target->placement_key, &placement)) {
@@ -2059,15 +1833,6 @@ static int source_tile_matches_placement(const RcObjectPlacement *placement,
     return tile_distance_to_placement(placement, def, source_x, source_y) <= 1;
 }
 
-static int first_transform_id(const RcObjectDef *def) {
-    if (!def) return -1;
-    for (int i = 0; i < def->transform_count
-            && i < RC_OBJECT_MAX_TRANSFORMS; i++) {
-        if (def->transforms[i] >= 0) return def->transforms[i];
-    }
-    return -1;
-}
-
 static int traversal_direction_score(const RcTraversalEdge *row) {
     if (!row) return 0;
     int delta = (int)row->dest_plane - (int)row->start_plane;
@@ -2104,7 +1869,7 @@ static const RcTraversalEdge *object_traversal_edge(
         return NULL;
     }
     RcObjectPlacement placement;
-    int have_placement = current_object_placement_key(
+    int have_placement = rc_world_object_current_placement(
         world, obj_id, x, y, plane, placement_key, &placement);
     if (rc_object_has_placements() && !have_placement) {
         return NULL;
@@ -2162,148 +1927,96 @@ static const RcTraversalEdge *object_traversal_edge(
     return nearest ? nearest : exact;
 }
 
-static int object_def_has_action(const RcObjectDef *def, int opt) {
-    return def && opt >= 0 && opt < RC_OBJECT_ACTIONS
-        && def->actions[opt][0] != '\0';
+static const RcTraversalEdge *object_effective_traversal_edge(
+    const RcWorld *world, int obj_id, int x, int y, int plane, int opt,
+    uint64_t placement_key, RcTraversalEdge *inferred) {
+    const RcTraversalEdge *edge = object_traversal_edge(
+        world, obj_id, x, y, plane, opt, placement_key);
+    if (!edge && inferred
+            && infer_vertical_climb_edge(obj_id, x, y, plane, opt, inferred)) {
+        edge = inferred;
+    }
+    return edge;
 }
 
-static int object_option_available(const RcObjectDef *def,
+static int object_option_available(const RcWorld *world, int obj_id,
+                                   int x, int y, int plane,
+                                   uint64_t placement_key,
+                                   const RcObjectDef *def,
                                    const RcObjectBehavior *behavior,
                                    const RcTraversalEdge *edge, int opt) {
+    (void)def;
+    (void)placement_key;
     if (opt < 0 || opt >= RC_OBJECT_ACTIONS)
         return 0;
-    if (object_def_has_action(def, opt))
+    if (edge) return 1;
+    RcInteractionDispatchKey key = rc_interaction_dispatch_key_any();
+    key.kind = RC_INTERACTION_OBJECT;
+    key.op = rc_interaction_op_from_option(opt);
+    key.definition_id = obj_id;
+    if (rc_interaction_has_specific_world_handler(world, &key)) return 1;
+    if (!behavior || !(behavior->action_mask & (1u << opt))) return 0;
+    if (behavior->flags & RC_OBJ_BEHAVIOR_DOOR) return 1;
+    if ((behavior->flags & (RC_OBJ_BEHAVIOR_BANK |
+                            RC_OBJ_BEHAVIOR_STORAGE))
+            && world && (world->enabled & RC_SUB_STORAGE)) {
         return 1;
-    if (behavior && (behavior->action_mask & (1u << opt)))
+    }
+    if ((behavior->flags & RC_OBJ_BEHAVIOR_ALTAR)
+            && behavior->skill == RC_OBJ_SKILL_PRAYER
+            && world && (world->enabled & RC_SUB_PRAYER)) {
         return 1;
-    return edge != NULL;
-}
-
-static uint32_t *map_tile_flags_mut(RcWorldMap *map, int x, int y,
-                                    int plane) {
-    if (!map || x < 0 || y < 0 || plane < 0 || plane >= RC_MAX_PLANES)
-        return NULL;
-    int region_x = x / RC_REGION_SIZE;
-    int region_y = y / RC_REGION_SIZE;
-    int local_x = x % RC_REGION_SIZE;
-    int local_y = y % RC_REGION_SIZE;
-    for (int i = 0; i < map->region_count; i++) {
-        RcRegion *reg = &map->regions[i];
-        if (reg->loaded && reg->region_x == region_x
-                && reg->region_y == region_y) {
-            return &reg->tiles[plane][local_x][local_y].collision_flags;
-        }
     }
-    return NULL;
-}
-
-static void set_map_wall_flag(RcWorld *world, int x, int y, int plane,
-                              uint32_t flag, int set) {
-    uint32_t *flags = map_tile_flags_mut(world ? &world->map : NULL, x, y,
-                                         plane);
-    if (!flags) return;
-    if (set)
-        *flags |= flag;
-    else
-        *flags &= ~flag;
-}
-
-static uint32_t wall_collision_flags(uint32_t movement_flags,
-                                     int blocks_projectiles) {
-    return movement_flags | (blocks_projectiles
-        ? ((movement_flags & 0xffu) << 9) : 0u);
-}
-
-static void apply_wall_shape_collision(RcWorld *world, int x, int y,
-                                       int plane, int type, int rotation,
-                                       int set, int blocks_projectiles) {
-#define WALL_FLAGS(flags) wall_collision_flags((flags), blocks_projectiles)
-    int r = rotation & 3;
-    if (type == 0 || type == 3) {
-        if (r == 0) {
-            set_map_wall_flag(world, x, y, plane, WALL_FLAGS(COL_WALL_W), set);
-            set_map_wall_flag(world, x - 1, y, plane,
-                              WALL_FLAGS(COL_WALL_E), set);
-        } else if (r == 1) {
-            set_map_wall_flag(world, x, y, plane, WALL_FLAGS(COL_WALL_N), set);
-            set_map_wall_flag(world, x, y + 1, plane,
-                              WALL_FLAGS(COL_WALL_S), set);
-        } else if (r == 2) {
-            set_map_wall_flag(world, x, y, plane, WALL_FLAGS(COL_WALL_E), set);
-            set_map_wall_flag(world, x + 1, y, plane,
-                              WALL_FLAGS(COL_WALL_W), set);
-        } else {
-            set_map_wall_flag(world, x, y, plane, WALL_FLAGS(COL_WALL_S), set);
-            set_map_wall_flag(world, x, y - 1, plane,
-                              WALL_FLAGS(COL_WALL_N), set);
-        }
-    } else if (type == 2) {
-        if (r == 0) {
-            set_map_wall_flag(world, x, y, plane,
-                              WALL_FLAGS(COL_WALL_W | COL_WALL_N), set);
-            set_map_wall_flag(world, x - 1, y, plane,
-                              WALL_FLAGS(COL_WALL_E), set);
-            set_map_wall_flag(world, x, y + 1, plane,
-                              WALL_FLAGS(COL_WALL_S), set);
-        } else if (r == 1) {
-            set_map_wall_flag(world, x, y, plane,
-                              WALL_FLAGS(COL_WALL_E | COL_WALL_N), set);
-            set_map_wall_flag(world, x + 1, y, plane,
-                              WALL_FLAGS(COL_WALL_W), set);
-            set_map_wall_flag(world, x, y + 1, plane,
-                              WALL_FLAGS(COL_WALL_S), set);
-        } else if (r == 2) {
-            set_map_wall_flag(world, x, y, plane,
-                              WALL_FLAGS(COL_WALL_E | COL_WALL_S), set);
-            set_map_wall_flag(world, x + 1, y, plane,
-                              WALL_FLAGS(COL_WALL_W), set);
-            set_map_wall_flag(world, x, y - 1, plane,
-                              WALL_FLAGS(COL_WALL_N), set);
-        } else {
-            set_map_wall_flag(world, x, y, plane,
-                              WALL_FLAGS(COL_WALL_W | COL_WALL_S), set);
-            set_map_wall_flag(world, x - 1, y, plane,
-                              WALL_FLAGS(COL_WALL_E), set);
-            set_map_wall_flag(world, x, y - 1, plane,
-                              WALL_FLAGS(COL_WALL_N), set);
-        }
-    } else if (type == 1) {
-        if (r == 0) {
-            set_map_wall_flag(world, x, y, plane, WALL_FLAGS(COL_WALL_NW), set);
-            set_map_wall_flag(world, x - 1, y + 1, plane,
-                              WALL_FLAGS(COL_WALL_SE), set);
-        } else if (r == 1) {
-            set_map_wall_flag(world, x, y, plane, WALL_FLAGS(COL_WALL_NE), set);
-            set_map_wall_flag(world, x + 1, y + 1, plane,
-                              WALL_FLAGS(COL_WALL_SW), set);
-        } else if (r == 2) {
-            set_map_wall_flag(world, x, y, plane, WALL_FLAGS(COL_WALL_SE), set);
-            set_map_wall_flag(world, x + 1, y - 1, plane,
-                              WALL_FLAGS(COL_WALL_NW), set);
-        } else {
-            set_map_wall_flag(world, x, y, plane, WALL_FLAGS(COL_WALL_SW), set);
-            set_map_wall_flag(world, x - 1, y - 1, plane,
-                              WALL_FLAGS(COL_WALL_NE), set);
-        }
+    if ((behavior->flags & RC_OBJ_BEHAVIOR_RESOURCE)
+            && world && (world->enabled & RC_SUB_SKILLS)
+            && rc_world_tile_valid(x, y, plane)) {
+        const RcGatheringNode *node = rc_gathering_node_find(
+            obj_id, x, y, plane);
+        return node && (node->action_mask & (1u << opt));
     }
-#undef WALL_FLAGS
+    return 0;
 }
 
-static void apply_door_collision(RcWorld *world, int obj_id, int x, int y,
-                                 int plane, int open) {
-    RcObjectPlacement rows[16];
-    int count = rc_object_placements_at(x, y, plane, rows, 16);
-    for (int i = 0; i < count; i++) {
-        if ((int)rows[i].obj_id != obj_id)
-            continue;
-        const RcObjectDef *def = rc_object_def_get(obj_id);
-        int blocks_projectiles = def
-            && (def->clip_flags & RC_OBJECT_CLIP_BLOCKS_PROJECTILE);
-        apply_wall_shape_collision(world, x, y, plane, rows[i].type,
-                                   rows[i].rotation, !open,
-                                   blocks_projectiles);
-        return;
+int rc_world_object_option_supported(const RcWorld *world, int obj_id,
+                                     int x, int y, int plane,
+                                     uint64_t placement_key, int option) {
+    if (!world || obj_id < 0 || option < 0 || option >= RC_OBJECT_ACTIONS)
+        return 0;
+    RcObjectPlacement placement;
+    if (rc_world_tile_valid(x, y, plane) && rc_object_has_placements()) {
+        if (!rc_world_object_current_placement(
+                world, obj_id, x, y, plane, placement_key, &placement)) {
+            return 0;
+        }
+        obj_id = (int)placement.obj_id;
+        x = placement.x;
+        y = placement.y;
+        plane = placement.plane;
+        placement_key = placement.key;
+    } else {
+        int effective_id = obj_id;
+        if (rc_world_object_def_resolve(world, obj_id, &effective_id))
+            obj_id = effective_id;
     }
+    const RcObjectDef *def = rc_object_def_get(obj_id);
+    if (!def) return 0;
+    if (rc_encounter_object_option_supported(
+            world, obj_id, def->name, x, y, plane, option)) {
+        return 1;
+    }
+    const RcObjectBehavior *behavior = rc_object_behavior_get(obj_id);
+    const RcObjectState *state = placement_key
+        ? rc_world_object_state_find_key_const(world, placement_key) : NULL;
+    if (state && state->base_obj_id >= 0) {
+        const RcObjectBehavior *base_behavior =
+            rc_object_behavior_get(state->base_obj_id);
+        if (base_behavior) behavior = base_behavior;
+    }
+    RcTraversalEdge inferred;
+    const RcTraversalEdge *edge = object_effective_traversal_edge(
+        world, obj_id, x, y, plane, option, placement_key, &inferred);
+    return object_option_available(world, obj_id, x, y, plane, placement_key,
+                                   def, behavior, edge, option);
 }
 
 static void door_translate_open(int shape, int rotation, int *x, int *y) {
@@ -2338,31 +2051,6 @@ static int string_has_ci(const char *s, const char *needle) {
         if (i == n) return 1;
     }
     return 0;
-}
-
-static int string_eq_ci(const char *a, const char *b) {
-    if (!a || !b) return 0;
-    while (*a && *b) {
-        char ca = *a++;
-        char cb = *b++;
-        if (ca >= 'A' && ca <= 'Z') ca = (char)(ca - 'A' + 'a');
-        if (cb >= 'A' && cb <= 'Z') cb = (char)(cb - 'A' + 'a');
-        if (ca != cb) return 0;
-    }
-    return *a == '\0' && *b == '\0';
-}
-
-static int object_action_opens_dynamic(const char *action) {
-    return string_eq_ci(action, "open") || string_eq_ci(action, "unlock");
-}
-
-static int object_action_closes_dynamic(const char *action) {
-    return string_eq_ci(action, "close") || string_eq_ci(action, "lock");
-}
-
-static int object_action_mutates_dynamic(const char *action) {
-    return object_action_opens_dynamic(action)
-        || object_action_closes_dynamic(action);
 }
 
 static void gate_right_translate_open(int rotation, int *x, int *y) {
@@ -2550,7 +2238,7 @@ static int dynamic_open_rotation(const RcObjectBehavior *behavior,
                             RC_OBJ_BEHAVIOR_PAIR_RIGHT));
     if (!pair)
         return (base_rotation + 1) & 3;
-    if (def && string_has_ci(def->name, "gate"))
+    if (behavior && (behavior->flags & RC_OBJ_BEHAVIOR_PAIR_WIDE))
         return (base_rotation + 3) & 3;
     if (behavior->flags & RC_OBJ_BEHAVIOR_PAIR_LEFT)
         return (base_rotation + 3) & 3;
@@ -2563,7 +2251,8 @@ static void dynamic_open_tile(const RcObjectBehavior *behavior,
     if (shape > 3)
         return;
     if (behavior && (behavior->flags & RC_OBJ_BEHAVIOR_PAIR_RIGHT)
-            && def && string_has_ci(def->name, "gate") && shape == 0) {
+            && (behavior->flags & RC_OBJ_BEHAVIOR_PAIR_WIDE)
+            && shape == 0) {
         gate_right_translate_open(rotation, x, y);
         return;
     }
@@ -2580,125 +2269,122 @@ static void pair_left_to_right_delta(int rotation, int *dx, int *dy) {
     else *dx = -1;
 }
 
-static int find_paired_dynamic_placement(const RcObjectState *st,
+static int find_paired_dynamic_placement(const RcObjectPlacement *base,
                                          const RcObjectBehavior *behavior,
                                          RcObjectPlacement *out) {
-    if (!st || !behavior ||
+    if (!base || !behavior ||
             !(behavior->flags & (RC_OBJ_BEHAVIOR_PAIR_LEFT |
                                  RC_OBJ_BEHAVIOR_PAIR_RIGHT))) {
         return 0;
     }
     int dx, dy;
-    pair_left_to_right_delta(st->base_rotation, &dx, &dy);
+    pair_left_to_right_delta(base->rotation, &dx, &dy);
     uint32_t need_flag = RC_OBJ_BEHAVIOR_PAIR_RIGHT;
     if (behavior->flags & RC_OBJ_BEHAVIOR_PAIR_RIGHT) {
         dx = -dx;
         dy = -dy;
         need_flag = RC_OBJ_BEHAVIOR_PAIR_LEFT;
     }
-    RcObjectPlacement rows[16];
-    int count = rc_object_placements_at(st->x + dx, st->y + dy, st->plane,
-                                        rows, 16);
-    for (int i = 0; i < count; i++) {
+    int x = base->x + dx;
+    int y = base->y + dy;
+    uint16_t mapsquare;
+    if (!rc_world_to_mapsquare(x, y, &mapsquare, NULL, NULL)) return 0;
+    int count = 0;
+    const RcObjectPlacement *rows = rc_object_region_placements(
+        mapsquare, &count);
+    int matches = 0;
+    for (int i = 0; rows && i < count; i++) {
+        if (rows[i].x != x || rows[i].y != y || rows[i].plane != base->plane)
+            continue;
         const RcObjectBehavior *other =
             rc_object_behavior_get((int)rows[i].obj_id);
         if (!other)
             continue;
         if ((other->flags & need_flag) == 0)
             continue;
-        if (rows[i].type != st->base_type)
+        if (rows[i].type != base->type)
             continue;
-        if ((rows[i].rotation & 3) != (st->base_rotation & 3))
+        if ((rows[i].rotation & 3) != (base->rotation & 3))
             continue;
         if (out) *out = rows[i];
-        return 1;
+        matches++;
     }
-    return 0;
+    return matches == 1;
 }
 
-int rc_world_object_active_id(const RcWorld *world, int obj_id, int x, int y,
-                              int plane) {
-    if (!world || x < 0 || y < 0 || plane < 0) return obj_id;
-    const RcObjectState *st = object_state_find_const(world, obj_id, x, y,
-                                                      plane);
-    if (st) return st->active_obj_id;
-    return obj_id;
+static void door_open_replacement(const RcObjectPlacement *base,
+                                  const RcObjectBehavior *behavior,
+                                  RcObjectPlacement *replacement) {
+    *replacement = *base;
+    if (behavior && behavior->next_loc_stage >= 0)
+        replacement->obj_id = (uint32_t)behavior->next_loc_stage;
+    const RcObjectDef *def = rc_object_def_get((int)base->obj_id);
+    replacement->rotation = (uint8_t)dynamic_open_rotation(
+        behavior, def, base->type, base->rotation);
+    int x = base->x;
+    int y = base->y;
+    dynamic_open_tile(behavior, def, base->type, base->rotation, &x, &y);
+    replacement->x = (uint16_t)x;
+    replacement->y = (uint16_t)y;
+    (void)rc_world_to_mapsquare(x, y, &replacement->mapsquare, NULL, NULL);
 }
 
-int rc_world_object_active_state(const RcWorld *world, int obj_id, int x,
-                                 int y, int plane, RcObjectState *out) {
-    if (!out) return 0;
-    const RcObjectState *st = object_state_find_const(world, obj_id, x, y,
-                                                      plane);
-    if (!st) return 0;
-    *out = *st;
-    return 1;
-}
-
-int rc_world_object_active_state_by_key(const RcWorld *world,
-                                        uint64_t placement_key,
-                                        RcObjectState *out) {
-    if (!out) return 0;
-    const RcObjectState *st =
-        object_state_find_by_key_const(world, placement_key);
-    if (!st) return 0;
-    *out = *st;
-    return 1;
-}
-
-static void apply_dynamic_object_state(RcWorld *world, RcObjectState *st,
-                                       int open,
-                                       const RcObjectBehavior *behavior) {
-    if (!world || !st) return;
-    const RcObjectDef *base_def = rc_object_def_get(st->base_obj_id);
-    if (open) {
-        int transform = behavior && behavior->next_loc_stage >= 0
-            ? behavior->next_loc_stage
-            : first_transform_id(base_def);
-        st->active_obj_id = transform >= 0 ? transform : st->base_obj_id;
-        st->active_x = st->x;
-        st->active_y = st->y;
-        st->active_plane = st->plane;
-        st->active_type = st->base_type;
-        st->active_rotation = (uint8_t)dynamic_open_rotation(
-            behavior, base_def, st->base_type, st->base_rotation);
-        dynamic_open_tile(behavior, base_def, st->base_type,
-                          st->base_rotation, &st->active_x, &st->active_y);
-        st->revert_tick = world->tick + RC_OBJECT_DOOR_REVERT_TICKS;
-        st->flags |= RC_OBJECT_STATE_OPEN | RC_OBJECT_STATE_DYNAMIC;
-        schedule_object_state_tick(world, st->revert_tick);
-    } else {
-        reset_object_state_active(st);
+static int apply_door_state(RcWorld *world, int obj_id, int x, int y,
+                            int plane, uint64_t placement_key,
+                            const RcObjectBehavior *behavior) {
+    if (!world || !rc_world_tile_valid(x, y, plane)) return 0;
+    RcObjectState *state = placement_key
+        ? rc_world_object_state_find_key(world, placement_key)
+        : rc_world_object_state_find(world, obj_id, x, y, plane);
+    if (state) {
+        RcObjectPlacement base = {
+            .obj_id = (uint32_t)state->base_obj_id,
+            .key = state->placement_key,
+            .x = (uint16_t)state->x,
+            .y = (uint16_t)state->y,
+            .plane = (uint8_t)state->plane,
+            .type = state->base_type,
+            .rotation = state->base_rotation,
+        };
+        RcObjectPlacement pair;
+        int paired = find_paired_dynamic_placement(&base, behavior, &pair);
+        if (paired) (void)rc_world_object_revert(world, pair.key);
+        return rc_world_object_revert(world, base.key)
+            == RC_OBJECT_MUTATION_OK;
     }
-    apply_door_collision(world, st->base_obj_id, st->x, st->y, st->plane,
-                         open);
-}
 
-static void apply_door_state(RcWorld *world, int obj_id, int x, int y,
-                             int plane, uint64_t placement_key, int opt,
-                             const RcObjectBehavior *behavior) {
-    if (x < 0 || y < 0 || plane < 0) return;
-    RcObjectState *st =
-        object_state_get_key(world, obj_id, x, y, plane, placement_key);
-    if (!st) return;
-    const RcObjectDef *base_def = rc_object_def_get(st->base_obj_id);
-    const RcObjectDef *clicked_def = rc_object_def_get(obj_id);
-    const RcObjectDef *action_def = clicked_def ? clicked_def : base_def;
-    const char *action = action_def ? action_def->actions[opt] : "";
-    int open = object_action_opens_dynamic(action);
-    int close = object_action_closes_dynamic(action);
-    if (!open && !close) return;
-    apply_dynamic_object_state(world, st, open, behavior);
+    RcObjectPlacement base;
+    if (placement_key) {
+        if (!rc_object_placement_find_key(placement_key, x, y, plane, &base))
+            return 0;
+    } else if (!object_exact_placement(obj_id, x, y, plane, &base)) {
+        return 0;
+    }
+    RcObjectPlacement replacement;
+    door_open_replacement(&base, behavior, &replacement);
+    RcObjectMutationResult result = rc_world_object_replace(
+        world, &base, &replacement, RC_OBJECT_DOOR_REVERT_TICKS,
+        RC_OBJECT_STATE_OPEN);
+    if (result != RC_OBJECT_MUTATION_OK) return 0;
 
     RcObjectPlacement pair;
-    if (!find_paired_dynamic_placement(st, behavior, &pair))
-        return;
-    RcObjectState *pair_state = object_state_get(world, (int)pair.obj_id,
-                                                 pair.x, pair.y, pair.plane);
+    if (!find_paired_dynamic_placement(&base, behavior, &pair)) return 1;
     const RcObjectBehavior *pair_behavior =
         rc_object_behavior_get((int)pair.obj_id);
-    if (pair_state && pair_behavior)
-        apply_dynamic_object_state(world, pair_state, open, pair_behavior);
+    if (!pair_behavior) {
+        (void)rc_world_object_revert(world, base.key);
+        return 0;
+    }
+    RcObjectPlacement pair_replacement;
+    door_open_replacement(&pair, pair_behavior, &pair_replacement);
+    result = rc_world_object_replace(
+        world, &pair, &pair_replacement, RC_OBJECT_DOOR_REVERT_TICKS,
+        RC_OBJECT_STATE_OPEN);
+    if (result != RC_OBJECT_MUTATION_OK) {
+        (void)rc_world_object_revert(world, base.key);
+        return 0;
+    }
+    return 1;
 }
 
 static void apply_altar_effect(RcWorld *world, const RcObjectDef *def,
@@ -2722,11 +2408,25 @@ static int api_apply_object_interaction(RcWorld *world, const RcObjectDef *def,
                                         int obj_id, int x, int y, int plane,
                                         uint64_t placement_key, int opt) {
     if (!world || opt < 0 || opt >= RC_OBJECT_ACTIONS) return 0;
+    RcObjectPlacement current = {0};
+    if (rc_world_tile_valid(x, y, plane) && rc_object_has_placements()) {
+        if (!rc_world_object_current_placement(
+                world, obj_id, x, y, plane, placement_key, &current)) {
+            return 0;
+        }
+        obj_id = (int)current.obj_id;
+        x = current.x;
+        y = current.y;
+        plane = current.plane;
+        placement_key = current.key;
+        def = rc_object_def_get(obj_id);
+        behavior = rc_object_behavior_get(obj_id);
+    }
     RcObjectState *state = placement_key
-        ? object_state_find_by_key(world, placement_key)
-        : object_state_find(world, obj_id, x, y, plane);
+        ? rc_world_object_state_find_key(world, placement_key)
+        : rc_world_object_state_find(world, obj_id, x, y, plane);
     if (state && placement_key
-            && !object_state_matches_target(state, obj_id, x, y, plane)) {
+            && !rc_world_object_state_matches(state, obj_id, x, y, plane)) {
         return 0;
     }
     const RcObjectBehavior *effective_behavior = behavior;
@@ -2737,41 +2437,38 @@ static int api_apply_object_interaction(RcWorld *world, const RcObjectDef *def,
             effective_behavior = base_behavior;
     }
     RcTraversalEdge inferred_edge;
-    const RcTraversalEdge *edge =
-        object_traversal_edge(world, obj_id, x, y, plane, opt,
-                              placement_key);
-    if (!edge && infer_vertical_climb_edge(obj_id, x, y, plane, opt,
-                                           &inferred_edge)) {
-        edge = &inferred_edge;
-    }
-    if (!object_option_available(def, effective_behavior, edge, opt)) {
+    const RcTraversalEdge *edge = object_effective_traversal_edge(
+        world, obj_id, x, y, plane, opt, placement_key, &inferred_edge);
+    if (!object_option_available(world, obj_id, x, y, plane, placement_key,
+                                 def, effective_behavior, edge, opt)) {
         return 0;
     }
     int agility_like_shortcut = traversal_edge_is_agility_like(edge);
     if (agility_like_shortcut && !player_can_use_agility_like_shortcut(world))
         return 0;
+    int applied = 0;
     if (effective_behavior && rc_player_open_storage_object(world, obj_id, opt))
-        return 1;
-    world->player.interact_type = RC_INTERACT_OBJECT;
-    world->player.interact_target = obj_id;
-    world->player.interact_option = opt;
-    const char *action = def && opt >= 0 && opt < RC_OBJECT_ACTIONS
-                       ? def->actions[opt] : "";
+        applied = 1;
     if (effective_behavior
             && (effective_behavior->flags & RC_OBJ_BEHAVIOR_DOOR)
-            && object_action_mutates_dynamic(action)) {
-        apply_door_state(world, obj_id, x, y, plane, placement_key, opt,
-                         effective_behavior);
+            && !edge && !applied) {
+        if (!apply_door_state(world, obj_id, x, y, plane, placement_key,
+                              effective_behavior)) {
+            return 0;
+        }
         start_player_action_lock(world, 1);
+        applied = 1;
     }
     if (effective_behavior && (effective_behavior->flags & RC_OBJ_BEHAVIOR_ALTAR)
-            && effective_behavior->skill == RC_OBJ_SKILL_PRAYER) {
+            && effective_behavior->skill == RC_OBJ_SKILL_PRAYER
+            && !edge && !applied) {
         apply_altar_effect(world, def, obj_id, opt);
+        applied = 1;
     }
     if (x >= 0 && y >= 0 && plane >= 0
             && effective_behavior
             && (effective_behavior->flags & RC_OBJ_BEHAVIOR_RESOURCE)
-            && (world->enabled & RC_SUB_SKILLS)) {
+            && (world->enabled & RC_SUB_SKILLS) && !edge) {
         const RcGatheringNode *node = rc_gathering_node_find(
             obj_id, x, y, plane);
         if (node && (node->action_mask & (1u << opt))) {
@@ -2779,9 +2476,10 @@ static int api_apply_object_interaction(RcWorld *world, const RcObjectDef *def,
             world->player.skill_ready_tick = world->tick + 1;
             world->player.skill_target_x = x;
             world->player.skill_target_y = y;
+            applied = 1;
         }
     }
-    if (edge) {
+    if (edge && !applied) {
         int climb = effective_behavior
             && (effective_behavior->flags & (RC_OBJ_BEHAVIOR_LADDER |
                                              RC_OBJ_BEHAVIOR_STAIR));
@@ -2798,7 +2496,12 @@ static int api_apply_object_interaction(RcWorld *world, const RcObjectDef *def,
             rc_player_apply_traversal(world, edge);
             world->player_action.ready_tick = world->tick;
         }
+        applied = 1;
     }
+    if (!applied) return 0;
+    world->player.interact_type = RC_INTERACT_OBJECT;
+    world->player.interact_target = obj_id;
+    world->player.interact_option = opt;
     return 1;
 }
 
@@ -2823,8 +2526,8 @@ static RcInteractionHandlerResult api_default_object_handler(
                                       pending->target.plane,
                                       pending->target.placement_key, opt)) {
         return rc_interaction_result_failure(
-            RC_INTERACTION_FAIL_OPTION_UNAVAILABLE,
-            "Object option unavailable");
+            RC_INTERACTION_FAIL_NO_HANDLER,
+            "No object interaction handler");
     }
     return rc_interaction_result_complete();
 }
@@ -2939,11 +2642,17 @@ int rc_player_interact_object_placement(RcWorld *world, int obj_id, int x,
             && plane != world->player.plane) {
         return 0;
     }
-    if (x >= 0 && y >= 0 && plane >= 0
-            && rc_object_has_placements()
-            && !current_object_placement_key(world, obj_id, x, y, plane,
-                                             placement_key, NULL)) {
-        return 0;
+    RcObjectPlacement placement = {0};
+    if (x >= 0 && y >= 0 && plane >= 0 && rc_object_has_placements()) {
+        if (!rc_world_object_current_placement(
+                world, obj_id, x, y, plane, placement_key, &placement)) {
+            return 0;
+        }
+        obj_id = (int)placement.obj_id;
+        x = placement.x;
+        y = placement.y;
+        plane = placement.plane;
+        placement_key = placement.key;
     }
     const RcObjectDef *def = rc_object_def_get(obj_id);
     if (rc_encounter_interact_object(world, obj_id, def ? def->name : "",
@@ -2951,19 +2660,20 @@ int rc_player_interact_object_placement(RcWorld *world, int obj_id, int x,
         api_stop_player_combat(world);
         return 1;
     }
-    const RcObjectBehavior *behavior = rc_object_behavior_get(obj_id);
-    const RcTraversalEdge *edge =
-        object_traversal_edge(world, obj_id, x, y, plane, opt,
-                              placement_key);
     if (opt < 0 || opt >= RC_OBJECT_ACTIONS) return 0;
-    if (!object_option_available(def, behavior, edge, opt)) {
+    if (!rc_world_object_option_supported(world, obj_id, x, y, plane,
+                                          placement_key, opt)) {
         return 0;
     }
+    const RcObjectBehavior *behavior = rc_object_behavior_get(obj_id);
+    RcTraversalEdge inferred_edge;
+    const RcTraversalEdge *edge = object_effective_traversal_edge(
+        world, obj_id, x, y, plane, opt, placement_key, &inferred_edge);
     if (traversal_edge_is_agility_like(edge)
             && !player_can_use_agility_like_shortcut(world)) {
         return 0;
     }
-    RcObjectState *state = object_state_find(world, obj_id, x, y, plane);
+    RcObjectState *state = rc_world_object_state_find(world, obj_id, x, y, plane);
     if (state && (state->flags & RC_OBJECT_STATE_DEPLETED)) return 0;
     if (x >= 0 && y >= 0 && plane >= 0) {
         RcInteractionTarget target =
@@ -2989,10 +2699,14 @@ int rc_player_interact_object_placement(RcWorld *world, int obj_id, int x,
 int rc_player_interact_inventory_item(RcWorld *world, int inv_slot,
                                       int option) {
     if (rc_player_command_should_queue(world)) {
+        uint32_t generation = world && inv_slot >= 0
+                            && inv_slot < RC_INVENTORY_SIZE
+                            ? world->player.inventory[inv_slot].generation : 0;
         return queue_player_command(world,
                                     RC_PLAYER_COMMAND_INTERACT_INVENTORY,
                                     RC_ACTION_CATEGORY_NORMAL,
-                                    inv_slot, option, 0, 0, 0, 0);
+                                    inv_slot, option, (int)generation,
+                                    0, 0, 0);
     }
     if (!world || inv_slot < 0 || inv_slot >= RC_INVENTORY_SIZE) return 0;
     RcPlayer *p = &world->player;
@@ -3007,6 +2721,11 @@ int rc_player_interact_inventory_item(RcWorld *world, int inv_slot,
         p, 0, op, "Op", &target, 0, target.definition_id,
         RC_INTERACTION_KEY_ANY, RC_INTERACTION_KEY_ANY,
         RC_INTERACTION_KEY_ANY);
+    if (begun) {
+        p->interaction.source_inventory_slot = inv_slot;
+        p->interaction.source_item_generation =
+            p->inventory[inv_slot].generation;
+    }
     if (begun) api_stop_player_combat(world);
     return begun;
 }
@@ -3014,10 +2733,15 @@ int rc_player_interact_inventory_item(RcWorld *world, int inv_slot,
 int rc_player_interact_equipment_item(RcWorld *world, int equip_slot,
                                       int option) {
     if (rc_player_command_should_queue(world)) {
+        uint32_t generation = world && equip_slot >= 0
+                            && equip_slot < RC_EQUIP_COUNT
+                            ? world->player.equipment[equip_slot].generation
+                            : 0;
         return queue_player_command(world,
                                     RC_PLAYER_COMMAND_INTERACT_EQUIPMENT,
                                     RC_ACTION_CATEGORY_NORMAL,
-                                    equip_slot, option, 0, 0, 0, 0);
+                                    equip_slot, option, (int)generation,
+                                    0, 0, 0);
     }
     if (!world || equip_slot < 0 || equip_slot >= RC_EQUIP_COUNT) return 0;
     RcPlayer *p = &world->player;
@@ -3060,9 +2784,13 @@ int rc_player_widget_action(RcWorld *world, int widget_id,
 int rc_player_use_inventory_item_on_npc(RcWorld *world, int inv_slot,
                                         int npc_uid) {
     if (rc_player_command_should_queue(world)) {
+        uint32_t generation = world && inv_slot >= 0
+                            && inv_slot < RC_INVENTORY_SIZE
+                            ? world->player.inventory[inv_slot].generation : 0;
         return queue_player_command(world, RC_PLAYER_COMMAND_USE_ITEM_ON_NPC,
                                     RC_ACTION_CATEGORY_NORMAL,
-                                    inv_slot, npc_uid, 0, 0, 0, 0);
+                                    inv_slot, npc_uid, (int)generation,
+                                    0, 0, 0);
     }
     if (!world || inv_slot < 0 || inv_slot >= RC_INVENTORY_SIZE) return 0;
     RcPlayer *p = &world->player;
@@ -3075,6 +2803,11 @@ int rc_player_use_inventory_item_on_npc(RcWorld *world, int inv_slot,
         p, 0, RC_INTERACTION_USE_ON, "Use", &target, 1, item_id,
         RC_INTERACTION_KEY_ANY, RC_INTERACTION_KEY_ANY,
         RC_INTERACTION_KEY_ANY);
+    if (begun) {
+        p->interaction.source_inventory_slot = inv_slot;
+        p->interaction.source_item_generation =
+            p->inventory[inv_slot].generation;
+    }
     if (begun) api_stop_player_combat(world);
     return begun ? api_prepare_spatial_interaction(world) : 0;
 }
@@ -3083,9 +2816,19 @@ int rc_player_use_inventory_item_on_inventory_item(RcWorld *world,
                                                    int source_slot,
                                                    int target_slot) {
     if (rc_player_command_should_queue(world)) {
+        uint32_t source_generation = world && source_slot >= 0
+                                   && source_slot < RC_INVENTORY_SIZE
+                                   ? world->player.inventory[source_slot]
+                                         .generation : 0;
+        uint32_t target_generation = world && target_slot >= 0
+                                   && target_slot < RC_INVENTORY_SIZE
+                                   ? world->player.inventory[target_slot]
+                                         .generation : 0;
         return queue_player_command(world, RC_PLAYER_COMMAND_USE_ITEM_ON_ITEM,
                                     RC_ACTION_CATEGORY_NORMAL,
-                                    source_slot, target_slot, 0, 0, 0, 0);
+                                    source_slot, target_slot,
+                                    (int)source_generation,
+                                    (int)target_generation, 0, 0);
     }
     if (!world || source_slot < 0 || source_slot >= RC_INVENTORY_SIZE
             || target_slot < 0 || target_slot >= RC_INVENTORY_SIZE) {
@@ -3104,6 +2847,11 @@ int rc_player_use_inventory_item_on_inventory_item(RcWorld *world,
         p, 0, RC_INTERACTION_USE_ON, "Use", &target, 0, item_id,
         RC_INTERACTION_KEY_ANY, RC_INTERACTION_KEY_ANY,
         RC_INTERACTION_KEY_ANY);
+    if (begun) {
+        p->interaction.source_inventory_slot = source_slot;
+        p->interaction.source_item_generation =
+            p->inventory[source_slot].generation;
+    }
     if (begun) api_stop_player_combat(world);
     return begun;
 }
@@ -3119,11 +2867,15 @@ int rc_player_use_inventory_item_on_object_placement(
     RcWorld *world, int inv_slot, int obj_id, int x, int y, int plane,
     uint64_t placement_key) {
     if (rc_player_command_should_queue(world)) {
-        return queue_player_command(world,
-                                    RC_PLAYER_COMMAND_USE_ITEM_ON_OBJECT,
-                                    RC_ACTION_CATEGORY_NORMAL,
-                                    inv_slot, obj_id, x, y, plane,
-                                    placement_key);
+        uint32_t generation = world && inv_slot >= 0
+                            && inv_slot < RC_INVENTORY_SIZE
+                            ? world->player.inventory[inv_slot].generation : 0;
+        int args[8] = {
+            inv_slot, obj_id, x, y, plane, (int)generation, 0, 0
+        };
+        return rc_player_command_submit(
+            world, RC_PLAYER_COMMAND_USE_ITEM_ON_OBJECT,
+            RC_ACTION_CATEGORY_NORMAL, args, placement_key);
     }
     if (!world || inv_slot < 0 || inv_slot >= RC_INVENTORY_SIZE) return 0;
     RcPlayer *p = &world->player;
@@ -3138,6 +2890,11 @@ int rc_player_use_inventory_item_on_object_placement(
         p, 0, RC_INTERACTION_USE_ON, "Use", &target, 1, item_id,
         RC_INTERACTION_KEY_ANY, RC_INTERACTION_KEY_ANY,
         RC_INTERACTION_KEY_ANY);
+    if (begun) {
+        p->interaction.source_inventory_slot = inv_slot;
+        p->interaction.source_item_generation =
+            p->inventory[inv_slot].generation;
+    }
     if (begun) api_stop_player_combat(world);
     return begun ? api_prepare_spatial_interaction(world) : 0;
 }
@@ -3146,10 +2903,22 @@ int rc_player_use_inventory_item_on_ground_item(RcWorld *world,
                                                 int inv_slot,
                                                 int ground_item_idx) {
     if (rc_player_command_should_queue(world)) {
+        uint32_t generation = world && inv_slot >= 0
+                            && inv_slot < RC_INVENTORY_SIZE
+                            ? world->player.inventory[inv_slot].generation : 0;
+        int ground_uid = -1;
+        int ground_version = -1;
+        if (world && ground_item_idx >= 0
+                && ground_item_idx < world->ground_item_count) {
+            ground_uid = world->ground_items[ground_item_idx].uid;
+            ground_version = world->ground_items[ground_item_idx].version;
+        }
         return queue_player_command(world,
                                     RC_PLAYER_COMMAND_USE_ITEM_ON_GROUND,
                                     RC_ACTION_CATEGORY_NORMAL,
-                                    inv_slot, ground_item_idx, 0, 0, 0, 0);
+                                    inv_slot, ground_item_idx,
+                                    (int)generation, ground_uid,
+                                    ground_version, 0);
     }
     if (!world || inv_slot < 0 || inv_slot >= RC_INVENTORY_SIZE ||
             ground_item_idx < 0 ||
@@ -3168,6 +2937,11 @@ int rc_player_use_inventory_item_on_ground_item(RcWorld *world,
         p, 0, RC_INTERACTION_USE_ON, "Use", &target, 0, item_id,
         RC_INTERACTION_KEY_ANY, RC_INTERACTION_KEY_ANY,
         RC_INTERACTION_KEY_ANY);
+    if (begun) {
+        p->interaction.source_inventory_slot = inv_slot;
+        p->interaction.source_item_generation =
+            p->inventory[inv_slot].generation;
+    }
     if (begun) api_stop_player_combat(world);
     return begun ? api_prepare_spatial_interaction(world) : 0;
 }
@@ -3175,11 +2949,14 @@ int rc_player_use_inventory_item_on_ground_item(RcWorld *world,
 int rc_player_use_inventory_item_on_widget(RcWorld *world, int inv_slot,
                                            int widget_id, int component_id) {
     if (rc_player_command_should_queue(world)) {
+        uint32_t generation = world && inv_slot >= 0
+                            && inv_slot < RC_INVENTORY_SIZE
+                            ? world->player.inventory[inv_slot].generation : 0;
         return queue_player_command(world,
                                     RC_PLAYER_COMMAND_USE_ITEM_ON_WIDGET,
                                     RC_ACTION_CATEGORY_NORMAL,
                                     inv_slot, widget_id, component_id,
-                                    0, 0, 0);
+                                    (int)generation, 0, 0);
     }
     if (!world || inv_slot < 0 || inv_slot >= RC_INVENTORY_SIZE
             || (widget_id < 0 && component_id < 0)) {
@@ -3194,6 +2971,11 @@ int rc_player_use_inventory_item_on_widget(RcWorld *world, int inv_slot,
         p, 0, RC_INTERACTION_USE_ON, "Use", &target, 0, item_id,
         RC_INTERACTION_KEY_ANY, RC_INTERACTION_KEY_ANY,
         RC_INTERACTION_KEY_ANY);
+    if (begun) {
+        p->interaction.source_inventory_slot = inv_slot;
+        p->interaction.source_item_generation =
+            p->inventory[inv_slot].generation;
+    }
     if (begun) api_stop_player_combat(world);
     return begun;
 }
@@ -3222,9 +3004,14 @@ int rc_player_cast_spell_on_npc(RcWorld *world, int spell_id, int npc_uid) {
 int rc_player_cast_spell_on_inventory_item(RcWorld *world, int spell_id,
                                            int target_slot) {
     if (rc_player_command_should_queue(world)) {
+        uint32_t generation = world && target_slot >= 0
+                            && target_slot < RC_INVENTORY_SIZE
+                            ? world->player.inventory[target_slot].generation
+                            : 0;
         return queue_player_command(world, RC_PLAYER_COMMAND_CAST_ON_ITEM,
                                     RC_ACTION_CATEGORY_NORMAL,
-                                    spell_id, target_slot, 0, 0, 0, 0);
+                                    spell_id, target_slot, (int)generation,
+                                    0, 0, 0);
     }
     if (!world || spell_id < 0 || target_slot < 0
             || target_slot >= RC_INVENTORY_SIZE) {

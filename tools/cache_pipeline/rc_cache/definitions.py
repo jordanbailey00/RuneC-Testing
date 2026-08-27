@@ -257,8 +257,7 @@ def decode_location_definition(loc_id: int, data: bytes) -> LocationDef:
             count = read_u8(buf)
             for _ in range(count + 1):
                 d.transforms.append(u16_or_missing(read_u16(buf)))
-            if op == 92:
-                d.transforms.append(default_transform)
+            d.transforms.append(default_transform)
         elif op == 78:
             d.ambient_sound_id = u16_or_missing(read_u16(buf))
             d.ambient_sound_distance = read_u8(buf)
@@ -323,6 +322,7 @@ def decode_location_definition(loc_id: int, data: bytes) -> LocationDef:
 class ItemDef(DecodeSummary):
     item_id: int = 0
     name: str = ""
+    examine: str = ""
     inventory_model: int = -1
     cost: int = 1
     weight: int = 0
@@ -358,7 +358,7 @@ def decode_item_definition(item_id: int, data: bytes) -> ItemDef:
         elif op == 2:
             d.name = read_string(buf)
         elif op == 3:
-            read_string(buf)
+            d.examine = read_string(buf)
         elif op in (4, 5, 6, 10, 21, 22, 66, 67, 68, 71, 73, 74, 76, 77):
             read_u16(buf)
         elif op in (7, 8, 97, 98, 148, 149):

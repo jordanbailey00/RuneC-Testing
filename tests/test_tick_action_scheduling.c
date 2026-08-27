@@ -90,7 +90,8 @@ static void test_categories_and_central_cancellation(void) {
         .ready_tick = world->tick + 2,
     };
     assert(rc_player_set_running(world, 1));
-    assert(!rc_player_move_inventory_item(world, 0, 1));
+    assert(!rc_item_result_accepted(
+        rc_player_move_inventory_item(world, 0, 1)));
     assert(rc_player_last_command_result(world, NULL)
            == RC_COMMAND_RESULT_REJECTED_BUSY);
     rc_world_tick(world);

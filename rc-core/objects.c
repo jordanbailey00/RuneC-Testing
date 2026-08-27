@@ -52,11 +52,13 @@ RcObjectBehavior g_rc_object_behaviors[RC_MAX_OBJECT_ID];
 RcObjectPlacement *g_rc_object_placements = NULL;
 RcObjectTransport *g_rc_object_transports = NULL;
 RcObjectParam *g_rc_object_params = NULL;
+int32_t *g_rc_object_transforms = NULL;
 int g_rc_object_def_count = 0;
 int g_rc_object_behavior_count = 0;
 int g_rc_object_placement_count = 0;
 int g_rc_object_transport_count = 0;
 int g_rc_object_param_count = 0;
+int g_rc_object_transform_count = 0;
 
 static RcObjectRange g_region_index[RC_MAX_OBJECT_ID];
 static RcObjectRange g_transport_index[RC_MAX_OBJECT_ID];
@@ -66,6 +68,7 @@ static const RcObjectBehavior *g_active_object_behaviors =
 static const RcObjectPlacement *g_active_object_placements = NULL;
 static const RcObjectTransport *g_active_object_transports = NULL;
 static const RcObjectParam *g_active_object_params = NULL;
+static const int32_t *g_active_object_transforms = NULL;
 static const RcObjectRange *g_active_region_index = g_region_index;
 static const RcObjectRange *g_active_transport_index = g_transport_index;
 static int g_active_object_def_count = 0;
@@ -73,6 +76,7 @@ static int g_active_object_behavior_count = 0;
 static int g_active_object_placement_count = 0;
 static int g_active_object_transport_count = 0;
 static int g_active_object_param_count = 0;
+static int g_active_object_transform_count = 0;
 static const RcObjectData *g_active_object_data = NULL;
 static RcObjectPlacementStore *g_global_placement_store = NULL;
 
@@ -153,11 +157,13 @@ void rc_object_data_init(RcObjectData *data) {
     data->placement_store = NULL;
     data->transports = NULL;
     data->params = NULL;
+    data->transforms = NULL;
     data->def_count = 0;
     data->behavior_count = 0;
     data->placement_count = 0;
     data->transport_count = 0;
     data->param_count = 0;
+    data->transform_count = 0;
     reset_object_range_index(data->region_index);
     reset_object_range_index(data->transport_index);
 }
@@ -168,6 +174,7 @@ void rc_object_data_free(RcObjectData *data) {
     object_placement_store_free(data->placement_store);
     free(data->transports);
     free(data->params);
+    free(data->transforms);
     rc_object_data_init(data);
 }
 
@@ -179,6 +186,7 @@ void rc_objects_use_data(const RcObjectData *data) {
         g_active_object_placements = g_rc_object_placements;
         g_active_object_transports = g_rc_object_transports;
         g_active_object_params = g_rc_object_params;
+        g_active_object_transforms = g_rc_object_transforms;
         g_active_region_index = g_region_index;
         g_active_transport_index = g_transport_index;
         g_active_object_def_count = g_rc_object_def_count;
@@ -186,6 +194,7 @@ void rc_objects_use_data(const RcObjectData *data) {
         g_active_object_placement_count = g_rc_object_placement_count;
         g_active_object_transport_count = g_rc_object_transport_count;
         g_active_object_param_count = g_rc_object_param_count;
+        g_active_object_transform_count = g_rc_object_transform_count;
         return;
     }
     g_active_object_defs = data->defs;
@@ -193,6 +202,7 @@ void rc_objects_use_data(const RcObjectData *data) {
     g_active_object_placements = data->placements;
     g_active_object_transports = data->transports;
     g_active_object_params = data->params;
+    g_active_object_transforms = data->transforms;
     g_active_region_index = data->region_index;
     g_active_transport_index = data->transport_index;
     g_active_object_def_count = data->def_count;
@@ -200,6 +210,7 @@ void rc_objects_use_data(const RcObjectData *data) {
     g_active_object_placement_count = data->placement_count;
     g_active_object_transport_count = data->transport_count;
     g_active_object_param_count = data->param_count;
+    g_active_object_transform_count = data->transform_count;
 }
 
 void rc_objects_reset_data_if_active(const RcObjectData *data) {
@@ -209,7 +220,8 @@ void rc_objects_reset_data_if_active(const RcObjectData *data) {
             || g_active_object_placements == data->placements
             || g_active_object_data == data
             || g_active_object_transports == data->transports
-            || g_active_object_params == data->params) {
+            || g_active_object_params == data->params
+            || g_active_object_transforms == data->transforms) {
         rc_objects_use_data(NULL);
     }
 }
@@ -287,6 +299,23 @@ static int append_object_param_into(RcObjectParam **params, int *count,
     return 1;
 }
 
+static int append_object_transform_into(int32_t **transforms, int *count,
+                                        int *capacity, int32_t value) {
+    if (!transforms || !count || !capacity || *count < 0 || *capacity < 0)
+        return 0;
+    if (*count == *capacity) {
+        int next_capacity = *capacity > 0 ? *capacity * 2 : 1024;
+        if (next_capacity <= *count) return 0;
+        int32_t *next = realloc(*transforms,
+            (size_t)next_capacity * sizeof(*next));
+        if (!next) return 0;
+        *transforms = next;
+        *capacity = next_capacity;
+    }
+    (*transforms)[(*count)++] = value;
+    return 1;
+}
+
 int rc_load_object_defs_into(const char *path, RcObjectData *data) {
     if (!path || !data) return -1;
     FILE *f = rc_asset_fopen(path, "rb");
@@ -301,7 +330,11 @@ int rc_load_object_defs_into(const char *path, RcObjectData *data) {
     free(data->params);
     data->params = NULL;
     data->param_count = 0;
+    free(data->transforms);
+    data->transforms = NULL;
+    data->transform_count = 0;
     data->def_count = 0;
+    int transform_capacity = 0;
     int loaded = 0;
     for (uint32_t i = 0; i < count; i++) {
         uint32_t obj_id, flags;
@@ -360,14 +393,12 @@ int rc_load_object_defs_into(const char *path, RcObjectData *data) {
         }
         RcObjectDef row;
         memset(&row, 0, sizeof(row));
-        for (int t = 0; t < RC_OBJECT_MAX_TRANSFORMS; t++) {
-            row.transforms[t] = -1;
-        }
         row.id = (int)obj_id;
         row.width = width;
         row.length = length;
         row.interact_type = interact_type;
         row.action_count = action_count;
+        row.transform_offset = (uint32_t)data->transform_count;
         row.transform_count = transform_count;
         row.force_approach = force_approach;
         row.varbit = varbit;
@@ -398,8 +429,11 @@ int rc_load_object_defs_into(const char *path, RcObjectData *data) {
                 rc_asset_close(f);
                 return -1;
             }
-            if (t < RC_OBJECT_MAX_TRANSFORMS) {
-                row.transforms[t] = transform;
+            if (!append_object_transform_into(
+                    &data->transforms, &data->transform_count,
+                    &transform_capacity, transform)) {
+                rc_asset_close(f);
+                return -1;
             }
         }
         row.param_first = (uint32_t)data->param_count;
@@ -787,6 +821,7 @@ int rc_object_data_import_globals(RcObjectData *data) {
     data->def_count = g_rc_object_def_count;
     data->behavior_count = g_rc_object_behavior_count;
     data->param_count = g_rc_object_param_count;
+    data->transform_count = g_rc_object_transform_count;
     data->placement_count = g_rc_object_placements
         ? g_rc_object_placement_count
         : g_global_placement_store
@@ -802,6 +837,14 @@ int rc_object_data_import_globals(RcObjectData *data) {
         if (!data->params) return 0;
         memcpy(data->params, g_rc_object_params,
                (size_t)data->param_count * sizeof(*data->params));
+    }
+    if (data->transform_count > 0) {
+        if (!g_rc_object_transforms) return 0;
+        data->transforms = malloc(
+            (size_t)data->transform_count * sizeof(*data->transforms));
+        if (!data->transforms) return 0;
+        memcpy(data->transforms, g_rc_object_transforms,
+               (size_t)data->transform_count * sizeof(*data->transforms));
     }
     if (data->placement_count > 0 && g_rc_object_placements) {
         data->placements =
@@ -828,6 +871,7 @@ int rc_object_data_import_globals(RcObjectData *data) {
 static int mirror_object_defs_to_globals(const RcObjectData *data) {
     if (!data) return 0;
     RcObjectParam *params = NULL;
+    int32_t *transforms = NULL;
     if (data->param_count > 0) {
         if (!data->params) return 0;
         params = malloc((size_t)data->param_count * sizeof(*params));
@@ -835,11 +879,28 @@ static int mirror_object_defs_to_globals(const RcObjectData *data) {
         memcpy(params, data->params,
                (size_t)data->param_count * sizeof(*params));
     }
+    if (data->transform_count > 0) {
+        if (!data->transforms) {
+            free(params);
+            return 0;
+        }
+        transforms = malloc(
+            (size_t)data->transform_count * sizeof(*transforms));
+        if (!transforms) {
+            free(params);
+            return 0;
+        }
+        memcpy(transforms, data->transforms,
+               (size_t)data->transform_count * sizeof(*transforms));
+    }
     memcpy(g_rc_object_defs, data->defs, sizeof(g_rc_object_defs));
     free(g_rc_object_params);
+    free(g_rc_object_transforms);
     g_rc_object_params = params;
+    g_rc_object_transforms = transforms;
     g_rc_object_def_count = data->def_count;
     g_rc_object_param_count = data->param_count;
+    g_rc_object_transform_count = data->transform_count;
     return 1;
 }
 
@@ -966,6 +1027,19 @@ const RcObjectDef *rc_object_def_get(int obj_id) {
     const RcObjectDef *def = &defs[obj_id];
     if (def->loaded) return def;
     return NULL;
+}
+
+int rc_object_def_transform_at(const RcObjectDef *def, int index,
+                               int *out_obj_id) {
+    if (!def || !out_obj_id || index < 0 || index >= def->transform_count)
+        return 0;
+    uint64_t offset = (uint64_t)def->transform_offset + (uint32_t)index;
+    if (!g_active_object_transforms
+            || offset >= (uint64_t)g_active_object_transform_count) {
+        return 0;
+    }
+    *out_obj_id = g_active_object_transforms[offset];
+    return 1;
 }
 
 int rc_object_def_param_int(int obj_id, int key, int default_value) {
@@ -1161,6 +1235,56 @@ int rc_object_placements_at(int x, int y, int plane,
         }
     }
     return n;
+}
+
+int rc_object_layer_for_type(int type) {
+    if (type >= 0 && type <= 3) return 0;
+    if (type >= 4 && type <= 8) return 1;
+    if (type == 22) return 3;
+    return type >= 0 ? 2 : -1;
+}
+
+int rc_object_placement_find_key(uint64_t key, int x, int y, int plane,
+                                 RcObjectPlacement *out) {
+    uint16_t mapsquare;
+    if (!key || !out || !rc_world_tile_valid(x, y, plane)
+            || !rc_world_to_mapsquare(x, y, &mapsquare, NULL, NULL)) {
+        return 0;
+    }
+    int count = 0;
+    const RcObjectPlacement *rows = rc_object_region_placements(
+        mapsquare, &count);
+    for (int i = 0; rows && i < count; i++) {
+        if (rows[i].key == key && rows[i].x == x && rows[i].y == y
+                && rows[i].plane == plane) {
+            *out = rows[i];
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int rc_object_placement_find_layer(int x, int y, int plane, int layer,
+                                   RcObjectPlacement *out) {
+    uint16_t mapsquare;
+    if (!out || layer < 0 || layer > 3
+            || !rc_world_tile_valid(x, y, plane)
+            || !rc_world_to_mapsquare(x, y, &mapsquare, NULL, NULL)) {
+        return 0;
+    }
+    int count = 0;
+    int matches = 0;
+    const RcObjectPlacement *rows = rc_object_region_placements(
+        mapsquare, &count);
+    for (int i = 0; rows && i < count; i++) {
+        if (rows[i].x != x || rows[i].y != y || rows[i].plane != plane
+                || rc_object_layer_for_type(rows[i].type) != layer) {
+            continue;
+        }
+        *out = rows[i];
+        matches++;
+    }
+    return matches == 1 ? 1 : matches == 0 ? 0 : -1;
 }
 
 const RcObjectTransport *rc_object_transport_find(int obj_id, int x, int y,

@@ -54,6 +54,17 @@ schema = ""
 parity_status = "ready_with_accepted_simplifications"
 
 [[dataset]]
+name = "player_weapon_pose_sets"
+domain = "items"
+authority = "curated"
+source = "content/items/player_pose_sets.toml"
+exporter = "tools/cache_pipeline/export_item_render_models.py"
+output = "data/models/item_render.map"
+runtime_consumer = "rc-viewer/viewer.c"
+schema = "named ready/walk/run sequence set with exact B237 item IDs and names"
+parity_status = "ready_for_rendered_validation_items"
+
+[[dataset]]
 name = "combat_visuals"
 domain = "combat"
 authority = "curated"

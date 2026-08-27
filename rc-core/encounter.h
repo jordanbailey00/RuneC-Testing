@@ -880,6 +880,10 @@ int rc_encounter_add_effect(struct RcWorld *world, uint8_t kind,
                             uint8_t style, uint8_t damage_per_tick,
                             const char *name, const char *target_name);
 void rc_encounter_tick_effects(struct RcWorld *world);
+int rc_encounter_object_option_supported(const struct RcWorld *world,
+                                         int obj_id,
+                                         const char *object_name,
+                                         int x, int y, int plane, int opt);
 int rc_encounter_interact_object(struct RcWorld *world, int obj_id,
                                  const char *object_name,
                                  int x, int y, int plane, int opt);

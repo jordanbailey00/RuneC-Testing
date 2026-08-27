@@ -30,6 +30,7 @@ from export_models import (
 )
 from export_textures import build_atlas, write_texture_anim_binary
 from rc_cache import (
+    CONFIG_SEQUENCE,
     ModelData,
     RcCacheStore,
     load_texture_average_colors,
@@ -42,6 +43,7 @@ from rc_cache import (
 
 IDEF_MAGIC = 0x49444546
 IDEF_V2 = 2
+IDEF_V3 = 3
 IREM_MAGIC = 0x4D455249  # "IREM"
 IREM_V2 = 2
 CONFIG_INDEX = 2
@@ -51,11 +53,7 @@ MISSING_U32 = 0xFFFFFFFF
 BODY_MODEL_BASE = 0xF0000
 ITEM_EQUIP_MODEL_BASE = 0xE00000
 ITEM_GROUND_MODEL_BASE = 0xD00000
-
-RSMOD_OBJ_ENRICHER = (
-    "api/cache-enricher/src/main/resources/org/rsmod/api/cache/enricher/"
-    "obj/objs.toml"
-)
+DEFAULT_PLAYER_POSE_SOURCE = Path("content/items/player_pose_sets.toml")
 
 IDEF_HAS_EQUIPMENT = 1 << 4
 IDEF_STACKABLE = 1 << 0
@@ -97,11 +95,6 @@ BODY_FEET = 1 << 6
 
 RENDER_FLAG_TWO_HANDED = 1 << 0
 RENDER_FLAG_WEARPOS_AUTHORITY = 1 << 1
-
-# Fallbacks used if the local RSMod cache-enricher source is unavailable.
-KNOWN_PLAYER_BAS = {
-    11802: (7053, 7052, 7043),  # Armadyl godsword
-}
 
 COIN_STACK_ITEM_IDS = [995, 996, 997, 998, 999, 1000, 1001, 1002, 1003, 1004]
 DEFAULT_ITEM_IDS = sorted(set(COIN_STACK_ITEM_IDS + SIM_ITEM_IDS))
@@ -190,8 +183,8 @@ def parse_items_bin(path: Path) -> dict[int, ItemRenderDef]:
     pos = 0
     magic, version, count = struct.unpack_from("<III", raw, pos)
     pos += 12
-    if magic != IDEF_MAGIC or version != IDEF_V2:
-        raise SystemExit(f"{path} is not an IDEF v2 file")
+    if magic != IDEF_MAGIC or version not in (IDEF_V2, IDEF_V3):
+        raise SystemExit(f"{path} is not an IDEF v2/v3 file")
 
     out: dict[int, ItemRenderDef] = {}
     for _ in range(count):
@@ -207,7 +200,7 @@ def parse_items_bin(path: Path) -> dict[int, ItemRenderDef]:
         name = rec[rpos : rpos + name_len].decode("utf-8", "replace")
         rpos += name_len
 
-        rpos += 2  # weight_cg
+        rpos += 4 if version >= IDEF_V3 else 2  # weight_grams
         rpos += 4  # highalch
         rpos += 4  # lowalch
         rpos += 4  # value
@@ -221,10 +214,22 @@ def parse_items_bin(path: Path) -> dict[int, ItemRenderDef]:
             model_id, rpos = _u32(rec, rpos)
             models.append(_id(model_id))
 
+        if version >= IDEF_V3:
+            rpos += 2  # metadata flags
+            rpos += 3  # wearpos1/2/3
+            rpos += 2  # equipment conflict mask
+            for _action in range(10):
+                action_len, rpos = _u8(rec, rpos)
+                rpos += action_len
+            examine_len, rpos = _u8(rec, rpos)
+            rpos += examine_len
+
         equip_slot = -1
         if flags & IDEF_HAS_EQUIPMENT:
             slot, rpos = _u8(rec, rpos)
             req_count, rpos = _u8(rec, rpos)
+            if version >= IDEF_V3:
+                _combat_level, rpos = _u8(rec, rpos)
             equip_slot = -1 if slot == 0xFF else int(slot)
             rpos += req_count * 2
             rpos += 14 * 2
@@ -653,53 +658,99 @@ def normalize_lookup_name(value: str) -> str:
     )
 
 
-def read_symbol_map(path: Path) -> dict[str, int]:
-    out: dict[str, int] = {}
-    if not path.is_file():
-        return out
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        parts = line.split(None, 1)
-        if len(parts) != 2:
-            continue
-        try:
-            out[parts[1].strip()] = int(parts[0])
-        except ValueError:
-            continue
-    return out
-
-
-def load_rsmod_bas(
-    rsmod_root: Path | None,
-    dump_root: Path | None,
+def load_player_pose_sets(
+    path: Path,
+    items: dict[int, ItemRenderDef],
 ) -> dict[int, tuple[int, int, int]]:
-    if rsmod_root is None or dump_root is None:
-        return dict(KNOWN_PLAYER_BAS)
-    obj_file = rsmod_root / RSMOD_OBJ_ENRICHER
-    obj_symbols = read_symbol_map(dump_root / "symbols" / "obj.sym")
-    if not obj_file.is_file() or not obj_symbols:
-        return dict(KNOWN_PLAYER_BAS)
+    if not path.is_file():
+        raise ValueError(f"player pose source does not exist: {path}")
+    try:
+        data = tomllib.loads(path.read_text())
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise ValueError(f"invalid player pose source {path}: {exc}") from exc
+    if data.get("schema_version") != 1:
+        raise ValueError(f"{path}: expected schema_version = 1")
 
-    data = tomllib.loads(obj_file.read_text())
-    out: dict[int, tuple[int, int, int]] = dict(KNOWN_PLAYER_BAS)
-    for config in data.get("config", []):
-        obj_name = config.get("obj")
-        item_id = obj_symbols.get(obj_name or "")
-        if item_id is None:
-            continue
-        ready = config.get("ready_anim", -1)
-        walk = config.get("walk_anim", -1)
-        run = config.get("run_anim", -1)
-        if not any(isinstance(v, int) for v in (ready, walk, run)):
-            continue
-        out[item_id] = (
-            ready if isinstance(ready, int) else -1,
-            walk if isinstance(walk, int) else -1,
-            run if isinstance(run, int) else -1,
-        )
+    pose_sets = data.get("pose")
+    if not isinstance(pose_sets, list) or not pose_sets:
+        raise ValueError(f"{path}: expected at least one [[pose]] table")
+
+    out: dict[int, tuple[int, int, int]] = {}
+    for pose_index, pose in enumerate(pose_sets, 1):
+        if not isinstance(pose, dict):
+            raise ValueError(f"{path}: pose {pose_index} must be a table")
+        pose_name = pose.get("name")
+        if not isinstance(pose_name, str) or not pose_name.strip():
+            raise ValueError(f"{path}: pose {pose_index} has no name")
+
+        anims: list[int] = []
+        for field in ("ready_anim", "walk_anim", "run_anim"):
+            value = pose.get(field, -1)
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise ValueError(
+                    f"{path}: pose {pose_name!r} {field} must be an integer"
+                )
+            if value != -1 and not 0 < value <= 0xFFFF:
+                raise ValueError(
+                    f"{path}: pose {pose_name!r} {field} must be -1 or 1..65535"
+                )
+            anims.append(value)
+        if all(anim_id == -1 for anim_id in anims):
+            raise ValueError(
+                f"{path}: pose {pose_name!r} does not override any animation"
+            )
+
+        pose_items = pose.get("items")
+        if not isinstance(pose_items, list) or not pose_items:
+            raise ValueError(f"{path}: pose {pose_name!r} has no items")
+        for item_row in pose_items:
+            if not isinstance(item_row, dict):
+                raise ValueError(
+                    f"{path}: pose {pose_name!r} item rows must be tables"
+                )
+            item_id = item_row.get("id")
+            expected_name = item_row.get("name")
+            if isinstance(item_id, bool) or not isinstance(item_id, int):
+                raise ValueError(
+                    f"{path}: pose {pose_name!r} item id must be an integer"
+                )
+            item = items.get(item_id)
+            if item is None:
+                raise ValueError(
+                    f"{path}: pose {pose_name!r} references unknown B237 item "
+                    f"{item_id}"
+                )
+            if expected_name != item.name:
+                raise ValueError(
+                    f"{path}: item {item_id} expected name {expected_name!r}, "
+                    f"B237 defines {item.name!r}"
+                )
+            if item.equip_slot != EQUIP_WEAPON:
+                raise ValueError(
+                    f"{path}: item {item_id} ({item.name}) is not a weapon"
+                )
+            if item_id in out:
+                raise ValueError(f"{path}: duplicate player pose item {item_id}")
+            out[item_id] = tuple(anims)
     return out
+
+
+def validate_player_pose_sequences(
+    path: Path,
+    poses: dict[int, tuple[int, int, int]],
+    available_sequence_ids: set[int],
+) -> None:
+    required = {
+        anim_id
+        for pose in poses.values()
+        for anim_id in pose
+        if anim_id >= 0
+    }
+    missing = sorted(required - available_sequence_ids)
+    if missing:
+        raise ValueError(
+            f"{path}: player pose animations missing from B237 cache: {missing}"
+        )
 
 
 def item_name_matches(a: str, b: str) -> bool:
@@ -843,7 +894,7 @@ def main() -> None:
     parser.add_argument("--cache", type=Path, required=True,
                         help="path to Jagex dat2 cache directory")
     parser.add_argument("--items", type=Path, default=Path("data/defs/items.bin"),
-                        help="RuneC IDEF v2 item definition binary")
+                        help="RuneC IDEF v2/v3 item definition binary")
     parser.add_argument("--output", type=Path,
                         default=Path("data/models/items.models"),
                         help="output MDL2 item render model file")
@@ -860,10 +911,9 @@ def main() -> None:
     parser.add_argument("--static-ground-items-source", type=Path,
                         default=Path("content/world/static_ground_items.tsv"),
                         help="TSV of static world ground item spawns")
-    parser.add_argument("--dump", type=Path,
-                        help="optional explicit dump root with symbols/obj.sym")
-    parser.add_argument("--rsmod-root", type=Path,
-                        help="optional off-repo RSMod checkout for research-only BAS data")
+    parser.add_argument("--player-pose-source", type=Path,
+                        default=DEFAULT_PLAYER_POSE_SOURCE,
+                        help="tracked RuneC player weapon pose table")
     parser.add_argument("--model-lighting", choices=("client", "unlit"),
                         default="client",
                         help=("vertex color lighting mode for exported item "
@@ -877,8 +927,17 @@ def main() -> None:
         args.dev_validation_source,
         args.static_ground_items_source,
     )
-    bas_anims = load_rsmod_bas(args.rsmod_root, args.dump)
     store = RcCacheStore(args.cache)
+    bas_anims = load_player_pose_sets(args.player_pose_source, items)
+    validate_player_pose_sequences(
+        args.player_pose_source,
+        bas_anims,
+        set(read_config_group_files(store, CONFIG_SEQUENCE)),
+    )
+    print(
+        f"loaded {len(bas_anims)} reviewed player weapon poses from "
+        f"{args.player_pose_source}"
+    )
 
     print("loading cache appearance definitions...")
     cache_item_files = read_config_group_files(store, OBJ_GROUP)

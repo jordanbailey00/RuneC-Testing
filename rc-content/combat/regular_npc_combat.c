@@ -691,13 +691,12 @@ static int regular_player_special_energy_cost(const RcWorld *world,
 
 static void consume_extra_ammo_for_special(RcWorld *world) {
     if (!world) return;
-    RcInvSlot *ammo = &world->player.equipment[EQUIP_AMMO];
-    if (ammo->item_id < 0 || ammo->quantity <= 0) return;
-    ammo->quantity--;
-    if (ammo->quantity <= 0) {
-        ammo->item_id = -1;
-        ammo->quantity = 0;
-    }
+    RcItemTransaction tx;
+    RcItemActionResult result = rc_item_tx_begin(&tx, world);
+    if (result.code == RC_ITEM_RESULT_OK)
+        result = rc_item_tx_remove_equipment(
+            &tx, EQUIP_AMMO, 1, UINT32_MAX);
+    if (result.code == RC_ITEM_RESULT_OK) (void)rc_item_tx_commit(&tx);
 }
 
 static void restore_saradomin_godsword(RcWorld *world, int damage) {
@@ -1042,12 +1041,31 @@ static int regular_player_has_spell_runes(const RcWorld *world,
 static int regular_player_consume_spell_runes(RcWorld *world,
                                               RcPlayer *player,
                                               const RcSpellDef *spell) {
-    (void)world;
     if (!validate_or_consume_spell_runes(player, spell, false))
         return 0;
-    int ok = validate_or_consume_spell_runes(player, spell, true);
-    if (ok) rc_recalc_bonuses(player);
-    return ok;
+    RcItemTransaction tx;
+    RcItemActionResult result = rc_item_tx_begin(&tx, world);
+    if (result.code != RC_ITEM_RESULT_OK) return 0;
+
+    RcPlayer staged = {0};
+    memcpy(staged.inventory, tx.inventory, sizeof(staged.inventory));
+    memcpy(staged.equipment, player->equipment, sizeof(staged.equipment));
+    memcpy(staged.rune_pouch, player->rune_pouch, sizeof(staged.rune_pouch));
+    if (!validate_or_consume_spell_runes(&staged, spell, true)) return 0;
+
+    for (int i = 0; i < RC_INVENTORY_SIZE; i++) {
+        if (memcmp(&tx.inventory[i], &staged.inventory[i],
+                   sizeof(tx.inventory[i])) == 0) {
+            continue;
+        }
+        tx.inventory[i] = staged.inventory[i];
+        tx.inventory_touched |= 1u << i;
+    }
+    result = rc_item_tx_commit(&tx);
+    if (result.code != RC_ITEM_RESULT_OK) return 0;
+    memcpy(player->rune_pouch, staged.rune_pouch,
+           sizeof(player->rune_pouch));
+    return 1;
 }
 
 void rc_content_combat_register(struct RcWorld *world) {

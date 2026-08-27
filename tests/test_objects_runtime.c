@@ -189,8 +189,12 @@ int main(void) {
     assert(strcmp(bank->actions[1], "Bank") == 0);
     assert(strcmp(ladder->actions[0], "Climb-up") == 0);
     assert(force_loc->force_approach == 27);
-    assert(transforming->transform_count == 2);
-    assert(transforming->transforms[0] == 15052);
+    assert(transforming->transform_count == 3);
+    int transform_id = -1;
+    assert(rc_object_def_transform_at(transforming, 0, &transform_id));
+    assert(transform_id == 15052);
+    assert(rc_object_def_transform_at(transforming, 2, &transform_id));
+    assert(transform_id == -1);
 
     const RcObjectBehavior *tree_b = rc_object_behavior_get(1276);
     const RcObjectBehavior *altar_b = rc_object_behavior_get(409);
@@ -252,12 +256,12 @@ int main(void) {
     rc_player_interact_object(world, 1276, 0);
     assert(world->player.interact_type == RC_INTERACT_NONE);
     rc_world_tick(world);
-    assert(world->player.interact_type == RC_INTERACT_OBJECT);
-    assert(world->player.interact_target == 1276);
-    assert(world->player.interact_option == 0);
+    assert(world->player.interact_type == RC_INTERACT_NONE);
+    assert(rc_player_last_command_result(world, NULL)
+           == RC_COMMAND_RESULT_REJECTED_INVALID);
     rc_player_interact_object(world, 1276, 4);
     rc_world_tick(world);
-    assert(world->player.interact_option == 0);
+    assert(world->player.interact_type == RC_INTERACT_NONE);
     rc_world_destroy(world);
     assert(has_object_at(1276, 1239, 3672, 0));
 
@@ -311,12 +315,9 @@ int main(void) {
         active_state.active_y, active_state.active_plane,
         active_state.placement_key, 0) == 1);
     rc_world_tick(door);
+    assert(door->object_state_count == 0);
     assert(rc_world_object_active_state(door, 11780, 3196, 3384, 0,
-                                        &active_state) == 1);
-    assert((active_state.flags & RC_OBJECT_STATE_OPEN) == 0);
-    assert(active_state.active_obj_id == active_state.base_obj_id);
-    assert(active_state.active_x == active_state.x);
-    assert(active_state.active_y == active_state.y);
+                                        &active_state) == 0);
     rc_world_destroy(door);
 
     RcWorldConfig gate_cfg = rc_preset_base_only();
@@ -361,14 +362,7 @@ int main(void) {
                                         left_state->active_y,
                                         left_state->active_plane, 0) == 1);
     rc_world_tick(gate);
-    assert((left_state->flags & RC_OBJECT_STATE_OPEN) == 0);
-    assert((right_state->flags & RC_OBJECT_STATE_OPEN) == 0);
-    assert(left_state->active_obj_id == left_state->base_obj_id);
-    assert(right_state->active_obj_id == right_state->base_obj_id);
-    assert(left_state->active_x == left_state->x);
-    assert(right_state->active_x == right_state->x);
-    assert(left_state->active_y == left_state->y);
-    assert(right_state->active_y == right_state->y);
+    assert(gate->object_state_count == 0);
     rc_world_destroy(gate);
 
     RcWorld *same_id_gate = rc_world_create_config(&gate_cfg);
@@ -444,18 +438,18 @@ int main(void) {
     while (door_collision->tick <= revert_tick) {
         rc_world_tick(door_collision);
     }
-    assert((door_collision->object_states[0].flags & RC_OBJECT_STATE_OPEN)
-           == 0);
+    assert(door_collision->object_state_count == 0);
     assert(!rc_can_move(&door_collision->map, door_x - 1, door_y, 1, 0, 0));
     assert(!rc_has_los(&door_collision->map, door_x - 1, door_y,
                        door_x, door_y, 0));
     rc_world_destroy(door_collision);
 
     RcWorldConfig route_cfg = rc_preset_base_only();
-    route_cfg.subsystems = RC_SUB_OBJECTS;
+    route_cfg.subsystems = RC_SUB_OBJECTS | RC_SUB_SKILLS;
     route_cfg.object_defs_path = ODEF_PATH;
     route_cfg.object_placements_path = OPLI_PATH;
     route_cfg.object_behaviors_path = OBHV_PATH;
+    route_cfg.gathering_nodes_path = GNOD_PATH;
     RcWorld *route = rc_world_create_config(&route_cfg);
     assert(route != NULL);
     const int route_obj = 1276;
@@ -544,9 +538,17 @@ int main(void) {
     assert(skill->object_states[0].flags & RC_OBJECT_STATE_DEPLETED);
     assert(skill->object_states[0].x == 1239);
     assert(skill->object_states[0].y == 3672);
+    const RcGatheringNode *depleted_node = rc_gathering_node_find(
+        1276, 1239, 3672, 0);
+    assert(depleted_node != NULL);
+    assert(skill->object_states[0].placement_key
+           == depleted_node->placement_key);
+    assert(skill->object_states[0].active_obj_id
+           == depleted_node->replacement_obj_id);
+    assert(depleted_node->respawn_ticks == 8);
     assert(run_object_interaction(skill, 1276, 1239, 3672, 0, 0) == 0);
-    for (int i = 0; i < 9; i++) rc_world_tick(skill);
-    assert((skill->object_states[0].flags & RC_OBJECT_STATE_DEPLETED) == 0);
+    for (int i = 0; i < 21; i++) rc_world_tick(skill);
+    assert(skill->object_state_count == 0);
     rc_world_destroy(skill);
 
     RcWorldConfig travel_cfg = rc_preset_base_only();

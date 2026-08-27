@@ -207,6 +207,7 @@ int rc_interaction_begin_with_source(
     copy_option_text(next.option_text, option_text);
     next.target = *target;
     next.source_item_id = source_item_id;
+    next.source_inventory_slot = -1;
     next.source_spell_id = source_spell_id;
     next.source_widget_id = source_widget_id;
     next.source_component_id = source_component_id;
@@ -369,6 +370,13 @@ int rc_interaction_find_world_handler(const RcWorld *world,
     if (!world) return -1;
     return find_handler_in_table(world->interaction_handlers,
                                  world->interaction_handler_count, key);
+}
+
+int rc_interaction_has_specific_world_handler(
+    const RcWorld *world, const RcInteractionDispatchKey *key) {
+    int index = rc_interaction_find_world_handler(world, key);
+    return index >= 0
+        && key_specificity(&world->interaction_handlers[index].key) > 0;
 }
 
 static RcInteractionHandlerResult no_handler_result(RcPlayer *player) {

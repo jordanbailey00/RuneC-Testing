@@ -402,17 +402,6 @@ static void prim_teleport_player_nearby(RcWorld *world, int enc_idx,
     }
 }
 
-static void unequip_slot(RcPlayer *pl, int equip_slot) {
-    if (equip_slot < 0 || equip_slot >= RC_EQUIP_COUNT) return;
-    RcInvSlot *eq = &pl->equipment[equip_slot];
-    if (eq->item_id < 0) return;
-    int inv_slot = rc_inv_free_slot(pl->inventory);
-    if (inv_slot < 0) return;
-    pl->inventory[inv_slot] = *eq;
-    eq->item_id = -1;
-    eq->quantity = 0;
-}
-
 // unequip_player_items: Chaos Elemental Madness.
 // Moves equipped items back into inventory, prioritising the weapon
 // slot when requested.
@@ -427,21 +416,20 @@ static void prim_unequip_player_items(RcWorld *world, int enc_idx,
     if (p->weapon_priority &&
         (mask & (1u << EQUIP_WEAPON)) &&
         pl->equipment[EQUIP_WEAPON].item_id >= 0) {
-        int before = pl->equipment[EQUIP_WEAPON].item_id;
-        unequip_slot(pl, EQUIP_WEAPON);
-        if (pl->equipment[EQUIP_WEAPON].item_id != before) removed++;
+        RcItemActionResult result = rc_player_unequip_expected(
+            world, EQUIP_WEAPON,
+            pl->equipment[EQUIP_WEAPON].generation);
+        if (result.code == RC_ITEM_RESULT_OK) removed++;
     }
 
     for (int slot = 0; slot < RC_EQUIP_COUNT && removed < p->count; slot++) {
         if (!(mask & (1u << slot))) continue;
         if (p->weapon_priority && slot == EQUIP_WEAPON) continue;
         if (pl->equipment[slot].item_id < 0) continue;
-        int before = pl->equipment[slot].item_id;
-        unequip_slot(pl, slot);
-        if (pl->equipment[slot].item_id != before) removed++;
+        RcItemActionResult result = rc_player_unequip_expected(
+            world, slot, pl->equipment[slot].generation);
+        if (result.code == RC_ITEM_RESULT_OK) removed++;
     }
-
-    rc_recalc_bonuses(pl);
 }
 
 // positional_aoe: fire when the player is standing under the boss.

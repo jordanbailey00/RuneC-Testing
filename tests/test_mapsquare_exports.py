@@ -18,6 +18,8 @@ sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "tools" / "cache_pipeline"))
 
 import export_models
+import export_animations
+import export_item_render_models
 import export_minimap
 import export_objects
 import export_scene_slice
@@ -34,6 +36,24 @@ class MapsquareSceneTests(unittest.TestCase):
 
         self.assertTrue(definition.complete)
         self.assertEqual(definition.map_scene_id, 42)
+
+    def test_location_transform_retains_absent_fallback(self) -> None:
+        definition = decode_location_definition(
+            123,
+            bytes((
+                77,
+                0xFF, 0xFF,
+                0x00, 0x00,
+                0,
+                0x00, 0x7B,
+                0,
+            )),
+        )
+
+        self.assertTrue(definition.complete)
+        self.assertEqual(definition.varbit, -1)
+        self.assertEqual(definition.varp, 0)
+        self.assertEqual(definition.transforms, [123, -1])
 
     def test_sprite_group_consumes_zero_sized_frame_flags(self) -> None:
         pixels = bytes((0, 0, 1))
@@ -401,6 +421,155 @@ class MapsquareSceneTests(unittest.TestCase):
             )
 
 
+class PlayerWeaponPoseTests(unittest.TestCase):
+    @staticmethod
+    def weapon(
+        item_id: int,
+        name: str,
+    ) -> export_item_render_models.ItemRenderDef:
+        return export_item_render_models.ItemRenderDef(
+            item_id=item_id,
+            name=name,
+            flags=export_item_render_models.IDEF_HAS_EQUIPMENT,
+            linked_id_item=-1,
+            linked_id_noted=-1,
+            linked_id_placeholder=-1,
+            ground_model_id=1,
+            male_model_ids=(2, -1, -1),
+            female_model_ids=(3, -1, -1),
+            equip_slot=export_item_render_models.EQUIP_WEAPON,
+        )
+
+    def test_reviewed_pose_source_matches_b237_items(self) -> None:
+        items = export_item_render_models.parse_items_bin(
+            ROOT / "data/defs/items.bin"
+        )
+        poses = export_item_render_models.load_player_pose_sets(
+            ROOT / "content/items/player_pose_sets.toml",
+            items,
+        )
+
+        self.assertEqual(len(poses), 77)
+        self.assertEqual(poses[11804], (7053, 7052, 7043))
+        self.assertEqual(poses[4718], (2065, 2064, -1))
+        self.assertEqual(poses[12904], (813, 1205, 1210))
+        self.assertEqual(poses[19481], (7220, 7223, 7221))
+        self.assertEqual(poses[27275], (9494, 1703, 1707))
+        self.assertNotIn(839, poses)  # Longbows intentionally use human defaults.
+
+    def test_generated_pose_map_and_player_animations_are_complete(self) -> None:
+        items = export_item_render_models.parse_items_bin(
+            ROOT / "data/defs/items.bin"
+        )
+        expected = export_item_render_models.load_player_pose_sets(
+            ROOT / "content/items/player_pose_sets.toml",
+            items,
+        )
+
+        raw = (ROOT / "data/models/item_render.map").read_bytes()
+        magic, version, count, body_count = struct.unpack_from("<IIII", raw, 0)
+        self.assertEqual(magic, export_item_render_models.IREM_MAGIC)
+        self.assertEqual(version, export_item_render_models.IREM_V2)
+        pos = 16 + body_count * 4
+        actual: dict[int, tuple[int, int, int]] = {}
+        for _ in range(count):
+            row = struct.unpack_from("<13I", raw, pos)
+            pos += 13 * 4
+            if row[0] in expected:
+                actual[row[0]] = tuple(
+                    -1 if value == export_item_render_models.MISSING_U32 else value
+                    for value in row[10:13]
+                )
+        self.assertEqual(actual, expected)
+
+        required = export_animations.read_item_render_sequence_ids(
+            ROOT / "data/models/item_render.map"
+        )
+        player_anims = (ROOT / "data/anims/player.anims").read_bytes()
+        self.assertEqual(player_anims[:4], b"ANM2")
+        _version, header_size, framebase_count, sequence_count = (
+            struct.unpack_from("<HHII", player_anims, 4)
+        )
+        pos = header_size
+        for _ in range(framebase_count):
+            pos += 2
+            slot_count = player_anims[pos]
+            pos += 1 + slot_count
+            for _slot in range(slot_count):
+                map_length = player_anims[pos]
+                pos += 1 + map_length
+
+        available: set[int] = set()
+        for _ in range(sequence_count):
+            sequence_id, frame_count = struct.unpack_from(
+                "<HH", player_anims, pos
+            )
+            available.add(sequence_id)
+            pos += 4
+            interleave_count = player_anims[pos]
+            pos += 1 + interleave_count + 1
+            for _frame in range(frame_count):
+                pos += 4
+                translator_count = player_anims[pos]
+                pos += 1 + translator_count * 7
+        self.assertEqual(required - available, set())
+
+    def test_pose_source_rejects_name_drift_and_duplicates(self) -> None:
+        items = {11804: self.weapon(11804, "Bandos godsword")}
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "poses.toml"
+            path.write_text(
+                """schema_version = 1
+[[pose]]
+name = "godsword"
+ready_anim = 7053
+walk_anim = 7052
+run_anim = 7043
+items = [{ id = 11804, name = "Wrong godsword" }]
+"""
+            )
+            with self.assertRaisesRegex(ValueError, "expected name"):
+                export_item_render_models.load_player_pose_sets(path, items)
+
+            path.write_text(
+                """schema_version = 1
+[[pose]]
+name = "first"
+ready_anim = 7053
+items = [{ id = 11804, name = "Bandos godsword" }]
+[[pose]]
+name = "second"
+walk_anim = 7052
+items = [{ id = 11804, name = "Bandos godsword" }]
+"""
+            )
+            with self.assertRaisesRegex(ValueError, "duplicate player pose item"):
+                export_item_render_models.load_player_pose_sets(path, items)
+
+    def test_pose_source_and_cache_sequence_failures_are_explicit(self) -> None:
+        items = {11804: self.weapon(11804, "Bandos godsword")}
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "poses.toml"
+            with self.assertRaisesRegex(ValueError, "does not exist"):
+                export_item_render_models.load_player_pose_sets(path, items)
+
+            path.write_text(
+                """schema_version = 1
+[[pose]]
+name = "godsword"
+ready_anim = 7053
+walk_anim = 7052
+run_anim = 7043
+items = [{ id = 11804, name = "Bandos godsword" }]
+"""
+            )
+            poses = export_item_render_models.load_player_pose_sets(path, items)
+            with self.assertRaisesRegex(ValueError, "missing from B237 cache"):
+                export_item_render_models.validate_player_pose_sequences(
+                    path, poses, {7053, 7052}
+                )
+
+
 class TerrainBoundaryTests(unittest.TestCase):
     @staticmethod
     def region(region_x: int, region_y: int) -> export_terrain.RegionTerrain:
@@ -575,6 +744,107 @@ class SharedMaterialTests(unittest.TestCase):
             self.assertEqual(count, 0)
             self.assertFalse(output.with_suffix(".atlas").exists())
             self.assertFalse(output.with_suffix(".object_anim.atlas").exists())
+
+    def test_resource_sidecar_tracks_replacement_and_disappearance(self) -> None:
+        model = export_models.ModelData(
+            model_id=10,
+            vertex_count=3,
+            face_count=1,
+            vertices_x=[0, 128, 0],
+            vertices_y=[0, 0, 0],
+            vertices_z=[0, 0, 128],
+            face_a=[0],
+            face_b=[1],
+            face_c=[2],
+            face_colors=[0],
+        )
+        base = export_objects.LocDef(
+            obj_id=1,
+            model_ids=[10],
+            model_types=[10],
+            has_typed_models=True,
+        )
+        replacement = export_objects.LocDef(
+            obj_id=2,
+            model_ids=[10],
+            model_types=[10],
+            has_typed_models=True,
+        )
+        placement = export_objects.PlacedObject(
+            obj_id=1,
+            world_x=3200,
+            world_y=3200,
+            obj_type=10,
+        )
+
+        expanded, rows, models = export_objects.process_placements(
+            [placement],
+            {1: base, 2: replacement},
+            lambda model_id: model if model_id == 10 else None,
+            {},
+            dynamic_behaviors={
+                1: export_objects.DynamicObjectBehavior(
+                    2, export_objects.OBHV_RESOURCE),
+            },
+            gathering_placements={(1, 3200, 3200, 0, 10, 0)},
+            report_gaps=False,
+        )
+        self.assertEqual(expanded, [])
+        self.assertEqual(len(models), 2)
+        self.assertEqual([row.obj_id for row in rows], [1, 2])
+        self.assertEqual(
+            [row.flags for row in rows],
+            [export_objects.OANM_FLAG_DYNAMIC_BASE,
+             export_objects.OANM_FLAG_DYNAMIC_REPLACEMENT],
+        )
+
+        expanded, rows, models = export_objects.process_placements(
+            [placement],
+            {1: base},
+            lambda model_id: model if model_id == 10 else None,
+            {},
+            dynamic_behaviors={
+                1: export_objects.DynamicObjectBehavior(
+                    -1, export_objects.OBHV_RESOURCE),
+            },
+            gathering_placements={(1, 3200, 3200, 0, 10, 0)},
+            report_gaps=False,
+        )
+        self.assertEqual(expanded, [])
+        self.assertEqual(len(models), 1)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].obj_id, 1)
+        self.assertEqual(rows[0].flags,
+                         export_objects.OANM_FLAG_DYNAMIC_BASE)
+
+        expanded, rows, models = export_objects.process_placements(
+            [placement],
+            {1: base},
+            lambda model_id: model if model_id == 10 else None,
+            {},
+            dynamic_behaviors={
+                1: export_objects.DynamicObjectBehavior(
+                    -1, export_objects.OBHV_RESOURCE),
+            },
+            report_gaps=False,
+        )
+        self.assertEqual(len(expanded), 1)
+        self.assertEqual(rows, [])
+        self.assertEqual(models, [])
+
+    def test_gathering_placements_fail_open_on_malformed_data(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "gathering_nodes.bin"
+            path.write_bytes(struct.pack("<III", 0x444F4E47, 2, 1))
+            with self.assertRaisesRegex(ValueError, "expected 44 bytes"):
+                export_objects.load_gathering_placements(path)
+
+    def test_dynamic_behaviors_fail_open_on_malformed_data(self) -> None:
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "object_behaviors.bin"
+            path.write_bytes(struct.pack("<III", 0x5648424F, 2, 1))
+            with self.assertRaisesRegex(ValueError, "expected 40 bytes"):
+                export_objects.load_dynamic_behaviors(path)
 
     def test_packer_classifies_chunk_and_shared_material_files(self) -> None:
         names = (

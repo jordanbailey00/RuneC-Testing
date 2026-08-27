@@ -3,7 +3,17 @@
 
 #include "types.h"
 
-#define RC_ITEM_MAX_REQUIREMENTS 4
+#define RC_ITEM_MAX_REQUIREMENTS SKILL_COUNT
+#define RC_ITEM_ACTION_COUNT 5
+#define RC_ITEM_ACTION_LEN 24
+#define RC_ITEM_EXAMINE_LEN 128
+
+enum {
+    RC_ITEM_META_CACHE = 1u << 0,
+    RC_ITEM_META_EQUIP = 1u << 1,
+    RC_ITEM_META_EQUIP_STATS = 1u << 2,
+    RC_ITEM_META_WEAPON = 1u << 3,
+};
 
 // Item definition (loaded from cache/data)
 typedef struct {
@@ -13,7 +23,7 @@ typedef struct {
     int highalch;
     int lowalch;
     int buy_limit;
-    int weight_cg;
+    int weight_grams;
     int linked_id_item;
     int linked_id_noted;
     int linked_id_placeholder;
@@ -30,7 +40,14 @@ typedef struct {
     bool equipable_by_player;
     bool equipable_weapon;
     int equip_slot;
+    uint16_t equip_conflicts;
+    int8_t wearpos1, wearpos2, wearpos3;
+    uint16_t metadata_flags;
+    char inventory_actions[RC_ITEM_ACTION_COUNT][RC_ITEM_ACTION_LEN];
+    char ground_actions[RC_ITEM_ACTION_COUNT][RC_ITEM_ACTION_LEN];
+    char examine[RC_ITEM_EXAMINE_LEN];
     int req_count;
+    int required_combat_level;
     int req_skill[RC_ITEM_MAX_REQUIREMENTS];
     int req_level[RC_ITEM_MAX_REQUIREMENTS];
     int attack_stab, attack_slash, attack_crush;
@@ -57,12 +74,62 @@ void rc_item_use_defs(const RcItemDef *defs, int count);
 void rc_item_reset_defs_if_active(const RcItemDef *defs);
 const RcItemDef *rc_item_def_get(int item_id);
 
-// Inventory operations
+int rc_item_result_accepted(RcItemActionResult result);
+const char *rc_item_result_name(RcItemResultCode code);
+
+// Low-level fixed-array helpers for fixtures and staged container adapters.
+// Production player mutations must use RcItemTransaction/player APIs below.
 int  rc_inv_add(RcInvSlot *inv, int item_id, int quantity);
+int  rc_inv_add_state(RcInvSlot *inv, int item_id, int quantity,
+                      uint32_t state_id);
 int  rc_inv_remove_quantity(RcInvSlot *inv, int slot, int quantity);
 void rc_inv_remove(RcInvSlot *inv, int slot);
 int  rc_inv_find(const RcInvSlot *inv, int item_id);
 int  rc_inv_free_slot(const RcInvSlot *inv);
+
+typedef struct {
+    RcWorld *world;
+    RcInvSlot inventory[RC_INVENTORY_SIZE];
+    RcInvSlot equipment[RC_EQUIP_COUNT];
+    uint32_t inventory_revision;
+    uint32_t equipment_revision;
+    uint32_t inventory_touched;
+    uint16_t equipment_touched;
+    bool valid;
+} RcItemTransaction;
+
+RcItemActionResult rc_item_tx_begin(RcItemTransaction *tx, RcWorld *world);
+RcItemActionResult rc_item_tx_add(RcItemTransaction *tx, int item_id,
+                                  int quantity, uint32_t state_id);
+RcItemActionResult rc_item_tx_remove_slot(RcItemTransaction *tx, int slot,
+                                          int quantity,
+                                          uint32_t expected_generation);
+RcItemActionResult rc_item_tx_remove_item(RcItemTransaction *tx, int item_id,
+                                          int quantity);
+RcItemActionResult rc_item_tx_move_slot(RcItemTransaction *tx, int from_slot,
+                                        int to_slot, int quantity,
+                                        uint32_t expected_generation);
+RcItemActionResult rc_item_tx_remove_equipment(RcItemTransaction *tx,
+                                               int slot, int quantity,
+                                               uint32_t expected_generation);
+RcItemActionResult rc_item_tx_commit(RcItemTransaction *tx);
+
+RcItemActionResult rc_player_inventory_add(RcWorld *world, int item_id,
+                                           int quantity, uint32_t state_id);
+RcItemActionResult rc_player_inventory_remove_item(RcWorld *world, int item_id,
+                                                   int quantity);
+void rc_item_set_equip_requirement_hook(RcWorld *world,
+                                        RcItemEquipRequirementHook hook,
+                                        void *ctx);
+
+RcItemActionResult rc_player_move_inventory_item_expected(
+    RcWorld *world, int from_slot, int to_slot, uint32_t expected_generation);
+RcItemActionResult rc_player_equip_expected(RcWorld *world, int inv_slot,
+                                            uint32_t expected_generation);
+RcItemActionResult rc_player_unequip_expected(RcWorld *world, int equip_slot,
+                                              uint32_t expected_generation);
+RcItemActionResult rc_player_drop_item_expected(RcWorld *world, int inv_slot,
+                                                uint32_t expected_generation);
 
 enum {
     RC_GROUND_TAKE_INVALID = 0,

@@ -328,6 +328,7 @@ static void apply_static_ground_state(
     RcGroundItem restored = state->item;
     reconcile_ground_item(&restored, elapsed_ground_ticks(world, state));
     item->quantity = restored.quantity;
+    item->state_id = restored.state_id;
     item->owner_uid = restored.owner_uid;
     item->original_owner_uid = restored.original_owner_uid;
     item->reveal_timer = restored.reveal_timer;

@@ -75,7 +75,7 @@ presentation responsibilities.
 - `equipment_render.h`
   - viewer-only generated item render map loader
   - maps item IDs to cache-composed ground/equipped render model IDs
-    and default body-part hide masks
+    plus body-part hide masks and reviewed weapon ready/walk/run poses
 - `item_render_defs.c` / `item_render_defs.h`
   - viewer-only fallback item-definition render metadata loader
   - extracts ground/equipped model IDs from `items.bin` without exposing
@@ -255,11 +255,13 @@ Today `rc-viewer` is primarily:
   side panel, side tabs, worn-slot icons, skill icons, prayer icons, and
   spell icons
 - cache-backed item model overlays for worn equipment and dropped ground
-  items, with fallback render metadata loaded in `rc-viewer`
+  items, with generated render metadata loaded in `rc-viewer`
 - a generated equipment render map that composes the player from
   default identity-kit body parts plus recolored/retextured equipped
   item models, with body-part hiding driven by viewer-only render
-  metadata rather than core gameplay rules
+  metadata rather than core gameplay rules; tracked RuneC pose families supply
+  item-specific ready/walk/run animations without making reference checkouts a
+  build or runtime dependency
 - a cache-backed circular minimap assembled from streamed per-mapsquare floor,
   wall, door, and mapscene rasters, with camera-rotated player/NPC/destination
   dots and inverse-rotated click-to-route behavior

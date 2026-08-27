@@ -13,6 +13,7 @@
 #define SDRP_MAGIC 0x50524453u
 #define GNOD_MAGIC 0x444F4E47u
 #define SKILL_DATA_VERSION 1u
+#define GATHERING_NODE_VERSION 2u
 
 RcRecipe *g_rc_recipes = NULL;
 RcSkillDropSource *g_rc_skill_drop_sources = NULL;
@@ -93,35 +94,6 @@ static int read_str8(FILE *f, char *out, int cap,
         return 0;
     }
     return 1;
-}
-
-static int inv_count_item(const RcInvSlot *inv, int item_id) {
-    int total = 0;
-    for (int i = 0; i < RC_INVENTORY_SIZE; i++) {
-        if (inv[i].item_id == item_id) total += inv[i].quantity;
-    }
-    return total;
-}
-
-static void inv_remove_qty(RcInvSlot *inv, int item_id, int qty) {
-    for (int i = 0; i < RC_INVENTORY_SIZE && qty > 0; i++) {
-        if (inv[i].item_id != item_id) continue;
-        int take = inv[i].quantity < qty ? inv[i].quantity : qty;
-        inv[i].quantity -= take;
-        qty -= take;
-        if (inv[i].quantity == 0) inv[i].item_id = -1;
-    }
-}
-
-static int inv_can_add(const RcInvSlot *inv, int item_id, int quantity) {
-    const RcItemDef *def = rc_item_def_get(item_id);
-    if (def && def->stackable && rc_inv_find(inv, item_id) >= 0) return 1;
-    int needed = def && def->stackable ? 1 : quantity;
-    int free_slots = 0;
-    for (int i = 0; i < RC_INVENTORY_SIZE; i++) {
-        if (inv[i].item_id == -1) free_slots++;
-    }
-    return free_slots >= needed;
 }
 
 int rc_load_recipes_into(const char *path, RcSkillData *out) {
@@ -291,8 +263,12 @@ int rc_load_gathering_nodes_into(const char *path, RcSkillData *out) {
     if (!path) return -1;
     FILE *f = rc_asset_fopen(path, "rb");
     if (!f) return -1;
-    uint32_t count;
-    if (!read_header(f, path, GNOD_MAGIC, &count)) {
+    uint32_t magic, version, count;
+    if (!rc_read_exact(f, &magic, sizeof(magic), 1, path, "magic")
+            || !rc_read_exact(f, &version, sizeof(version), 1, path,
+                              "version")
+            || !rc_read_exact(f, &count, sizeof(count), 1, path, "count")
+            || magic != GNOD_MAGIC || version != GATHERING_NODE_VERSION) {
         rc_asset_close(f);
         return -1;
     }
@@ -306,6 +282,12 @@ int rc_load_gathering_nodes_into(const char *path, RcSkillData *out) {
         uint16_t pad;
         if (!rc_read_exact(f, &row->obj_id, sizeof(row->obj_id), 1, path,
                            "object")
+                || !rc_read_exact(f, &row->placement_key,
+                                  sizeof(row->placement_key), 1, path,
+                                  "placement key")
+                || !rc_read_exact(f, &row->replacement_obj_id,
+                                  sizeof(row->replacement_obj_id), 1, path,
+                                  "replacement object")
                 || !rc_read_exact(f, &row->x, sizeof(row->x), 1, path, "x")
                 || !rc_read_exact(f, &row->y, sizeof(row->y), 1, path, "y")
                 || !rc_read_exact(f, &row->mapsquare, sizeof(row->mapsquare),
@@ -322,6 +304,9 @@ int rc_load_gathering_nodes_into(const char *path, RcSkillData *out) {
                                   path, "rotation")
                 || !rc_read_exact(f, &row->flags, sizeof(row->flags), 1,
                                   path, "flags")
+                || !rc_read_exact(f, &row->respawn_ticks,
+                                  sizeof(row->respawn_ticks), 1, path,
+                                  "respawn ticks")
                 || !rc_read_exact(f, &pad, sizeof(pad), 1, path, "pad")) {
             free(rows); rc_asset_close(f); return -1;
         }
@@ -670,7 +655,8 @@ const RcGatheringNode *rc_gathering_node_find(int obj_id, int x, int y,
     return NULL;
 }
 
-int rc_recipe_player_can_make(const RcWorld *world, const RcRecipe *recipe) {
+static int recipe_static_requirements_met(const RcWorld *world,
+                                          const RcRecipe *recipe) {
     if (!world || !recipe || !(world->enabled & RC_SUB_SKILLS)) return 0;
     for (int i = 0; i < recipe->req_count; i++) {
         int skill = recipe->reqs[i].skill;
@@ -679,24 +665,38 @@ int rc_recipe_player_can_make(const RcWorld *world, const RcRecipe *recipe) {
             return 0;
         }
     }
-    for (int i = 0; i < recipe->input_count; i++) {
-        int item_id = (int)recipe->inputs[i].item_id;
-        if (inv_count_item(world->player.inventory, item_id)
-                < recipe->inputs[i].quantity) {
-            return 0;
-        }
-    }
     for (int i = 0; i < recipe->tool_count; i++) {
         if (rc_inv_find(world->player.inventory, (int)recipe->tools[i]) < 0) {
             return 0;
         }
     }
-    if (recipe->output_item > 0 && recipe->output_qty > 0 &&
-            !inv_can_add(world->player.inventory, (int)recipe->output_item,
-                         recipe->output_qty)) {
-        return 0;
-    }
     return 1;
+}
+
+static RcItemActionResult stage_recipe_items(RcItemTransaction *tx,
+                                             RcWorld *world,
+                                             const RcRecipe *recipe) {
+    RcItemActionResult result = rc_item_tx_begin(tx, world);
+    for (int i = 0; result.code == RC_ITEM_RESULT_OK
+            && i < recipe->input_count; i++) {
+        result = rc_item_tx_remove_item(
+            tx, (int)recipe->inputs[i].item_id,
+            recipe->inputs[i].quantity);
+    }
+    if (result.code == RC_ITEM_RESULT_OK && recipe->output_item > 0
+            && recipe->output_qty > 0) {
+        result = rc_item_tx_add(tx, (int)recipe->output_item,
+                                recipe->output_qty, 0);
+    }
+    return result;
+}
+
+int rc_recipe_player_can_make(const RcWorld *world, const RcRecipe *recipe) {
+    if (!recipe_static_requirements_met(world, recipe)) return 0;
+    RcItemTransaction tx;
+    RcItemActionResult result = stage_recipe_items(
+        &tx, (RcWorld *)world, recipe);
+    return result.code == RC_ITEM_RESULT_OK;
 }
 
 int rc_recipe_index_of(const RcRecipe *recipe) {
@@ -716,26 +716,12 @@ int rc_player_apply_recipe(RcWorld *world, const RcRecipe *recipe) {
                                         RC_PLAYER_COMMAND_APPLY_RECIPE,
                                         RC_ACTION_CATEGORY_NORMAL, args, 0);
     }
-    if (!rc_recipe_player_can_make(world, recipe)) return 0;
-    for (int i = 0; i < recipe->input_count; i++) {
-        inv_remove_qty(world->player.inventory, (int)recipe->inputs[i].item_id,
-                       recipe->inputs[i].quantity);
-    }
-    if (recipe->output_item > 0 && recipe->output_qty > 0) {
-        const RcItemDef *def = rc_item_def_get((int)recipe->output_item);
-        if (def && def->stackable) {
-            if (rc_inv_add(world->player.inventory, (int)recipe->output_item,
-                           recipe->output_qty) < 0) {
-                return 0;
-            }
-        } else {
-            for (int i = 0; i < recipe->output_qty; i++) {
-                if (rc_inv_add(world->player.inventory,
-                               (int)recipe->output_item, 1) < 0) {
-                    return 0;
-                }
-            }
-        }
+    if (!recipe_static_requirements_met(world, recipe)) return 0;
+    RcItemTransaction tx;
+    RcItemActionResult item_result = stage_recipe_items(&tx, world, recipe);
+    if (item_result.code != RC_ITEM_RESULT_OK
+            || rc_item_tx_commit(&tx).code != RC_ITEM_RESULT_OK) {
+        return 0;
     }
     for (int i = 0; i < recipe->req_count; i++) {
         int xp = (recipe->reqs[i].xp_q1 + 5) / 10;

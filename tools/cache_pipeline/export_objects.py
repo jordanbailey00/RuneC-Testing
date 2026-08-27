@@ -986,11 +986,16 @@ OBJECT_ANIM_MODEL_BASE = 0xA1000000
 OANM_FLAG_DYNAMIC_BASE = 1 << 0
 OANM_FLAG_DYNAMIC_REPLACEMENT = 1 << 1
 OBHV_DOOR = 1 << 0
+OBHV_RESOURCE = 1 << 5
 OBHV_PAIR_LEFT = 1 << 8
 OBHV_PAIR_RIGHT = 1 << 9
+OBHV_PAIR_WIDE = 1 << 10
 
 ROOT = Path(__file__).resolve().parents[2]
 OBJECT_BEHAVIORS = ROOT / "data/defs/object_behaviors.bin"
+GATHERING_NODES = ROOT / "data/defs/gathering_nodes.bin"
+
+GatheringPlacement = tuple[int, int, int, int, int, int]
 
 
 def write_objects_binary(
@@ -1124,28 +1129,59 @@ def load_dynamic_behaviors(
     path: Path = OBJECT_BEHAVIORS,
 ) -> dict[int, DynamicObjectBehavior]:
     """Read object behavior v2 next-stage pairs for dynamic loc sidecars."""
-    if not path.is_file():
-        return {}
     data = path.read_bytes()
     if len(data) < 12:
-        return {}
+        raise ValueError(f"{path}: object-behavior header is truncated")
     magic, version, count = struct.unpack_from("<III", data, 0)
-    if magic != 0x5648424F or version < 2:
-        return {}
+    if magic != 0x5648424F or version != 2:
+        raise ValueError(f"{path}: expected OBHV v2")
     row_fmt = "<IIiiiiBBH"
     row_size = struct.calcsize(row_fmt)
-    pos = 12
+    expected_size = 12 + count * row_size
+    if len(data) != expected_size:
+        raise ValueError(
+            f"{path}: expected {expected_size} bytes for {count} rows, "
+            f"found {len(data)}"
+        )
     out: dict[int, DynamicObjectBehavior] = {}
-    for _ in range(count):
-        if pos + row_size > len(data):
-            break
+    for i in range(count):
         obj_id, flags, next_stage, _open_sound, _close_sound, _climb_anim, \
-            _mask, _skill, _pad = struct.unpack_from(row_fmt, data, pos)
-        pos += row_size
-        if next_stage >= 0 or (flags & OBHV_DOOR):
+            _mask, _skill, _pad = struct.unpack_from(
+                row_fmt, data, 12 + i * row_size)
+        if next_stage >= 0 or (flags & (OBHV_DOOR | OBHV_RESOURCE)):
             out[int(obj_id)] = DynamicObjectBehavior(int(next_stage),
                                                      int(flags))
     return out
+
+
+def load_gathering_placements(
+    path: Path = GATHERING_NODES,
+) -> set[GatheringPlacement]:
+    """Read exact object placements that can enter a depleted state."""
+    data = path.read_bytes()
+    if len(data) < 12:
+        raise ValueError(f"{path}: gathering-node header is truncated")
+    magic, version, count = struct.unpack_from("<III", data, 0)
+    if magic != 0x444F4E47 or version != 2:
+        raise ValueError(f"{path}: expected GNOD v2")
+    row_fmt = "<IQiHHHBBBBBBHH"
+    row_size = struct.calcsize(row_fmt)
+    expected_size = 12 + count * row_size
+    if len(data) != expected_size:
+        raise ValueError(
+            f"{path}: expected {expected_size} bytes for {count} rows, "
+            f"found {len(data)}"
+        )
+    placements: set[GatheringPlacement] = set()
+    for i in range(count):
+        row = struct.unpack_from(row_fmt, data, 12 + i * row_size)
+        obj_id, _key, _replacement, x, y, _mapsquare, plane, _skill, \
+            _mask, obj_type, rotation, _flags, _respawn, _pad = row
+        placement = (obj_id, x, y, plane, obj_type, rotation)
+        if placement in placements:
+            raise ValueError(f"{path}: duplicate gathering placement {placement}")
+        placements.add(placement)
+    return placements
 
 
 def sample_heightmap(
@@ -1242,6 +1278,7 @@ def process_placements(
     tex_colors: dict[int, int] | None = None,
     atlas: TextureAtlas | None = None,
     dynamic_behaviors: dict[int, DynamicObjectBehavior] | None = None,
+    gathering_placements: set[GatheringPlacement] | None = None,
     report_gaps: bool = True,
 ) -> tuple[list[ExpandedPlacement], list[AnimatedObjectPlacement], list[ModelData]]:
     """Process raw placements into expanded vertex data ready for rendering.
@@ -1255,6 +1292,7 @@ def process_placements(
     skipped = 0
     model_miss = 0
     dynamic_behaviors = dynamic_behaviors or {}
+    gathering_placements = gathering_placements or set()
 
     def prepare_model_set(loc: LocDef, model_ids: tuple[int, ...]) -> ModelData | None:
         nonlocal model_miss
@@ -1333,7 +1371,8 @@ def process_placements(
             return po.world_x, po.world_y, po.rotation
         if behavior and behavior.flags & (OBHV_PAIR_LEFT | OBHV_PAIR_RIGHT):
             x, y = po.world_x, po.world_y
-            if (behavior.flags & OBHV_PAIR_RIGHT) and "gate" in loc_def.name.lower() \
+            if (behavior.flags & OBHV_PAIR_RIGHT) \
+                    and (behavior.flags & OBHV_PAIR_WIDE) \
                     and po.obj_type == 0:
                 r = po.rotation & 3
                 if r == 0:
@@ -1350,7 +1389,7 @@ def process_placements(
                     y -= 2
             else:
                 x, y = door_open_tile(po)
-            if "gate" in loc_def.name.lower():
+            if behavior.flags & OBHV_PAIR_WIDE:
                 return x, y, (po.rotation + 3) & 3
             if behavior.flags & OBHV_PAIR_LEFT:
                 return x, y, (po.rotation + 3) & 3
@@ -1455,8 +1494,22 @@ def process_placements(
 
         dynamic_behavior = dynamic_behaviors.get(po.obj_id)
         next_stage = dynamic_behavior.next_stage if dynamic_behavior else -1
-        is_dynamic = dynamic_behavior is not None \
-            and (po.obj_type <= 3 or next_stage >= 0)
+        gathering_identity = (
+            po.obj_id, po.world_x, po.world_y, po.height,
+            po.obj_type, po.rotation,
+        )
+        is_gathering_placement = gathering_identity in gathering_placements
+        is_resource = dynamic_behavior is not None \
+            and bool(dynamic_behavior.flags & OBHV_RESOURCE)
+        if is_gathering_placement and not is_resource:
+            raise ValueError(
+                f"gathering placement {gathering_identity} lacks resource behavior"
+            )
+        is_dynamic = dynamic_behavior is not None and (
+            is_gathering_placement
+            if is_resource
+            else po.obj_type <= 3 or next_stage >= 0
+        )
         is_animated = loc.animation_id >= 0
         for half_idx, eff_rot in enumerate(rotations_to_emit):
             # deep copy per rotation variant
@@ -1489,7 +1542,10 @@ def process_placements(
             all_uvs.extend(uv)
 
         if is_dynamic:
-            active_loc = loc_defs.get(next_stage) if next_stage >= 0 else loc
+            active_loc = loc_defs.get(next_stage) if next_stage >= 0 else None
+            if active_loc is None and po.obj_type <= 3 \
+                    and dynamic_behavior.flags & OBHV_DOOR:
+                active_loc = loc
             if active_loc is not None:
                 active_x, active_y, active_rotation = dynamic_open_transform(
                     loc, po, dynamic_behavior)
@@ -1589,6 +1645,7 @@ def _build_and_write(
     atlas: TextureAtlas | None = None,
     model_geom_cache: dict[int, ModelData] | None = None,
     dynamic_behaviors: dict[int, DynamicObjectBehavior] | None = None,
+    gathering_placements: set[GatheringPlacement] | None = None,
     prebuilt_heightmaps: dict[
         int, tuple[int, int, int, int, list[float]]
     ] | None = None,
@@ -1625,12 +1682,15 @@ def _build_and_write(
         model_geom_cache = {}
     if dynamic_behaviors is None:
         dynamic_behaviors = load_dynamic_behaviors()
+    if gathering_placements is None:
+        gathering_placements = load_gathering_placements()
     if dynamic_behaviors and verbose:
         print(f"  dynamic loc pairs: {len(dynamic_behaviors)}")
     expanded, animated_rows, animated_models = process_placements(
         all_placements, loc_defs, model_loader, model_geom_cache,
         heightmaps=heightmaps or None, tex_colors=tex_colors, atlas=atlas,
         dynamic_behaviors=dynamic_behaviors,
+        gathering_placements=gathering_placements,
         report_gaps=verbose,
     )
     if verbose:
@@ -1968,6 +2028,7 @@ def export_modern_objects_split(
         return load_modern_region_terrain(reader, region_x, region_y)
 
     dynamic_behaviors = load_dynamic_behaviors()
+    gathering_placements = load_gathering_placements()
     model_loader = lambda model_id: load_model(reader, model_id)
     for rx, ry in target_coords:
         halo: dict[tuple[int, int], RegionTerrain] = {}
@@ -2021,6 +2082,7 @@ def export_modern_objects_split(
                 atlas,
                 model_geom_cache=model_geom_cache,
                 dynamic_behaviors=dynamic_behaviors,
+                gathering_placements=gathering_placements,
                 prebuilt_heightmaps=heightmaps,
                 write_anim_atlas=False,
                 always_write_anim_sidecar=True,

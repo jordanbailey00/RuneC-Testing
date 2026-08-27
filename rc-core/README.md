@@ -83,8 +83,8 @@ subsystems**.
   task progress
 - **encounter** — boss phase/rotation dispatcher + primitive registry
 - **objects** — object definitions, placed-object lookup, typed object
-  behavior tags, placement-key object interaction, altar restore, dynamic door
-  state, and gathering-node action/depletion/respawn
+  behavior tags, complete varbit/varp transforms, exact layer-aware dynamic
+  loc mutation, altar restore, doors, and gathering-node depletion/respawn
 - **traversal** — unified object/item/spell traversal-edge lookup and
   player relocation helper
 - **regions** — source-backed collision shared by movement/action
@@ -256,6 +256,25 @@ Object interactions that originate from placed scene data should pass the
 placement key into core. Placement-key APIs make dynamic loc state local to one
 exact placed object; tile/id APIs are compatibility paths for tests and tools
 that do not have placement identity.
+
+`rc-core/object_runtime.c` owns dynamic loc identity and lifecycle. Static
+placements use their immutable key and loc layer; spawned locs receive a
+world-local key. Add, delete, replace, timed revert, and collision replay all
+use this owner. Transient overrides are reclaimed when they revert, and
+capacity or identity conflicts are reported explicitly. The viewer reads the
+resolved active placement but never mutates object state.
+
+`rc-core/items.c` owns player inventory/equipment mutation. Production callers
+stage changes with `RcItemTransaction` or call the typed player item APIs;
+direct fixed-array helpers are limited to fixtures and private staged copies.
+Every committed slot has a valid definition, positive bounded quantity,
+compatible `state_id`, and a changed-slot generation. Delayed commands retain
+that generation, failed transactions publish a typed reason without partial
+mutation, and successful commits publish container revisions plus derived
+weight/bonus/style state once. IDEF v3 is the current metadata authority;
+legacy v1/v2 files remain readable but do not define the current export
+contract. `rc-viewer` projects core state and implemented actions and must not
+invent item gameplay or mutate slots directly.
 
 Config is consumed **once** at world creation. After that, no path or loader
 configuration appears on the tick path. The enabled bitmask gates the tick

@@ -195,21 +195,21 @@ POST_DEF_RENDER_REBUILD_SPECS = (
     RuntimeOutputSpec(
         dataset="item_render_models",
         logical_paths=("models/items.models", "models/items.tanim", "models/item_render.map"),
-        rebuild_inputs=B237_CACHE_AND_DUMP_INPUTS,
+        rebuild_inputs=B237_CACHE_INPUT,
         commands=(
             py_cmd(
                 "tools/cache_pipeline/export_item_render_models.py",
                 "--cache",
                 "{b237_cache}",
-                "--dump",
-                "{b237_dump}",
+                "--player-pose-source",
+                "content/items/player_pose_sets.toml",
                 "--item-ids",
                 "combat-validation,static-ground-items",
                 "--model-lighting",
                 "client",
             ),
         ),
-        authority="b237 cache plus rebuilt items.bin for first-release validation equipment and static ground-item visuals",
+        authority="b237 cache, rebuilt items.bin, and RuneC-owned reviewed player pose sets for first-release validation equipment and static ground-item visuals",
     ),
     RuntimeOutputSpec(
         dataset="validation_item_icons",

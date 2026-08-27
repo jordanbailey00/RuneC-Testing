@@ -7,6 +7,8 @@
 #include <string.h>
 
 #define ITEM_PATH RC_TEST_SOURCE_DIR "/data/defs/items.bin"
+#define OBJECT_PLACEMENTS_PATH \
+    RC_TEST_SOURCE_DIR "/data/regions/world.object-placements.indexed.bin"
 
 typedef struct {
     int calls;
@@ -83,14 +85,18 @@ static void test_object_routes_faces_and_dispatches_custom_handler(void) {
 
 static void test_default_object_handler_runs_after_arrival(void) {
     RcWorldConfig cfg = phase7_skilling_config();
+    cfg.object_placements_path = OBJECT_PLACEMENTS_PATH;
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world);
-    rc_test_open_mapsquare(world, world->player.x, world->player.y,
-                           world->player.plane);
 
     int obj_id = 11780;
-    int obj_x = world->player.x + 1;
-    int obj_y = world->player.y;
+    int obj_x = 3196;
+    int obj_y = 3384;
+    world->player.x = obj_x - 1;
+    world->player.y = obj_y;
+    world->player.prev_x = world->player.x;
+    world->player.prev_y = world->player.y;
+    rc_test_open_mapsquare(world, obj_x, obj_y, world->player.plane);
 
     assert(rc_player_interact_object_at(world, obj_id, obj_x, obj_y,
                                         world->player.plane, 0));
@@ -171,7 +177,7 @@ static void test_stale_ground_item_cancels_cleanly(void) {
     rc_world_destroy(world);
 }
 
-static void test_object_no_handler_fallback_still_exists(void) {
+static void test_object_without_handler_fails_explicitly(void) {
     RcWorldConfig cfg = rc_preset_base_only();
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world);
@@ -206,6 +212,6 @@ int main(void) {
     test_default_object_handler_runs_after_arrival();
     test_ground_item_routes_faces_and_takes();
     test_stale_ground_item_cancels_cleanly();
-    test_object_no_handler_fallback_still_exists();
+    test_object_without_handler_fails_explicitly();
     return 0;
 }

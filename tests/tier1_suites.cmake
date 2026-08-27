@@ -119,6 +119,7 @@ rc_add_tier1_suite(npc_runtime
 # Object definitions and placements, dynamic state, collision updates,
 # resource changes, varbit-backed behavior, and interaction integration.
 rc_add_tier1_suite(objects_dynamic_locs
+    test_objects_dynamic_locs_foundation
     test_object_placement_index
     test_active_area_runtime
     test_collision_tiles_runtime
@@ -138,6 +139,8 @@ rc_add_tier1_suite(objects_dynamic_locs
 rc_add_tier1_suite(items_inventory_equipment
     test_items_bin
     test_inventory_equipment_runtime
+    test_items_inventory_equipment_foundation
+    test_mapsquare_exports
     test_game_data_shared
     test_modular_loading
     test_headless_action_runtime

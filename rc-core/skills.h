@@ -42,7 +42,10 @@ typedef struct {
 
 typedef struct {
     uint32_t obj_id;
+    uint64_t placement_key;
+    int32_t replacement_obj_id;
     uint16_t x, y, mapsquare;
+    uint16_t respawn_ticks;
     uint8_t plane, skill, action_mask, type, rotation, flags;
 } RcGatheringNode;
 

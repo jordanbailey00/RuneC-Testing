@@ -1,17 +1,26 @@
-Object Behaviors
+Object behavior rules
 
 status: READY_WITH_ACCEPTED_SIMPLIFICATIONS
-source: content/runtime_snapshots/manifest.json
-authority: runec_owned_reviewed_runtime_snapshot
-snapshot files: 1
-snapshot bytes: 228996
-entries: 8178
+output binary: data/defs/object_behaviors.bin (228996 bytes)
+source reviewed behaviors: content/runtime_snapshots/data/defs/object_behaviors.bin
+source B237 definitions: data/defs/object_defs.bin
 behavior rows: 8178
-object behavior rows: 8178
+wide paired gate rows added: 102
 
-installed files:
-  - data/defs/object_behaviors.bin bytes=228996 sha256=52471f1d12668f8c3a6816c844ad1b7a879e54252f200ff9a3e62131bfcccb97
+by behavior:
+  door         2486
+  ladder       578
+  stair        629
+  bank         128
+  altar        157
+  resource     1509
+  transport    4141
+  storage      135
+  pair_left    137
+  pair_right   125
+  pair_wide    102
 
 accepted simplifications:
-  - this first-release bridge preserves the reviewed runtime snapshot while semantic source tables are normalized later
-  - no external checkout, wiki cache, private-server source, or wrong-game source is read during rebuild
+  - reviewed behavior classifications and stage pairs are preserved
+  - paired B237 objects whose definition name identifies a gate carry an explicit wide-pair flag
+  - exact per-object sounds remain deferred content metadata

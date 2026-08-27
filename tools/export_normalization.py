@@ -67,7 +67,7 @@ def parse_items() -> dict[int, dict[str, object]]:
     pos = 0
     magic, version, count = struct.unpack_from("<III", data, pos)
     pos += 12
-    if magic != IDEF_MAGIC or version not in (1, 2):
+    if magic != IDEF_MAGIC or version not in (1, 2, 3):
         raise ValueError("bad items.bin")
     rows: dict[int, dict[str, object]] = {}
     for _ in range(count):
@@ -85,7 +85,7 @@ def parse_items() -> dict[int, dict[str, object]]:
             flags = struct.unpack_from("<H", rec, p)[0]
             p += 3
         name, p = read_pstr(rec, p)
-        p += 2 + 12
+        p += (4 if version >= 3 else 2) + 12
         linked_item = linked_noted = linked_placeholder = -1
         if version == 1:
             linked_noted = struct.unpack_from("<I", rec, p)[0]

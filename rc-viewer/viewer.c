@@ -3366,19 +3366,40 @@ static int core_equip_slot_to_ui(int core_slot) {
 
 static int item_display_id_for_quantity(const ViewerState *v, int item_id, int quantity);
 
-static void sync_ui_slot(const ViewerState *v, RuneCUiSlot *dst, const RcInvSlot *src) {
+enum {
+    UI_ITEM_CONTAINER_INVENTORY = 0,
+    UI_ITEM_CONTAINER_EQUIPMENT,
+    UI_ITEM_CONTAINER_BANK,
+};
+
+static int item_action_is_equip(const char *action) {
+    return action && (strcmp(action, "Wear") == 0
+        || strcmp(action, "Wield") == 0
+        || strcmp(action, "Hold") == 0
+        || strcmp(action, "Equip") == 0);
+}
+
+static void ui_slot_add_action(RuneCUiSlot *slot, const char *action, int op) {
+    if (!slot || !action || !action[0]
+            || slot->action_count >= RUNEC_UI_ITEM_ACTIONS) {
+        return;
+    }
+    for (int i = 0; i < slot->action_count; i++) {
+        if (strcmp(slot->actions[i], action) == 0) return;
+    }
+    int idx = slot->action_count++;
+    snprintf(slot->actions[idx], sizeof(slot->actions[idx]), "%s", action);
+    slot->action_ops[idx] = op;
+}
+
+static void sync_ui_slot(const ViewerState *v, RuneCUiSlot *dst,
+                         const RcInvSlot *src, int container_kind) {
     if (!dst || !src || src->item_id < 0 || src->quantity <= 0) {
-        if (dst) {
-            dst->item_id = 0;
-            dst->icon_item_id = 0;
-            dst->quantity = 0;
-            dst->label[0] = '\0';
-            dst->enabled = 0;
-            dst->category = 0;
-        }
+        if (dst) memset(dst, 0, sizeof(*dst));
         return;
     }
     const RcItemDef *def = rc_item_def_get(src->item_id);
+    memset(dst, 0, sizeof(*dst));
     dst->item_id = (uint32_t)src->item_id;
     dst->icon_item_id = (uint32_t)item_display_id_for_quantity(v, src->item_id,
                                                                src->quantity);
@@ -3386,28 +3407,51 @@ static void sync_ui_slot(const ViewerState *v, RuneCUiSlot *dst, const RcInvSlot
     snprintf(dst->label, sizeof(dst->label), "%.23s",
              def ? def->name : TextFormat("Item %d", src->item_id));
     dst->enabled = 1;
+    if (container_kind == UI_ITEM_CONTAINER_INVENTORY) {
+        if (def && def->equippable && def->equipable_by_player) {
+            for (int i = 0; i < RC_ITEM_ACTION_COUNT; i++) {
+                if (item_action_is_equip(def->inventory_actions[i])) {
+                    ui_slot_add_action(dst, def->inventory_actions[i],
+                                       RUNEC_UI_ITEM_OP_EQUIP);
+                    break;
+                }
+            }
+        }
+        ui_slot_add_action(dst, "Use", RUNEC_UI_ITEM_OP_USE);
+        if (def) {
+            for (int i = 0; i < RC_ITEM_ACTION_COUNT; i++) {
+                if (strcmp(def->inventory_actions[i], "Drop") == 0) {
+                    ui_slot_add_action(dst, def->inventory_actions[i],
+                                       RUNEC_UI_ITEM_OP_DROP);
+                    break;
+                }
+            }
+        }
+        ui_slot_add_action(dst, "Examine", RUNEC_UI_ITEM_OP_EXAMINE);
+    } else if (container_kind == UI_ITEM_CONTAINER_EQUIPMENT) {
+        ui_slot_add_action(dst, "Remove", RUNEC_UI_ITEM_OP_REMOVE);
+        ui_slot_add_action(dst, "Examine", RUNEC_UI_ITEM_OP_EXAMINE);
+    }
 }
 
 static void sync_ui_items(ViewerState *v) {
     const RcPlayer *p = &v->world->player;
     for (int i = 0; i < RUNEC_UI_INV_SLOT_COUNT; i++)
-        sync_ui_slot(v, &v->ui.inventory[i], &p->inventory[i]);
+        sync_ui_slot(v, &v->ui.inventory[i], &p->inventory[i],
+                     UI_ITEM_CONTAINER_INVENTORY);
     if (v->ui.selected_inventory_slot >= 0
             && !v->ui.inventory[v->ui.selected_inventory_slot].enabled) {
         v->ui.selected_inventory_slot = -1;
     }
 
     for (int i = 0; i < RUNEC_UI_EQUIP_SLOT_COUNT; i++) {
-        v->ui.equipment[i].item_id = 0;
-        v->ui.equipment[i].icon_item_id = 0;
-        v->ui.equipment[i].quantity = 0;
-        v->ui.equipment[i].label[0] = '\0';
-        v->ui.equipment[i].enabled = 0;
+        memset(&v->ui.equipment[i], 0, sizeof(v->ui.equipment[i]));
     }
     for (int core = 0; core < RC_EQUIP_COUNT; core++) {
         int ui_slot = core_equip_slot_to_ui(core);
         if (ui_slot >= 0)
-            sync_ui_slot(v, &v->ui.equipment[ui_slot], &p->equipment[core]);
+            sync_ui_slot(v, &v->ui.equipment[ui_slot], &p->equipment[core],
+                         UI_ITEM_CONTAINER_EQUIPMENT);
     }
     if (v->ui.selected_equipment_slot >= 0
             && !v->ui.equipment[v->ui.selected_equipment_slot].enabled) {
@@ -3422,7 +3466,7 @@ static void sync_ui_items(ViewerState *v) {
     if (!v->ui.bank_open)
         v->ui.bank_scroll = 0;
     for (int i = 0; i < RUNEC_UI_BANK_SLOT_COUNT; i++) {
-        sync_ui_slot(v, &v->ui.bank[i], &p->bank[i]);
+        sync_ui_slot(v, &v->ui.bank[i], &p->bank[i], UI_ITEM_CONTAINER_BANK);
         v->ui.bank[i].category = p->bank_tab[i];
     }
 }
@@ -3766,18 +3810,14 @@ static const RcTraversalEdge *viewer_object_traversal_edge(
     return NULL;
 }
 
-static int object_action_option_available(const ViewerPickedObject *object,
+static int object_action_option_available(const ViewerState *v,
+                                          const ViewerPickedObject *object,
                                           int opt) {
-    if (!object || opt < 0 || opt >= RC_OBJECT_ACTIONS)
+    if (!v || !v->world || !object || opt < 0 || opt >= RC_OBJECT_ACTIONS)
         return 0;
-    const RcObjectDef *def = rc_object_def_get(object->obj_id);
-    if (def && def->actions[opt][0])
-        return 1;
-    const RcObjectBehavior *behavior = rc_object_behavior_get(object->obj_id);
-    if (behavior && (behavior->action_mask & (1u << opt)))
-        return 1;
-    return viewer_object_traversal_edge(object->obj_id, object->x, object->y,
-                                        object->plane, opt) != NULL;
+    return rc_world_object_option_supported(
+        v->world, object->obj_id, object->x, object->y, object->plane,
+        object->placement_key, opt);
 }
 
 static const char *object_action_label(const ViewerPickedObject *object,
@@ -3789,26 +3829,26 @@ static const char *object_action_label(const ViewerPickedObject *object,
     return edge && edge->action[0] ? edge->action : "";
 }
 
-static int object_first_action_option(ViewerPickedObject object) {
+static int object_first_action_option(const ViewerState *v,
+                                      ViewerPickedObject object) {
     const RcObjectDef *def = rc_object_def_get(object.obj_id);
     if (!def)
         return -1;
     for (int i = 0; i < RC_OBJECT_ACTIONS; i++) {
-        if (object_action_option_available(&object, i)
+        if (object_action_option_available(v, &object, i)
                 && object_action_label(&object, def, i)[0])
             return i;
     }
     return -1;
 }
 
-static int object_first_pick_option(ViewerPickedObject object) {
+static int object_first_pick_option(const ViewerState *v,
+                                    ViewerPickedObject object) {
     const RcObjectDef *def = rc_object_def_get(object.obj_id);
     if (!def)
         return -1;
-    const RcObjectBehavior *behavior = rc_object_behavior_get(object.obj_id);
     for (int i = 0; i < RC_OBJECT_ACTIONS; i++) {
-        if (def->actions[i][0]
-                || (behavior && (behavior->action_mask & (1u << i)))) {
+        if (object_action_option_available(v, &object, i)) {
             return i;
         }
     }
@@ -3931,27 +3971,15 @@ static int object_pick_candidate(ViewerState *v, const RcObjectPlacement *row,
     if (row->plane != scene_plane || !viewer_tile_in_loaded_scene(row->x, row->y))
         return 0;
 
-    RcObjectPlacement pick_row = *row;
-    int obj_id = (int)row->obj_id;
-    uint64_t placement_key = row->key;
-    RcObjectState active_state;
-    if (v->world && v->world->object_state_count > 0
-            && ((row->key && rc_world_object_active_state_by_key(
-                    v->world, row->key, &active_state))
-                || rc_world_object_active_state(v->world, obj_id, row->x,
-                                                row->y, row->plane,
-                                                &active_state))) {
-        int active_id = active_state.active_obj_id;
-        if (active_id != obj_id && rc_object_def_get(active_id))
-            obj_id = active_id;
-        placement_key = active_state.placement_key;
-        pick_row.obj_id = (uint32_t)obj_id;
-        pick_row.x = (uint16_t)active_state.active_x;
-        pick_row.y = (uint16_t)active_state.active_y;
-        pick_row.plane = (uint8_t)active_state.active_plane;
-        pick_row.type = active_state.active_type;
-        pick_row.rotation = active_state.active_rotation;
+    RcObjectPlacement pick_row;
+    if (v->world) {
+        if (!rc_world_object_resolve_placement(v->world, row, &pick_row))
+            return 0;
+    } else {
+        pick_row = *row;
     }
+    int obj_id = (int)pick_row.obj_id;
+    uint64_t placement_key = pick_row.key;
     if (pick_row.plane != scene_plane
             || !viewer_tile_in_loaded_scene(pick_row.x, pick_row.y))
         return 0;
@@ -3971,7 +3999,7 @@ static int object_pick_candidate(ViewerState *v, const RcObjectPlacement *row,
         .length = l,
         .placement_key = placement_key,
     };
-    int option = object_first_pick_option(candidate);
+    int option = object_first_pick_option(v, candidate);
     if (!def || (option < 0 && !def->name[0]))
         return 0;
     const RcObjectBehavior *behavior = rc_object_behavior_get(obj_id);
@@ -4106,7 +4134,7 @@ static int pick_object_candidate(ViewerState *v, ViewerHoverTarget *out) {
     out->object = object;
     out->npc_uid = -1;
     out->ground_item_idx = -1;
-    out->option = object_first_action_option(object);
+    out->option = object_first_action_option(v, object);
     out->score = score;
     const RcObjectDef *def = rc_object_def_get(object.obj_id);
     const char *name = def && def->name[0] ? def->name : "object";
@@ -4276,7 +4304,7 @@ static void open_object_context_menu(ViewerState *v,
     for (int i = 0; i < RC_OBJECT_ACTIONS
             && count < RUNEC_UI_CONTEXT_ACTIONS - 2; i++) {
         const char *label = object_action_label(&object, def, i);
-        if (!object_action_option_available(&object, i) || !label[0])
+        if (!object_action_option_available(v, &object, i) || !label[0])
             continue;
         snprintf(action_text[count], sizeof(action_text[count]), "%s %.24s",
                  label, def->name);
@@ -4876,9 +4904,9 @@ static void draw_animated_object_resources(ViewerState *v, int scene_plane,
             continue;
         if (row->pad & (OANM_FLAG_DYNAMIC_BASE | OANM_FLAG_DYNAMIC_REPLACEMENT)) {
             RcObjectState active;
-            int have_state = v->world && rc_world_object_active_state(
+            int have_state = v->world && rc_world_object_active_state_layer(
                 v->world, (int)row->obj_id, row->world_x, row->world_y,
-                row->plane, &active);
+                row->plane, rc_object_layer_for_type(row->obj_type), &active);
             if (row->pad & OANM_FLAG_DYNAMIC_REPLACEMENT) {
                 if (!have_state || active.active_obj_id != (int)row->obj_id
                         || active.active_x != row->world_x
@@ -8480,7 +8508,7 @@ static void handle_input(ViewerState *v, int ui_capture) {
         if (have_hover && hover.kind == VIEWER_HOVER_OBJECT) {
             ViewerPickedObject object = hover.object;
             int option = hover.option >= 0 ? hover.option
-                                           : object_first_action_option(object);
+                                           : object_first_action_option(v, object);
             if (option >= 0) {
                 viewer_interact_object(v, object, option);
             } else {
@@ -9564,7 +9592,7 @@ int main(int argc, char **argv) {
             } else if (slot >= 0 && slot < RC_INVENTORY_SIZE
                     && p->inventory[slot].item_id >= 0) {
                 const RcItemDef *def = rc_item_def_get(p->inventory[slot].item_id);
-                if (def && def->equippable)
+                if (def && def->equippable && def->equipable_by_player)
                     rc_player_equip(v.world, slot);
                 else if (previous >= 0 && previous != slot)
                     rc_player_move_inventory_item(v.world, previous, slot);
@@ -9578,15 +9606,22 @@ int main(int argc, char **argv) {
                 rc_player_move_inventory_item(v.world, from, to);
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_INVENTORY_ACTION) {
             int slot = v.ui.last_intent.primary;
-            if (strcmp(v.ui.last_intent.text, "Drop") == 0) {
+            int op = v.ui.last_intent.secondary;
+            if (op == RUNEC_UI_ITEM_OP_EQUIP) {
+                rc_player_equip(v.world, slot);
+            } else if (op == RUNEC_UI_ITEM_OP_DROP) {
                 rc_player_drop_item(v.world, slot);
-            } else if (strcmp(v.ui.last_intent.text, "Examine") == 0
+            } else if (op == RUNEC_UI_ITEM_OP_EXAMINE
                     && slot >= 0 && slot < RC_INVENTORY_SIZE
                     && p->inventory[slot].item_id >= 0) {
-                rc_player_interact_inventory_item(v.world, slot, 1);
                 const RcItemDef *def = rc_item_def_get(p->inventory[slot].item_id);
-                fprintf(stderr, "ui examine item: %s (%d)\n",
-                        def ? def->name : "unknown", p->inventory[slot].item_id);
+                fprintf(stderr, "ui examine item: %s (%d): %s\n",
+                        def ? def->name : "unknown",
+                        p->inventory[slot].item_id,
+                        def && def->examine[0] ? def->examine
+                                               : "Nothing interesting happens.");
+            } else if (op >= 0) {
+                rc_player_interact_inventory_item(v.world, slot, op);
             }
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_EQUIPMENT_SLOT) {
             int core_slot = ui_equip_slot_to_core(v.ui.last_intent.primary);
@@ -9594,16 +9629,18 @@ int main(int argc, char **argv) {
                 rc_player_unequip(v.world, core_slot);
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_EQUIPMENT_ACTION) {
             int core_slot = ui_equip_slot_to_core(v.ui.last_intent.primary);
-            if (core_slot >= 0 && strcmp(v.ui.last_intent.text, "Remove") == 0) {
+            int op = v.ui.last_intent.secondary;
+            if (core_slot >= 0 && op == RUNEC_UI_ITEM_OP_REMOVE) {
                 rc_player_unequip(v.world, core_slot);
             } else if (core_slot >= 0
-                    && strcmp(v.ui.last_intent.text, "Examine") == 0) {
-                rc_player_interact_equipment_item(v.world, core_slot, 1);
+                    && op == RUNEC_UI_ITEM_OP_EXAMINE) {
                 const RcItemDef *def =
                     rc_item_def_get(p->equipment[core_slot].item_id);
-                fprintf(stderr, "ui examine equipment: %s (%d)\n",
+                fprintf(stderr, "ui examine equipment: %s (%d): %s\n",
                         def ? def->name : "unknown",
-                        p->equipment[core_slot].item_id);
+                        p->equipment[core_slot].item_id,
+                        def && def->examine[0] ? def->examine
+                                               : "Nothing interesting happens.");
             }
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_COMBAT_STYLE) {
             rc_combat_set_player_style(v.world, v.ui.last_intent.primary);

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Export item definitions with equipment bonuses → data/defs/items.bin (IDEF).
+"""Export B237 item definitions and supplemental combat metadata to IDEF.
 
 Sources:
-  - osrsreboxed-db (primary) — per-item metadata, equipment bonuses, weapon
-    attack speed + stances.
-  - b237 cache (optional, for cross-validation only; osrsreboxed is already
-    decoded from a modern cache).
+  - RuneC's b237 cache (revision authority) — item identity, models, links,
+    weight, wear positions, actions, and examine text.
+  - osrsreboxed-db (supplemental) — equipment bonuses, requirements, weapon
+    attack speed, range, and stances when a matching record exists.
 
 Excluded per ignore.md:
   - No GE price field (single-player, no live market).
@@ -29,7 +29,7 @@ from source_paths import CACHE_DIR, require_cache_dir
 from wiki_item_bonuses import load_wiki_bonus_overrides
 
 IDEF_MAGIC = 0x49444546  # "IDEF"
-IDEF_VERSION = 2
+IDEF_VERSION = 3
 
 # Equipment slots — must match rc-core/types.h RcEquipSlot.
 SLOT_NAMES = {
@@ -111,6 +111,25 @@ WEARPOS_FEET = 10
 WEARPOS_JAW = 11
 WEARPOS_RING = 12
 WEARPOS_QUIVER = 13
+
+WEARPOS_TO_SLOT = {
+    WEARPOS_HAT: SLOT_NAMES["head"],
+    WEARPOS_BACK: SLOT_NAMES["cape"],
+    WEARPOS_FRONT: SLOT_NAMES["neck"],
+    WEARPOS_RIGHT_HAND: SLOT_NAMES["weapon"],
+    WEARPOS_TORSO: SLOT_NAMES["body"],
+    WEARPOS_LEFT_HAND: SLOT_NAMES["shield"],
+    WEARPOS_LEGS: SLOT_NAMES["legs"],
+    WEARPOS_HANDS: SLOT_NAMES["hands"],
+    WEARPOS_FEET: SLOT_NAMES["feet"],
+    WEARPOS_RING: SLOT_NAMES["ring"],
+    WEARPOS_QUIVER: SLOT_NAMES["ammo"],
+}
+
+META_CACHE = 1 << 0
+META_EQUIP = 1 << 1
+META_EQUIP_STATS = 1 << 2
+META_WEAPON = 1 << 3
 
 
 def default_osrsreboxed_root() -> Path:
@@ -301,25 +320,6 @@ def empty_equipment(slot: str) -> dict:
     }
 
 
-def infer_cache_weapon(cache: dict | None, slot: str | None) -> dict | None:
-    if slot != "weapon":
-        return None
-    name = str((cache or {}).get("name") or "").lower()
-    if "staff" in name or "sceptre" in name or "wand" in name:
-        weapon_type = "staff"
-    elif "bow" in name:
-        weapon_type = "bow"
-    elif "blade" in name or "sword" in name:
-        weapon_type = "slash_sword"
-    else:
-        weapon_type = "unarmed"
-    return {
-        "attack_speed": 4,
-        "weapon_type": weapon_type,
-        "stances": [],
-    }
-
-
 def apply_cache_equipment_fallback(rec: dict, cache: dict | None) -> dict:
     if (rec.get("equipment") or rec.get("noted") or rec.get("placeholder")
             or not cache_item_has_wear_action(cache)):
@@ -332,8 +332,7 @@ def apply_cache_equipment_fallback(rec: dict, cache: dict | None) -> dict:
     out["equipable_by_player"] = True
     if slot == "weapon":
         out["equipable_weapon"] = True
-        if not out.get("weapon"):
-            out["weapon"] = infer_cache_weapon(cache, slot)
+    out["_cache_equipment_fallback"] = True
     return out
 
 
@@ -368,7 +367,7 @@ def cache_item_record(cache: dict) -> dict:
         "tradeable": bool(cache.get("tradeable")),
         "stackable": bool(cache.get("stackable")),
         "cost": int_or(cache.get("cost"), 0),
-        "weight": (int_or(cache.get("weight"), 0) / 100.0),
+        "weight_grams": int_or(cache.get("weight"), 0),
         "highalch": 0,
         "lowalch": 0,
         "noted": cache.get("note_template_id") is not None,
@@ -397,6 +396,13 @@ def overlay_cache(rec: dict, cache: dict | None,
         out["stackable"] = bool(cache.get("stackable"))
         out["cost"] = int_or(cache.get("cost"), out.get("cost") or 0)
     if cache:
+        out["weight_grams"] = int_or(cache.get("weight"), 0)
+        out["examine"] = cache.get("examine") or ""
+        out["ground_ops"] = list(cache.get("ground_ops") or [None] * 5)
+        out["interface_ops"] = list(cache.get("interface_ops") or [None] * 5)
+        out["wearpos1"] = cache.get("wearpos1")
+        out["wearpos2"] = cache.get("wearpos2")
+        out["wearpos3"] = cache.get("wearpos3")
         if cache.get("note_template_id") is not None and cache.get("note_id") is not None:
             out["noted"] = True
             out["linked_id_item"] = int(cache["note_id"])
@@ -486,24 +492,29 @@ def classify_item(rec: dict) -> int:
 
 
 def pack_equipment(eq: dict) -> bytes:
-    """Pack the 13-bonus + slot + up-to-4-reqs equipment block.
-    Layout: slot u8, req_count u8, (req_skill u8 + req_level u8)*req_count,
-            13 × i16 bonuses in order stab/slash/crush/magic_att/ranged_att/
+    """Pack the equipment slot, complete requirements, and bonuses.
+    Layout: slot u8, req_count u8, combat_level u8,
+            (req_skill u8 + req_level u8)*req_count,
+            14 × i16 bonuses in order stab/slash/crush/magic_att/ranged_att/
             def_stab/def_slash/def_crush/def_magic/def_ranged/str/
-            ranged_str/magic_dmg/prayer (14 total? that's 14. Let me
-            recount): stab(att) slash(att) crush(att) magic(att) ranged(att)
-            = 5 attack; stab(def) slash(def) crush(def) magic(def) ranged(def)
-            = 5 defence; melee_str, ranged_str, magic_dmg, prayer = 4 extras
-            = 14 total i16.
+            ranged_str/magic_dmg/prayer.
     """
     slot = SLOT_NAMES.get(eq.get("slot"), 0xFF)
     reqs = eq.get("requirements") or {}
-    req_pairs = [(SKILL_IDS.get(s, 0xFF), lvl) for s, lvl in reqs.items()
-                 if SKILL_IDS.get(s) is not None]
-    req_pairs = req_pairs[:4]
+    unknown = sorted(str(skill) for skill in reqs
+                     if skill not in SKILL_IDS and skill != "combat")
+    if unknown:
+        raise ValueError(f"unknown equipment requirement skills: {unknown}")
+    req_pairs = [(SKILL_IDS[s], int(lvl)) for s, lvl in reqs.items()
+                 if s in SKILL_IDS]
+    if len(req_pairs) > len(SKILL_IDS):
+        raise ValueError(f"too many equipment requirements: {len(req_pairs)}")
 
     buf = bytearray()
-    buf += struct.pack("<BB", slot & 0xFF, len(req_pairs))
+    combat_level = int_or(reqs.get("combat"), 0)
+    if combat_level < 0 or combat_level > 255:
+        raise ValueError(f"invalid combat requirement: {combat_level}")
+    buf += struct.pack("<BBB", slot & 0xFF, len(req_pairs), combat_level)
     for sid, lvl in req_pairs:
         buf += struct.pack("<BB", sid, lvl)
 
@@ -532,7 +543,12 @@ def pack_weapon(wp: dict) -> bytes:
     """Pack: attack_speed u8, weapon_type u8, stance_bits u8, stance_count u8,
        per stance: combat_style_name_len u8 + string (variable)."""
     atk_speed = int_or(wp.get("attack_speed"), 4)
-    wt_id = WEAPON_TYPES.get(wp.get("weapon_type"), 0)
+    if wp.get("weapon_type") not in WEAPON_TYPES:
+        raise ValueError(f"unknown weapon type: {wp.get('weapon_type')}")
+    wt_id = WEAPON_TYPES[wp.get("weapon_type")]
+    attack_range = int_or(wp.get("attack_range"), -1)
+    if attack_range < -1 or attack_range > 127:
+        raise ValueError(f"invalid weapon attack range: {attack_range}")
     stances = wp.get("stances") or []
 
     stance_bits = 0
@@ -542,8 +558,9 @@ def pack_weapon(wp: dict) -> bytes:
             stance_bits |= STANCE_BITS[style]
 
     buf = bytearray()
-    buf += struct.pack("<BBBB", atk_speed & 0xFF, wt_id & 0xFF,
-                       stance_bits & 0xFF, min(len(stances), 255))
+    buf += struct.pack("<BBBBb", atk_speed & 0xFF, wt_id & 0xFF,
+                       stance_bits & 0xFF, min(len(stances), 255),
+                       attack_range)
     for s in stances:
         cs = (s.get("combat_style") or "").encode("ascii", errors="replace")[:31]
         buf += struct.pack("<B", len(cs))
@@ -590,9 +607,11 @@ def build_record(rec: dict, model_links: dict[int, list[int]]) -> bytes | None:
     buf += struct.pack("<B", classify_item(rec))
     buf += struct.pack("<B", len(name))
     buf += name
-    # Weight in centigrams (whole number 0.453 kg = 45 cg)
-    weight_cg = int(round((rec.get("weight") or 0.0) * 100.0))
-    buf += struct.pack("<H", max(0, min(65535, weight_cg)))
+    weight_grams = int_or(rec.get("weight_grams"),
+                          int(round((rec.get("weight") or 0.0) * 1000.0)))
+    if weight_grams < -2147483648 or weight_grams > 2147483647:
+        raise ValueError(f"item {item_id}: weight out of i32 range")
+    buf += struct.pack("<i", weight_grams)
     buf += struct.pack("<I", int_or(rec.get("highalch"), 0))
     buf += struct.pack("<I", int_or(rec.get("lowalch"), 0))
     buf += struct.pack("<I", int_or(rec.get("cost"), 0))
@@ -602,6 +621,40 @@ def build_record(rec: dict, model_links: dict[int, list[int]]) -> bytes | None:
     buf += struct.pack("<I", id_or_missing(rec.get("buy_limit")))
     for model_id in models:
         buf += struct.pack("<I", id_or_missing(model_id))
+
+    wear_positions = [rec.get(f"wearpos{i}") for i in range(1, 4)]
+    conflict_mask = 0
+    for wearpos in wear_positions:
+        slot = WEARPOS_TO_SLOT.get(wearpos)
+        if slot is not None:
+            conflict_mask |= 1 << slot
+    if eq:
+        slot = SLOT_NAMES.get(eq.get("slot"))
+        if slot is not None:
+            conflict_mask |= 1 << slot
+    metadata = 0
+    if rec.get("_cache_fill") or rec.get("wearpos1") is not None \
+            or rec.get("interface_ops") is not None:
+        metadata |= META_CACHE
+    if eq:
+        metadata |= META_EQUIP
+        if not rec.get("_cache_equipment_fallback"):
+            metadata |= META_EQUIP_STATS
+    if wp:
+        metadata |= META_WEAPON
+    buf += struct.pack("<H", metadata)
+    buf += struct.pack("<BBB", *(0xFF if value is None else int(value)
+                                 for value in wear_positions))
+    buf += struct.pack("<H", conflict_mask)
+    for action_set in (rec.get("interface_ops"), rec.get("ground_ops")):
+        actions = list(action_set or [])[:5]
+        actions.extend([None] * (5 - len(actions)))
+        for action in actions:
+            raw = str(action or "").encode("latin-1", errors="replace")[:23]
+            buf += struct.pack("<B", len(raw)) + raw
+    examine = str(rec.get("examine") or "").encode(
+        "latin-1", errors="replace")[:127]
+    buf += struct.pack("<B", len(examine)) + examine
 
     if eq:
         buf += pack_equipment(eq)

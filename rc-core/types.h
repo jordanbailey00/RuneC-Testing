@@ -250,6 +250,7 @@ typedef struct {
     int footprint_width, footprint_height;
     int inventory_slot;
     int equipment_slot;
+    uint32_t item_generation;
     int widget_id;
     int component_id;
     int ground_item_instance;
@@ -262,6 +263,8 @@ typedef struct {
     char option_text[RC_INTERACTION_OPTION_TEXT_LEN];
     RcInteractionTarget target;
     int source_item_id;
+    int source_inventory_slot;
+    uint32_t source_item_generation;
     int source_spell_id;
     int source_widget_id;
     int source_component_id;
@@ -506,7 +509,34 @@ typedef struct {
 typedef struct {
     int item_id;    // -1 = empty
     int quantity;
+    uint32_t state_id;   // 0 = ordinary/default item state
+    uint32_t generation; // changes whenever this slot's item state changes
 } RcInvSlot;
+
+typedef enum {
+    RC_ITEM_RESULT_INVALID = 0,
+    RC_ITEM_RESULT_OK,
+    RC_ITEM_RESULT_QUEUED,
+    RC_ITEM_RESULT_DISABLED,
+    RC_ITEM_RESULT_ACTION_DENIED,
+    RC_ITEM_RESULT_EMPTY,
+    RC_ITEM_RESULT_STALE,
+    RC_ITEM_RESULT_NO_DEFINITION,
+    RC_ITEM_RESULT_NOT_EQUIPPABLE,
+    RC_ITEM_RESULT_REQUIREMENT,
+    RC_ITEM_RESULT_CAPACITY,
+    RC_ITEM_RESULT_STACK_LIMIT,
+    RC_ITEM_RESULT_STATE_MISMATCH,
+    RC_ITEM_RESULT_CONFLICT,
+} RcItemResultCode;
+
+typedef struct {
+    RcItemResultCode code;
+    int item_id;
+    int slot;
+    int required_skill;
+    int required_level;
+} RcItemActionResult;
 
 // Skill state
 typedef struct {
@@ -650,6 +680,11 @@ typedef struct {
     uint8_t bank_tab[RC_BANK_SIZE];
     RcInvSlot equipment[RC_EQUIP_COUNT];
     int equipment_bonuses[14];
+    uint32_t inventory_revision;
+    uint32_t equipment_revision;
+    uint32_t bank_revision;
+    uint32_t next_item_generation;
+    RcItemActionResult last_item_action;
 
     // Interaction
     int interact_type;
@@ -700,6 +735,8 @@ typedef struct {
 } RcPlayer;
 
 struct RcWorld;
+typedef RcItemActionResult (*RcItemEquipRequirementHook)(
+    struct RcWorld *world, const RcPlayer *player, int item_id, void *ctx);
 
 #define RC_INTERACTION_KEY_ANY -1
 #define RC_INTERACTION_CONTENT_GROUP_NPC_ATTACK 1
@@ -836,6 +873,7 @@ typedef struct {
     uint64_t spawn_key;     // stable indexed-spawn identity; 0 = dynamic
     int item_id;
     int quantity;
+    uint32_t state_id;
     int spawn_quantity;
     int x, y, plane;
     int owner_uid;
@@ -848,7 +886,7 @@ typedef struct {
     bool active;
 } RcGroundItem;
 
-typedef struct {
+typedef struct RcObjectState {
     uint64_t placement_key;
     int base_obj_id;
     int active_obj_id;
@@ -856,8 +894,8 @@ typedef struct {
     int active_x, active_y, active_plane;
     uint8_t base_type, base_rotation;
     uint8_t active_type, active_rotation;
-    RcTick respawn_tick;
     RcTick revert_tick;
+    uint8_t layer;
     uint8_t flags;
 } RcObjectState;
 
@@ -865,6 +903,8 @@ enum {
     RC_OBJECT_STATE_OPEN      = 1u << 0,
     RC_OBJECT_STATE_DEPLETED  = 1u << 1,
     RC_OBJECT_STATE_DYNAMIC   = 1u << 2,
+    RC_OBJECT_STATE_SPAWNED   = 1u << 3,
+    RC_OBJECT_STATE_HIDDEN    = 1u << 4,
 };
 
 typedef struct {
@@ -959,7 +999,8 @@ typedef struct RcWorld {
     int object_state_count;
     RcEncounterEffect encounter_effects[RC_ENC_MAX_EFFECTS];
     int encounter_effect_count;
-    RcTick next_object_respawn_tick;
+    RcTick next_object_change_tick;
+    uint64_t next_dynamic_object_key;
     int32_t varps[RC_MAX_VARPS];
     RcWorldMap map;
     RcActiveArea active_area;
@@ -973,6 +1014,8 @@ typedef struct RcWorld {
     uint32_t initial_seed;
     bool multi_combat;
     RcCombatContentHooks combat_hooks;
+    RcItemEquipRequirementHook item_equip_requirement_hook;
+    void *item_equip_requirement_ctx;
     RcCombatAttackEvent combat_attack_events[RC_MAX_COMBAT_ATTACK_EVENTS];
     int combat_attack_event_count;
     RcInteractionHandlerEntry

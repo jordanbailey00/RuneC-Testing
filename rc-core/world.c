@@ -21,6 +21,7 @@
 #include "npc.h"
 #include "normalization.h"
 #include "objects.h"
+#include "object_runtime.h"
 #include "player_actions.h"
 #include "player_command.h"
 #include "prayer.h"
@@ -135,6 +136,7 @@ static int init_world_state(RcWorld *world) {
     world->tick = 0;
     world->next_ground_item_uid = 0;
     world->next_npc_uid = 0;
+    world->next_dynamic_object_key = UINT64_MAX;
     world->player_commands.next_sequence = 0;
     world->player_commands.last_result = RC_COMMAND_RESULT_NONE;
     rc_events_init(&world->events);
@@ -583,6 +585,10 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
         page_load_ms += monotonic_ms() - page_load_started_ms;
         if (object_pages < 0) goto fail;
         pages_loaded += object_placement_stats.pages_loaded;
+    }
+    if ((components & RC_ACTIVE_AREA_COMPONENT_COLLISION)
+            && !rc_world_objects_replay_collision(stage)) {
+        goto fail;
     }
 
     int saved_npc_states = 0;
