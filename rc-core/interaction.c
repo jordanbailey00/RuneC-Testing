@@ -18,7 +18,17 @@ RcInteractionOp rc_interaction_op_from_option(int option_idx) {
 }
 
 int rc_interaction_kind_valid(RcInteractionKind kind) {
-    return kind >= RC_INTERACTION_NPC && kind <= RC_INTERACTION_WIDGET;
+    switch (kind) {
+    case RC_INTERACTION_NPC:
+    case RC_INTERACTION_OBJECT:
+    case RC_INTERACTION_GROUND_ITEM:
+    case RC_INTERACTION_INVENTORY_ITEM:
+    case RC_INTERACTION_EQUIPMENT_ITEM:
+    case RC_INTERACTION_WIDGET:
+        return 1;
+    default:
+        return 0;
+    }
 }
 
 int rc_interaction_op_valid(RcInteractionOp op) {
@@ -57,8 +67,6 @@ int rc_interaction_target_valid(const RcInteractionTarget *target) {
         return target->definition_id >= 0
             && target->equipment_slot >= 0
             && target->equipment_slot < RC_EQUIP_COUNT;
-    case RC_INTERACTION_PLAYER:
-        return target->entity_uid >= 0 && valid_tile_target(target);
     case RC_INTERACTION_WIDGET:
         return target->widget_id >= 0 || target->component_id >= 0;
     default:
@@ -89,8 +97,13 @@ RcInteractionDispatchKey rc_interaction_dispatch_key_from_pending(
     key.content_group = interaction->target.content_group;
     key.source_item_id = interaction->source_item_id;
     key.source_spell_id = interaction->source_spell_id;
-    key.widget_id = interaction->target.widget_id;
-    key.component_id = interaction->target.component_id;
+    if (interaction->target.kind == RC_INTERACTION_WIDGET) {
+        key.widget_id = interaction->target.widget_id;
+        key.component_id = interaction->target.component_id;
+    } else {
+        key.widget_id = interaction->source_widget_id;
+        key.component_id = interaction->source_component_id;
+    }
     return key;
 }
 
@@ -127,25 +140,6 @@ RcInteractionHandlerResult rc_interaction_result_continue_approach(
     return result;
 }
 
-RcInteractionHandlerResult rc_interaction_result_combat_handoff(
-    int target_uid) {
-    RcInteractionHandlerResult result;
-    memset(&result, 0, sizeof(result));
-    result.code = RC_INTERACTION_HANDLER_COMBAT_HANDOFF;
-    result.combat_target_uid = target_uid;
-    return result;
-}
-
-RcInteractionHandlerResult rc_interaction_result_system_handoff(
-    int system_handoff, int target_id) {
-    RcInteractionHandlerResult result;
-    memset(&result, 0, sizeof(result));
-    result.code = RC_INTERACTION_HANDLER_COMPLETE;
-    result.system_handoff = system_handoff;
-    result.system_target_id = target_id;
-    return result;
-}
-
 RcInteractionHandlerResult rc_interaction_result_message(const char *message) {
     RcInteractionHandlerResult result;
     memset(&result, 0, sizeof(result));
@@ -172,6 +166,61 @@ static void copy_option_text(char dst[RC_INTERACTION_OPTION_TEXT_LEN],
     dst[RC_INTERACTION_OPTION_TEXT_LEN - 1] = '\0';
 }
 
+static const char *failure_message(RcInteractionFailure reason) {
+    switch (reason) {
+    case RC_INTERACTION_FAIL_TARGET_MISSING: return "That target is no longer there.";
+    case RC_INTERACTION_FAIL_TARGET_VERSION_CHANGED: return "That target has changed.";
+    case RC_INTERACTION_FAIL_TARGET_DEAD: return "That target is no longer available.";
+    case RC_INTERACTION_FAIL_OPTION_UNAVAILABLE: return "That option is not available.";
+    case RC_INTERACTION_FAIL_NO_HANDLER: return "Nothing interesting happens.";
+    case RC_INTERACTION_FAIL_CANNOT_REACH: return "I can't reach that.";
+    case RC_INTERACTION_FAIL_LOS_BLOCKED: return "I can't see that.";
+    case RC_INTERACTION_FAIL_ACTOR_BUSY: return "You are too busy to do that.";
+    case RC_INTERACTION_FAIL_ACTOR_DEAD: return "You can't do that right now.";
+    case RC_INTERACTION_FAIL_INVALID_SOURCE: return "That source is no longer available.";
+    case RC_INTERACTION_FAIL_INVALID_TARGET: return "That target is not valid.";
+    case RC_INTERACTION_FAIL_CANCELLED: return "";
+    case RC_INTERACTION_FAIL_NONE:
+    default:
+        return "";
+    }
+}
+
+static void publish_outcome(RcPlayer *player, uint64_t generation,
+                            RcInteractionHandlerCode code,
+                            RcInteractionFailure failure,
+                            const char *message) {
+    if (!player) return;
+    uint64_t sequence = ++player->next_interaction_outcome_sequence;
+    if (sequence == 0)
+        sequence = ++player->next_interaction_outcome_sequence;
+    RcInteractionOutcome outcome;
+    memset(&outcome, 0, sizeof(outcome));
+    outcome.sequence = sequence;
+    outcome.interaction_generation = generation;
+    outcome.code = code;
+    outcome.failure = failure;
+    const char *text = message && message[0] ? message : failure_message(failure);
+    if (text) {
+        strncpy(outcome.message, text, sizeof(outcome.message) - 1);
+        outcome.message[sizeof(outcome.message) - 1] = '\0';
+    }
+    player->interaction_outcome = outcome;
+}
+
+void rc_interaction_reject(RcPlayer *player, RcInteractionFailure reason,
+                           const char *message) {
+    if (!player) return;
+    if (!player->interaction.active)
+        player->interaction.last_failure = reason;
+    publish_outcome(player, 0, RC_INTERACTION_HANDLER_FAILURE, reason, message);
+}
+
+void rc_interaction_publish_message(RcPlayer *player, const char *message) {
+    publish_outcome(player, 0, RC_INTERACTION_HANDLER_MESSAGE,
+                    RC_INTERACTION_FAIL_NONE, message);
+}
+
 int rc_interaction_begin(RcPlayer *player, int source_actor_uid,
                          RcInteractionOp op, const char *option_text,
                          const RcInteractionTarget *target,
@@ -196,12 +245,16 @@ int rc_interaction_begin_with_source(
             || source_spell_id < RC_INTERACTION_KEY_ANY
             || source_widget_id < RC_INTERACTION_KEY_ANY
             || source_component_id < RC_INTERACTION_KEY_ANY) {
-        rc_interaction_cancel(player, RC_INTERACTION_FAIL_INVALID_TARGET);
+        rc_interaction_reject(player, RC_INTERACTION_FAIL_INVALID_TARGET,
+                              "Invalid interaction request");
         return 0;
     }
     RcPendingInteraction next;
     memset(&next, 0, sizeof(next));
     next.active = true;
+    next.generation = ++player->next_interaction_generation;
+    if (next.generation == 0)
+        next.generation = ++player->next_interaction_generation;
     next.source_actor_uid = source_actor_uid;
     next.op = op;
     copy_option_text(next.option_text, option_text);
@@ -219,10 +272,10 @@ int rc_interaction_begin_with_source(
 }
 
 void rc_interaction_cancel(RcPlayer *player, RcInteractionFailure reason) {
-    if (!player) return;
-    player->interaction.active = false;
-    player->interaction.flags |= RC_INTERACTION_CANCELLED;
-    player->interaction.last_failure = reason;
+    if (!player || !player->interaction.active) return;
+    RcInteractionHandlerResult result = rc_interaction_result_cancel(reason);
+    (void)rc_interaction_apply_result(player, player->interaction.generation,
+                                      result);
 }
 
 void rc_interaction_clear(RcPlayer *player) {
@@ -238,20 +291,71 @@ const RcPendingInteraction *rc_interaction_get(const RcPlayer *player) {
     return player ? &player->interaction : NULL;
 }
 
+const RcInteractionOutcome *rc_interaction_last_outcome(
+    const RcPlayer *player) {
+    return player ? &player->interaction_outcome : NULL;
+}
+
 RcInteractionKind rc_interaction_target_kind(const RcPlayer *player) {
     if (!rc_interaction_is_active(player)) return RC_INTERACTION_NONE;
     return player->interaction.target.kind;
 }
 
-static int key_specificity(const RcInteractionDispatchKey *key) {
-    int score = 0;
-    if (key->definition_id != RC_INTERACTION_KEY_ANY) score += 100;
-    if (key->content_group != RC_INTERACTION_KEY_ANY) score += 50;
-    if (key->source_item_id != RC_INTERACTION_KEY_ANY) score += 8;
-    if (key->source_spell_id != RC_INTERACTION_KEY_ANY) score += 8;
-    if (key->widget_id != RC_INTERACTION_KEY_ANY) score += 4;
-    if (key->component_id != RC_INTERACTION_KEY_ANY) score += 4;
-    return score;
+int rc_interaction_apply_result(RcPlayer *player, uint64_t generation,
+                                RcInteractionHandlerResult result) {
+    if (!player || !player->interaction.active
+            || player->interaction.generation != generation) {
+        return 0;
+    }
+    if (result.code == RC_INTERACTION_HANDLER_CONTINUE_APPROACH) {
+        if (result.approach_range < 0
+                || result.approach_range > RC_INTERACTION_MAX_APPROACH_RANGE) {
+            result = rc_interaction_result_failure(
+                RC_INTERACTION_FAIL_INVALID_TARGET,
+                "Invalid interaction approach range");
+        } else {
+            player->interaction.approach_range = result.approach_range;
+            return 1;
+        }
+    }
+    if (result.code == RC_INTERACTION_HANDLER_NONE) {
+        result = rc_interaction_result_failure(
+            RC_INTERACTION_FAIL_NO_HANDLER, "No interaction result");
+    }
+    if (result.code != RC_INTERACTION_HANDLER_COMPLETE
+            && result.code != RC_INTERACTION_HANDLER_CANCEL
+            && result.code != RC_INTERACTION_HANDLER_MESSAGE
+            && result.code != RC_INTERACTION_HANDLER_FAILURE) {
+        result = rc_interaction_result_failure(
+            RC_INTERACTION_FAIL_INVALID_TARGET,
+            "Invalid interaction result");
+    }
+
+    RcInteractionFailure failure = RC_INTERACTION_FAIL_NONE;
+    if (result.code == RC_INTERACTION_HANDLER_CANCEL
+            || result.code == RC_INTERACTION_HANDLER_FAILURE) {
+        failure = result.failure != RC_INTERACTION_FAIL_NONE
+                ? result.failure : RC_INTERACTION_FAIL_CANCELLED;
+        player->interaction.flags |= RC_INTERACTION_CANCELLED;
+    } else {
+        player->interaction.flags |= RC_INTERACTION_INTERACTED
+                                  | RC_INTERACTION_COMPLETED;
+    }
+    player->interaction.active = false;
+    player->interaction.last_failure = failure;
+    publish_outcome(player, generation, result.code, failure, result.message);
+    return 1;
+}
+
+static uint32_t key_specificity(const RcInteractionDispatchKey *key) {
+    uint32_t specificity = 0;
+    specificity |= key->definition_id != RC_INTERACTION_KEY_ANY ? 1u << 5 : 0;
+    specificity |= key->content_group != RC_INTERACTION_KEY_ANY ? 1u << 4 : 0;
+    specificity |= key->source_item_id != RC_INTERACTION_KEY_ANY ? 1u << 3 : 0;
+    specificity |= key->source_spell_id != RC_INTERACTION_KEY_ANY ? 1u << 2 : 0;
+    specificity |= key->widget_id != RC_INTERACTION_KEY_ANY ? 1u << 1 : 0;
+    specificity |= key->component_id != RC_INTERACTION_KEY_ANY ? 1u : 0;
+    return specificity;
 }
 
 static int wildcard_match(int registered, int actual) {
@@ -333,14 +437,14 @@ static int find_handler_in_table(const RcInteractionHandlerEntry *entries,
     if (!entries || count <= 0) return -1;
     if (!dispatch_key_valid(key)) return -1;
     int best = -1;
-    int best_score = -1;
+    uint32_t best_specificity = 0;
     for (int i = 0; i < count; i++) {
         const RcInteractionHandlerEntry *entry = &entries[i];
         if (!key_matches(&entry->key, key)) continue;
-        int score = key_specificity(&entry->key);
-        if (score > best_score) {
+        uint32_t specificity = key_specificity(&entry->key);
+        if (best < 0 || specificity > best_specificity) {
             best = i;
-            best_score = score;
+            best_specificity = specificity;
         }
     }
     return best;
@@ -383,12 +487,12 @@ static RcInteractionHandlerResult no_handler_result(RcPlayer *player) {
     if (player) {
         player->interaction.last_failure = RC_INTERACTION_FAIL_NO_HANDLER;
     }
-    return rc_interaction_result_failure(RC_INTERACTION_FAIL_NO_HANDLER,
-                                         "No interaction handler");
+    return rc_interaction_result_failure(
+        RC_INTERACTION_FAIL_NO_HANDLER, "Nothing interesting happens.");
 }
 
 RcInteractionHandlerResult rc_interaction_dispatch(RcWorld *world,
-                                                   RcPlayer *player) {
+                                                    RcPlayer *player) {
     if (!player || !player->interaction.active) {
         return rc_interaction_result_failure(
             RC_INTERACTION_FAIL_INVALID_SOURCE, "No active interaction");
@@ -405,13 +509,17 @@ RcInteractionHandlerResult rc_interaction_dispatch(RcWorld *world,
                             : -1;
     if (handler_idx < 0) return no_handler_result(player);
 
+    RcPendingInteraction pending = player->interaction;
     const RcInteractionHandlerEntry *entry =
         &world->interaction_handlers[handler_idx];
     RcInteractionHandlerResult result =
-        entry->fn(world, player, &player->interaction, entry->ctx);
+        entry->fn(world, player, &pending, entry->ctx);
     if (result.code == RC_INTERACTION_HANDLER_CANCEL ||
             result.code == RC_INTERACTION_HANDLER_FAILURE) {
-        player->interaction.last_failure = result.failure;
+        if (player->interaction.active
+                && player->interaction.generation == pending.generation) {
+            player->interaction.last_failure = result.failure;
+        }
     }
     return result;
 }

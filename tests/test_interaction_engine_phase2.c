@@ -50,6 +50,8 @@ static void test_exact_group_and_fallback_priority(void) {
     RcWorldConfig cfg = rc_preset_base_only();
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world);
+    int default_count = rc_interaction_world_handler_count(world);
+    assert(default_count > 0);
 
     HandlerCtx fallback = {
         .marker = 1,
@@ -74,7 +76,7 @@ static void test_exact_group_and_fallback_priority(void) {
     key.definition_id = 900200;
     assert(rc_interaction_register_world_handler(world, &key, handler,
                                                  &exact));
-    assert(rc_interaction_world_handler_count(world) == 3);
+    assert(rc_interaction_world_handler_count(world) == default_count + 2);
 
     RcInteractionTarget target = target_for(900200, 44);
     assert(rc_interaction_begin(&world->player, 0, RC_INTERACTION_OP1,
@@ -110,6 +112,7 @@ static void test_replacement_missing_and_invalid(void) {
     RcWorldConfig cfg = rc_preset_base_only();
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world);
+    int default_count = rc_interaction_world_handler_count(world);
 
     HandlerCtx first = {
         .marker = 1,
@@ -117,7 +120,7 @@ static void test_replacement_missing_and_invalid(void) {
     };
     HandlerCtx replacement = {
         .marker = 2,
-        .result = rc_interaction_result_combat_handoff(77),
+        .result = rc_interaction_result_complete(),
     };
     RcInteractionDispatchKey key = npc_key(RC_INTERACTION_OP2);
     key.definition_id = 900300;
@@ -125,18 +128,18 @@ static void test_replacement_missing_and_invalid(void) {
                                                  &first));
     assert(rc_interaction_register_world_handler(world, &key, handler,
                                                  &replacement));
-    assert(rc_interaction_world_handler_count(world) == 1);
+    assert(rc_interaction_world_handler_count(world) == default_count + 1);
 
     RcInteractionTarget target = target_for(900300, -1);
     assert(rc_interaction_begin(&world->player, 0, RC_INTERACTION_OP2,
                                 "Attack", &target, 1));
     RcInteractionHandlerResult result =
         rc_interaction_dispatch(world, &world->player);
-    assert(result.code == RC_INTERACTION_HANDLER_COMBAT_HANDOFF);
-    assert(result.combat_target_uid == 77);
+    assert(result.code == RC_INTERACTION_HANDLER_COMPLETE);
     assert(first.calls == 0);
     assert(replacement.calls == 1);
 
+    rc_interaction_clear_world_handlers(world);
     target = target_for(900301, -1);
     assert(rc_interaction_begin(&world->player, 0, RC_INTERACTION_OP2,
                                 "Attack", &target, 1));
@@ -163,6 +166,8 @@ static void test_world_handler_isolation(void) {
     RcWorld *world_a = rc_world_create_config(&cfg);
     RcWorld *world_b = rc_world_create_config(&cfg);
     assert(world_a && world_b);
+    int default_a = rc_interaction_world_handler_count(world_a);
+    int default_b = rc_interaction_world_handler_count(world_b);
 
     HandlerCtx a = {
         .marker = 1,
@@ -177,8 +182,8 @@ static void test_world_handler_isolation(void) {
     key.definition_id = 900400;
     assert(rc_interaction_register_world_handler(world_a, &key, handler, &a));
     assert(rc_interaction_register_world_handler(world_b, &key, handler, &b));
-    assert(rc_interaction_world_handler_count(world_a) == 1);
-    assert(rc_interaction_world_handler_count(world_b) == 1);
+    assert(rc_interaction_world_handler_count(world_a) == default_a + 1);
+    assert(rc_interaction_world_handler_count(world_b) == default_b + 1);
 
     RcInteractionTarget target = target_for(900400, -1);
     assert(rc_interaction_begin(&world_a->player, 0, RC_INTERACTION_OP3,

@@ -152,7 +152,7 @@ static int init_world_state(RcWorld *world) {
         }
     }
     init_player_defaults(&world->player);
-    return 1;
+    return rc_interaction_install_world_defaults(world);
 }
 
 RcWorld *rc_world_create_config(const RcWorldConfig *cfg) {

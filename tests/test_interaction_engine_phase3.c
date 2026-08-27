@@ -147,6 +147,7 @@ static void test_missing_option_and_no_handler_are_deterministic(void) {
     target.widget_id = -1;
     target.component_id = -1;
     target.ground_item_instance = -1;
+    rc_interaction_clear_world_handlers(world);
     assert(rc_interaction_begin(&world->player, 0, RC_INTERACTION_OP1,
                                 "Talk-to", &target, 1));
     RcInteractionHandlerResult result =

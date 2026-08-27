@@ -72,6 +72,11 @@ typedef enum {
     RC_PLAYER_COMMAND_APPLY_RECIPE,
     RC_PLAYER_COMMAND_DROP_ITEM,
     RC_PLAYER_COMMAND_PICKUP_ITEM,
+    RC_PLAYER_COMMAND_EXAMINE_NPC,
+    RC_PLAYER_COMMAND_EXAMINE_OBJECT,
+    RC_PLAYER_COMMAND_EXAMINE_INVENTORY,
+    RC_PLAYER_COMMAND_EXAMINE_EQUIPMENT,
+    RC_PLAYER_COMMAND_EXAMINE_GROUND_ITEM,
 } RcPlayerCommandKind;
 
 typedef enum {
@@ -188,6 +193,7 @@ typedef enum {
 } RcInteractionType;
 
 #define RC_INTERACTION_OPTION_TEXT_LEN 32
+#define RC_INTERACTION_RESULT_MESSAGE_LEN 96
 
 typedef enum {
     RC_INTERACTION_NONE = 0,
@@ -207,7 +213,6 @@ typedef enum {
     RC_INTERACTION_OP3,
     RC_INTERACTION_OP4,
     RC_INTERACTION_OP5,
-    RC_INTERACTION_EXAMINE,
     RC_INTERACTION_USE_ON,
     RC_INTERACTION_SPELL_ON,
     RC_INTERACTION_WIDGET_ACTION,
@@ -236,7 +241,6 @@ enum {
     RC_INTERACTION_INTERACTED = 1u << 3,
     RC_INTERACTION_COMPLETED  = 1u << 4,
     RC_INTERACTION_CANCELLED  = 1u << 5,
-    RC_INTERACTION_AP_CALLED  = 1u << 6,
 };
 
 typedef struct {
@@ -258,6 +262,7 @@ typedef struct {
 
 typedef struct {
     bool active;
+    uint64_t generation;
     int source_actor_uid;
     RcInteractionOp op;
     char option_text[RC_INTERACTION_OPTION_TEXT_LEN];
@@ -269,12 +274,17 @@ typedef struct {
     int source_widget_id;
     int source_component_id;
     int approach_range;
-    int requested_move_mode;
-    uint32_t dispatch_key;
     uint32_t flags;
-    int ap_range;
     RcInteractionFailure last_failure;
 } RcPendingInteraction;
+
+typedef struct {
+    uint64_t sequence;
+    uint64_t interaction_generation;
+    int code;
+    RcInteractionFailure failure;
+    char message[RC_INTERACTION_RESULT_MESSAGE_LEN];
+} RcInteractionOutcome;
 
 // Equipment slots
 typedef enum {
@@ -691,6 +701,9 @@ typedef struct {
     int interact_target;
     int interact_option;
     RcPendingInteraction interaction;
+    uint64_t next_interaction_generation;
+    uint64_t next_interaction_outcome_sequence;
+    RcInteractionOutcome interaction_outcome;
     int storage_kind;
     int storage_target;
     int storage_option;
@@ -744,23 +757,13 @@ typedef RcItemActionResult (*RcItemEquipRequirementHook)(
 #define RC_INTERACTION_CONTENT_GROUP_SHOP 3
 #define RC_INTERACTION_CONTENT_GROUP_BANK 4
 #define RC_INTERACTION_CONTENT_GROUP_SKILLING 5
-#define RC_INTERACTION_RESULT_MESSAGE_LEN 96
 #define RC_MAX_INTERACTION_HANDLERS 256
-
-typedef enum {
-    RC_INTERACTION_SYSTEM_NONE = 0,
-    RC_INTERACTION_SYSTEM_DIALOGUE,
-    RC_INTERACTION_SYSTEM_SHOP,
-    RC_INTERACTION_SYSTEM_BANK,
-    RC_INTERACTION_SYSTEM_SKILLING,
-} RcInteractionSystemHandoff;
 
 typedef enum {
     RC_INTERACTION_HANDLER_NONE = 0,
     RC_INTERACTION_HANDLER_COMPLETE,
     RC_INTERACTION_HANDLER_CANCEL,
     RC_INTERACTION_HANDLER_CONTINUE_APPROACH,
-    RC_INTERACTION_HANDLER_COMBAT_HANDOFF,
     RC_INTERACTION_HANDLER_MESSAGE,
     RC_INTERACTION_HANDLER_FAILURE,
 } RcInteractionHandlerCode;
@@ -780,9 +783,6 @@ typedef struct {
     RcInteractionHandlerCode code;
     RcInteractionFailure failure;
     int approach_range;
-    int combat_target_uid;
-    int system_handoff;
-    int system_target_id;
     char message[RC_INTERACTION_RESULT_MESSAGE_LEN];
 } RcInteractionHandlerResult;
 

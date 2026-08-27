@@ -656,6 +656,12 @@ static void ui_add_chat(RuneCUiState *ui, const char *text) {
     copy_text(ui->chat_lines[0], sizeof(ui->chat_lines[0]), text);
 }
 
+void runec_ui_add_chat_message(RuneCUiState *ui, const char *text) {
+    if (!ui || !text || !text[0])
+        return;
+    ui_add_chat(ui, text);
+}
+
 static int decoded_group_available(const RuneCUiState *ui, const char *group) {
     return ui && group && group[0]
         && runec_ui_interface_group(&ui->interfaces, group) != NULL;
@@ -2427,7 +2433,6 @@ static int decoded_left_click(RuneCUiState *ui,
         snprintf(ui->last_intent.text, sizeof(ui->last_intent.text),
                  "%s -> %s", ui->selected_target.label,
                  decoded_hit_title(hit));
-        runec_ui_clear_selected_target(ui);
         return 1;
     }
     if (ui->selected_target.kind == RUNEC_UI_SELECTED_SPELL) {
@@ -2438,7 +2443,6 @@ static int decoded_left_click(RuneCUiState *ui,
         snprintf(ui->last_intent.text, sizeof(ui->last_intent.text),
                  "%s -> %s", ui->selected_target.label,
                  decoded_hit_title(hit));
-        runec_ui_clear_selected_target(ui);
         return 1;
     }
 
@@ -2963,7 +2967,6 @@ int runec_ui_handle_input(RuneCUiState *ui, int screen_w, int screen_h) {
                              "%s -> %s", ui->selected_target.label,
                              ui->inventory[slot].enabled
                                 ? ui->inventory[slot].label : "slot");
-                    runec_ui_clear_selected_target(ui);
                     return 1;
                 }
                 if (ui->selected_target.kind == RUNEC_UI_SELECTED_SPELL) {
@@ -2975,7 +2978,6 @@ int runec_ui_handle_input(RuneCUiState *ui, int screen_w, int screen_h) {
                              "%s -> %s", ui->selected_target.label,
                              ui->inventory[slot].enabled
                                 ? ui->inventory[slot].label : "slot");
-                    runec_ui_clear_selected_target(ui);
                     return 1;
                 }
                 ui->drag.active = 1;
@@ -3037,19 +3039,17 @@ int runec_ui_handle_input(RuneCUiState *ui, int screen_w, int screen_h) {
             return 1;
     }
 
-    if (IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE)) {
+    if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
         RuneCUiHitResult modal_hit = {0};
         if (decoded_modal_hit(ui, &layout, screen_w, screen_h, mouse,
                               &modal_hit)) {
-            runec_ui_clear_selected_target(ui);
             if (modal_hit.component_id != 0)
                 open_decoded_context(ui, mouse, &modal_hit);
             return 1;
         }
     }
 
-    if (IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE) && mouse_over_ui(&layout, mouse)) {
-        runec_ui_clear_selected_target(ui);
+    if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) && mouse_over_ui(&layout, mouse)) {
         if (ui->active_tab == RUNEC_UI_TAB_COMBAT) {
             const RuneCUiCombatStyleOption *style =
                 combat_style_at(ui, &layout, mouse);

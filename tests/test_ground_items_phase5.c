@@ -1,10 +1,12 @@
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "api.h"
 #include "config.h"
 #include "interaction.h"
 #include "items.h"
+#include "spells.h"
 
 #define ITEM_PATH RC_TEST_SOURCE_DIR "/data/defs/items.bin"
 
@@ -38,6 +40,13 @@ static RcWorld *phase5_world(void) {
     cfg.items_path = ITEM_PATH;
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world != NULL);
+    static RcSpellDef spells[902];
+    memset(spells, 0, sizeof(spells));
+    spells[900].loaded = 1;
+    spells[900].book = RC_SPELL_BOOK_STANDARD;
+    spells[901].loaded = 1;
+    spells[901].book = RC_SPELL_BOOK_STANDARD;
+    rc_spell_use_defs(spells, 902);
     return world;
 }
 
@@ -135,6 +144,33 @@ static void test_spell_on_ground_item_dispatches_source_spell(void) {
     rc_world_destroy(world);
 }
 
+static void test_spell_on_ground_rejects_replaced_queued_target(void) {
+    RcWorld *world = phase5_world();
+    GroundHookCtx ctx = {0};
+    int ground_idx = spawn_public_ground_item(world, 995, 100, 0);
+
+    RcInteractionDispatchKey key =
+        ground_key(RC_INTERACTION_SPELL_ON, 995);
+    key.source_spell_id = 900;
+    assert(rc_interaction_register_world_handler(world, &key,
+                                                 ground_hook_handler, &ctx));
+
+    assert(rc_player_cast_spell_on_ground_item(world, 900, ground_idx));
+    world->ground_items[ground_idx].version++;
+    rc_world_tick(world);
+
+    assert(ctx.calls == 0);
+    assert(!rc_interaction_is_active(&world->player));
+    assert(world->player_commands.last_result
+           == RC_COMMAND_RESULT_REJECTED_INVALID);
+    const RcInteractionOutcome *outcome =
+        rc_interaction_last_outcome(&world->player);
+    assert(outcome->failure == RC_INTERACTION_FAIL_INVALID_TARGET);
+    assert(strcmp(outcome->message,
+                  "That action is no longer available.") == 0);
+    rc_world_destroy(world);
+}
+
 static void test_unsupported_item_on_ground_item_fails_without_mutation(void) {
     RcWorld *world = phase5_world();
     int src_slot = rc_inv_add(world->player.inventory, 4151, 1);
@@ -213,6 +249,7 @@ static void test_default_ground_item_fallback_invalid_sources(void) {
 int main(void) {
     test_item_on_ground_item_dispatches_source_item();
     test_spell_on_ground_item_dispatches_source_spell();
+    test_spell_on_ground_rejects_replaced_queued_target();
     test_unsupported_item_on_ground_item_fails_without_mutation();
     test_unsupported_spell_on_ground_item_fails_without_mutation();
     test_default_ground_item_fallback_invalid_sources();

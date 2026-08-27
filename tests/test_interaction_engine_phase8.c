@@ -2,6 +2,7 @@
 #include "../rc-core/items.h"
 #include "../rc-core/npc.h"
 #include "../rc-core/objects.h"
+#include "../rc-core/spells.h"
 
 #include <assert.h>
 #include <string.h>
@@ -17,8 +18,6 @@ typedef struct {
     int seen_component;
     int seen_inventory_slot;
     int seen_equipment_slot;
-    int system_handoff;
-    int system_target;
 } Phase8Ctx;
 
 static RcInteractionHandlerResult phase8_complete_handler(
@@ -46,13 +45,22 @@ static RcInteractionHandlerResult phase8_system_handler(
     (void)world;
     (void)player;
     Phase8Ctx *state = ctx;
-    RcInteractionHandlerResult result =
-        rc_interaction_result_system_handoff(
-            RC_INTERACTION_SYSTEM_BANK, pending->target.definition_id);
+    (void)pending;
     state->calls++;
-    state->system_handoff = result.system_handoff;
-    state->system_target = result.system_target_id;
-    return result;
+    return rc_interaction_result_message("System action completed.");
+}
+
+static RcSpellDef phase8_spells[901];
+
+static void install_phase8_spells(void) {
+    memset(phase8_spells, 0, sizeof(phase8_spells));
+    phase8_spells[321].loaded = 1;
+    phase8_spells[321].book = RC_SPELL_BOOK_STANDARD;
+    strcpy(phase8_spells[321].name, "Phase 8 spell");
+    phase8_spells[900].loaded = 1;
+    phase8_spells[900].book = RC_SPELL_BOOK_STANDARD;
+    strcpy(phase8_spells[900].name, "Phase 8 system spell");
+    rc_spell_use_defs(phase8_spells, 901);
 }
 
 static int spawn_phase8_npc(RcWorld *world, int cache_id, int dx) {
@@ -100,6 +108,7 @@ static void test_inventory_equipment_and_widget_hooks(void) {
     RcWorldConfig cfg = rc_preset_base_only();
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world);
+    install_phase8_spells();
     Phase8Ctx inv = {0};
     Phase8Ctx item_on_inv = {0};
     Phase8Ctx spell_on_inv = {0};
@@ -225,6 +234,7 @@ static void test_item_on_npc_and_spell_on_object_hooks(void) {
     RcWorldConfig cfg = rc_preset_base_only();
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world);
+    install_phase8_spells();
     Phase8Ctx item = {0};
     Phase8Ctx spell = {0};
 
@@ -270,10 +280,11 @@ static void test_item_on_npc_and_spell_on_object_hooks(void) {
     rc_world_destroy(world);
 }
 
-static void test_system_handoff_result_and_no_handler_fallback(void) {
+static void test_message_result_and_no_handler_fallback(void) {
     RcWorldConfig cfg = rc_preset_base_only();
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world);
+    install_phase8_spells();
     Phase8Ctx bank = {0};
 
     int obj_id = 41801;
@@ -290,16 +301,21 @@ static void test_system_handoff_result_and_no_handler_fallback(void) {
                                           world->player.plane));
     rc_world_tick(world);
     assert(bank.calls == 1);
-    assert(bank.system_handoff == RC_INTERACTION_SYSTEM_BANK);
-    assert(bank.system_target == obj_id);
     assert(!rc_interaction_is_active(&world->player));
     assert(world->player.interaction.flags & RC_INTERACTION_COMPLETED);
+    const RcInteractionOutcome *outcome =
+        rc_interaction_last_outcome(&world->player);
+    assert(outcome->code == RC_INTERACTION_HANDLER_MESSAGE);
+    assert(strcmp(outcome->message, "System action completed.") == 0);
 
     assert(rc_player_widget_action(world, 548, 77, 1));
     rc_world_tick(world);
     assert(!rc_interaction_is_active(&world->player));
     assert(world->player.interaction.last_failure
            == RC_INTERACTION_FAIL_NO_HANDLER);
+    outcome = rc_interaction_last_outcome(&world->player);
+    assert(outcome->failure == RC_INTERACTION_FAIL_NO_HANDLER);
+    assert(outcome->message[0] != '\0');
 
     rc_world_destroy(world);
 }
@@ -307,6 +323,6 @@ static void test_system_handoff_result_and_no_handler_fallback(void) {
 int main(void) {
     test_inventory_equipment_and_widget_hooks();
     test_item_on_npc_and_spell_on_object_hooks();
-    test_system_handoff_result_and_no_handler_fallback();
+    test_message_result_and_no_handler_fallback();
     return 0;
 }

@@ -159,9 +159,10 @@ rc_add_tier1_suite(items_inventory_equipment
 )
 
 # Interaction admission, handler precedence, routing, stale-target handling,
-# system handoff, and NPC/object/item integration.
+# terminal outcomes, and NPC/object/item integration.
 rc_add_tier1_suite(interaction_engine
     test_headless_action_runtime
+    test_interaction_engine_foundation
     test_interaction_engine_phase1
     test_interaction_engine_phase2
     test_interaction_engine_phase3

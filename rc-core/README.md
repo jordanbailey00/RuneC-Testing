@@ -328,6 +328,22 @@ action rejects non-soft replacement. Central cancellation clears commands,
 routes, interactions, combat, manual casts, traversals, skills, and storage.
 Only `rc_world_tick` advances the complete world schedule.
 
+Generic interactions have the same single-owner rule. An accepted target gets
+a monotonic generation and a stable source/target snapshot. Late execution
+revalidates inventory/equipment generations, ground-item UID/version, exact
+object placement, NPC identity, and current spellbook before invoking a
+world-local handler. Handler results apply only to the generation dispatched,
+so replacement work cannot be cleared by an old callback. Required engine
+defaults install during world creation/reset, handler precedence is
+deterministic, and setup fails when the bounded registry cannot hold them.
+
+Handlers perform their owning subsystem mutation and return status only. Core
+publishes terminal failures and messages as a sequenced
+`RcInteractionOutcome`; frontends may present that state but do not decide the
+gameplay result. Player-to-player targets and authoritative widget masks are
+not accepted through partial fallback paths while their owning repositories do
+not exist.
+
 `RcTick` is a 64-bit monotonic cycle value. Delayed work stores an explicit
 start or absolute ready/expiry tick, so an N-tick delay has the same boundary
 meaning regardless of which phase created it. Pending-hit and command capacity

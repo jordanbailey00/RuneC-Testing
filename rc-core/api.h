@@ -152,6 +152,13 @@ int  rc_player_cast_spell_on_ground_item(RcWorld *world, int spell_id,
                                          int ground_item_idx);
 int  rc_player_cast_spell_on_widget(RcWorld *world, int spell_id,
                                     int widget_id, int component_id);
+int  rc_player_examine_npc(RcWorld *world, int npc_uid);
+int  rc_player_examine_object_placement(
+    RcWorld *world, int obj_id, int x, int y, int plane,
+    uint64_t placement_key);
+int  rc_player_examine_inventory_item(RcWorld *world, int inv_slot);
+int  rc_player_examine_equipment_item(RcWorld *world, int equip_slot);
+int  rc_player_examine_ground_item(RcWorld *world, int ground_item_idx);
 int  rc_world_object_active_id(const RcWorld *world, int obj_id, int x, int y,
                                int plane);
 int  rc_world_object_active_state(const RcWorld *world, int obj_id, int x,

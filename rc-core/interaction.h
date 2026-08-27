@@ -15,10 +15,6 @@ RcInteractionHandlerResult rc_interaction_result_cancel(
     RcInteractionFailure reason);
 RcInteractionHandlerResult rc_interaction_result_continue_approach(
     int approach_range);
-RcInteractionHandlerResult rc_interaction_result_combat_handoff(
-    int target_uid);
-RcInteractionHandlerResult rc_interaction_result_system_handoff(
-    int system_handoff, int target_id);
 RcInteractionHandlerResult rc_interaction_result_message(const char *message);
 RcInteractionHandlerResult rc_interaction_result_failure(
     RcInteractionFailure reason, const char *message);
@@ -33,8 +29,15 @@ int  rc_interaction_begin_with_source(
     int source_widget_id, int source_component_id);
 void rc_interaction_cancel(RcPlayer *player, RcInteractionFailure reason);
 void rc_interaction_clear(RcPlayer *player);
+void rc_interaction_reject(RcPlayer *player, RcInteractionFailure reason,
+                           const char *message);
+void rc_interaction_publish_message(RcPlayer *player, const char *message);
+int  rc_interaction_apply_result(RcPlayer *player, uint64_t generation,
+                                 RcInteractionHandlerResult result);
 int  rc_interaction_is_active(const RcPlayer *player);
 const RcPendingInteraction *rc_interaction_get(const RcPlayer *player);
+const RcInteractionOutcome *rc_interaction_last_outcome(
+    const RcPlayer *player);
 RcInteractionKind rc_interaction_target_kind(const RcPlayer *player);
 void rc_interaction_clear_world_handlers(RcWorld *world);
 int  rc_interaction_register_world_handler(
@@ -45,7 +48,8 @@ int  rc_interaction_find_world_handler(
     const RcWorld *world, const RcInteractionDispatchKey *key);
 int  rc_interaction_has_specific_world_handler(
     const RcWorld *world, const RcInteractionDispatchKey *key);
+int  rc_interaction_install_world_defaults(RcWorld *world);
 RcInteractionHandlerResult rc_interaction_dispatch(RcWorld *world,
-                                                   RcPlayer *player);
+                                                    RcPlayer *player);
 
 #endif

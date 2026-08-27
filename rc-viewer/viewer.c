@@ -401,6 +401,10 @@ typedef struct {
     int context_npc_uid;
     ViewerPickedObject context_object;
     int context_action_option[RUNEC_UI_CONTEXT_ACTIONS];
+    uint64_t interaction_outcome_seen;
+    int scene_right_tracking;
+    int scene_right_dragged;
+    Vector2 scene_right_start;
     Color *minimap_tiles;
     int minimap_tiles_w;
     int minimap_tiles_h;
@@ -3524,6 +3528,20 @@ static void sync_ui_player_status(ViewerState *v) {
     v->ui.skill_total = total_level;
 }
 
+static void viewer_sync_interaction_outcome(ViewerState *v) {
+    if (!v || !v->world)
+        return;
+    const RcInteractionOutcome *outcome =
+        rc_interaction_last_outcome(&v->world->player);
+    if (!outcome || outcome->sequence == 0
+            || outcome->sequence == v->interaction_outcome_seen) {
+        return;
+    }
+    v->interaction_outcome_seen = outcome->sequence;
+    if (outcome->message[0])
+        runec_ui_add_chat_message(&v->ui, outcome->message);
+}
+
 static void set_viewer_demo_stats(RcPlayer *p) {
     for (int i = 0; i < SKILL_COUNT; i++) {
         p->skills.base_level[i] = 99;
@@ -4354,6 +4372,8 @@ static void handle_context_intent(ViewerState *v) {
             rc_player_interact_npc(v->world, v->context_npc_uid, option);
         } else if (npc && option == VIEWER_CONTEXT_WALK_HERE) {
             route_player_to(v, npc->x, npc->y);
+        } else if (npc && option == VIEWER_CONTEXT_EXAMINE) {
+            rc_player_examine_npc(v->world, v->context_npc_uid);
         }
     } else if (v->context_kind == VIEWER_CONTEXT_OBJECT) {
         ViewerPickedObject object = v->context_object;
@@ -4362,6 +4382,10 @@ static void handle_context_intent(ViewerState *v) {
             viewer_interact_object(v, object, option);
         } else if (option == VIEWER_CONTEXT_WALK_HERE) {
             route_player_to(v, object.x, object.y);
+        } else if (option == VIEWER_CONTEXT_EXAMINE) {
+            rc_player_examine_object_placement(
+                v->world, object.obj_id, object.x, object.y, object.plane,
+                object.placement_key);
         }
     }
     reset_viewer_context(v);
@@ -8382,28 +8406,51 @@ static void handle_input(ViewerState *v, int ui_capture) {
                 || abs(transition->destination_x - transition->source_x) > 2
                 || abs(transition->destination_y - transition->source_y) > 2));
 
-    if (!remote_transition && !ui_capture
-            && IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE)) {
-        ViewerHoverTarget hover;
-        int have_hover = resolve_scene_hover_target(v, &hover);
-        if (have_hover && hover.kind == VIEWER_HOVER_NPC) {
-            open_npc_context_menu(v, hover.npc_uid);
-            return;
-        }
-        if (have_hover && hover.kind == VIEWER_HOVER_OBJECT) {
-            open_object_context_menu(v, hover.object);
-            return;
-        }
-        reset_viewer_context(v);
+    if (remote_transition) {
+        v->scene_right_tracking = 0;
+        v->scene_right_dragged = 0;
+    } else if (!ui_capture && !v->ui.context_open
+            && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+        v->scene_right_tracking = 1;
+        v->scene_right_dragged = 0;
+        v->scene_right_start = GetMousePosition();
     }
 
     // Camera orbit
-    if (!ui_capture && IsMouseButtonDown(MOUSE_BUTTON_RIGHT) && !v->ui.context_open) {
+    if (v->scene_right_tracking && !ui_capture
+            && IsMouseButtonDown(MOUSE_BUTTON_RIGHT) && !v->ui.context_open) {
+        Vector2 mouse = GetMousePosition();
+        float total_x = mouse.x - v->scene_right_start.x;
+        float total_y = mouse.y - v->scene_right_start.y;
+        if (total_x * total_x + total_y * total_y > 9.0f)
+            v->scene_right_dragged = 1;
         Vector2 d = GetMouseDelta();
-        v->cam_yaw += d.x * 0.005f;
-        v->cam_pitch -= d.y * 0.005f;
-        if (v->cam_pitch < 0.1f) v->cam_pitch = 0.1f;
-        if (v->cam_pitch > 1.4f) v->cam_pitch = 1.4f;
+        if (v->scene_right_dragged) {
+            v->cam_yaw += d.x * 0.005f;
+            v->cam_pitch -= d.y * 0.005f;
+            if (v->cam_pitch < 0.1f) v->cam_pitch = 0.1f;
+            if (v->cam_pitch > 1.4f) v->cam_pitch = 1.4f;
+        }
+    }
+    if (v->scene_right_tracking
+            && IsMouseButtonReleased(MOUSE_BUTTON_RIGHT)) {
+        int open_context = !ui_capture && !v->scene_right_dragged
+                         && !v->ui.context_open;
+        v->scene_right_tracking = 0;
+        v->scene_right_dragged = 0;
+        if (open_context) {
+            ViewerHoverTarget hover;
+            int have_hover = resolve_scene_hover_target(v, &hover);
+            if (have_hover && hover.kind == VIEWER_HOVER_NPC) {
+                open_npc_context_menu(v, hover.npc_uid);
+                return;
+            }
+            if (have_hover && hover.kind == VIEWER_HOVER_OBJECT) {
+                open_object_context_menu(v, hover.object);
+                return;
+            }
+            reset_viewer_context(v);
+        }
     }
     float wh = ui_capture ? 0.0f : GetMouseWheelMove();
     if (wh != 0.0f) {
@@ -8447,8 +8494,9 @@ static void handle_input(ViewerState *v, int ui_capture) {
         int have_hover = resolve_scene_hover_target(v, &hover);
         if (v->ui.selected_target.kind != RUNEC_UI_SELECTED_NONE) {
             if (have_hover && hover.kind == VIEWER_HOVER_NPC) {
+                int accepted = 0;
                 if (v->ui.selected_target.kind == RUNEC_UI_SELECTED_ITEM) {
-                    rc_player_use_inventory_item_on_npc(
+                    accepted = rc_player_use_inventory_item_on_npc(
                         v->world, v->ui.selected_target.source_slot,
                         hover.npc_uid);
                 } else {
@@ -8456,15 +8504,17 @@ static void handle_input(ViewerState *v, int ui_capture) {
                     if (spell_id < 0)
                         spell_id = rc_spell_find(v->ui.selected_target.label);
                     if (spell_id >= 0)
-                        rc_player_cast_spell_on_npc(v->world, spell_id,
-                                                    hover.npc_uid);
+                        accepted = rc_player_cast_spell_on_npc(
+                            v->world, spell_id, hover.npc_uid);
                 }
-                runec_ui_clear_selected_target(&v->ui);
+                if (accepted)
+                    runec_ui_clear_selected_target(&v->ui);
                 return;
             }
             if (have_hover && hover.kind == VIEWER_HOVER_OBJECT) {
+                int accepted = 0;
                 if (v->ui.selected_target.kind == RUNEC_UI_SELECTED_ITEM) {
-                    rc_player_use_inventory_item_on_object_placement(
+                    accepted = rc_player_use_inventory_item_on_object_placement(
                         v->world, v->ui.selected_target.source_slot,
                         hover.object.obj_id, hover.object.x, hover.object.y,
                         hover.object.plane, hover.object.placement_key);
@@ -8473,18 +8523,20 @@ static void handle_input(ViewerState *v, int ui_capture) {
                     if (spell_id < 0)
                         spell_id = rc_spell_find(v->ui.selected_target.label);
                     if (spell_id >= 0) {
-                        rc_player_cast_spell_on_object_placement(
+                        accepted = rc_player_cast_spell_on_object_placement(
                             v->world, spell_id, hover.object.obj_id,
                             hover.object.x, hover.object.y, hover.object.plane,
                             hover.object.placement_key);
                     }
                 }
-                runec_ui_clear_selected_target(&v->ui);
+                if (accepted)
+                    runec_ui_clear_selected_target(&v->ui);
                 return;
             }
             if (have_hover && hover.kind == VIEWER_HOVER_GROUND_ITEM) {
+                int accepted = 0;
                 if (v->ui.selected_target.kind == RUNEC_UI_SELECTED_ITEM) {
-                    rc_player_use_inventory_item_on_ground_item(
+                    accepted = rc_player_use_inventory_item_on_ground_item(
                         v->world, v->ui.selected_target.source_slot,
                         hover.ground_item_idx);
                 } else {
@@ -8492,11 +8544,12 @@ static void handle_input(ViewerState *v, int ui_capture) {
                     if (spell_id < 0)
                         spell_id = rc_spell_find(v->ui.selected_target.label);
                     if (spell_id >= 0) {
-                        rc_player_cast_spell_on_ground_item(v->world, spell_id,
-                                                            hover.ground_item_idx);
+                        accepted = rc_player_cast_spell_on_ground_item(
+                            v->world, spell_id, hover.ground_item_idx);
                     }
                 }
-                runec_ui_clear_selected_target(&v->ui);
+                if (accepted)
+                    runec_ui_clear_selected_target(&v->ui);
                 return;
             }
         }
@@ -8521,7 +8574,7 @@ static void handle_input(ViewerState *v, int ui_capture) {
             int tx = hover.tile_x;
             int ty = hover.tile_y;
             int ground_idx = hover.ground_item_idx;
-            if (ground_idx >= 0 && p->x == tx && p->y == ty)
+            if (ground_idx >= 0)
                 rc_player_pickup_item(v->world, ground_idx);
             else
                 route_player_to(v, tx, ty);
@@ -9614,12 +9667,7 @@ int main(int argc, char **argv) {
             } else if (op == RUNEC_UI_ITEM_OP_EXAMINE
                     && slot >= 0 && slot < RC_INVENTORY_SIZE
                     && p->inventory[slot].item_id >= 0) {
-                const RcItemDef *def = rc_item_def_get(p->inventory[slot].item_id);
-                fprintf(stderr, "ui examine item: %s (%d): %s\n",
-                        def ? def->name : "unknown",
-                        p->inventory[slot].item_id,
-                        def && def->examine[0] ? def->examine
-                                               : "Nothing interesting happens.");
+                rc_player_examine_inventory_item(v.world, slot);
             } else if (op >= 0) {
                 rc_player_interact_inventory_item(v.world, slot, op);
             }
@@ -9634,13 +9682,7 @@ int main(int argc, char **argv) {
                 rc_player_unequip(v.world, core_slot);
             } else if (core_slot >= 0
                     && op == RUNEC_UI_ITEM_OP_EXAMINE) {
-                const RcItemDef *def =
-                    rc_item_def_get(p->equipment[core_slot].item_id);
-                fprintf(stderr, "ui examine equipment: %s (%d): %s\n",
-                        def ? def->name : "unknown",
-                        p->equipment[core_slot].item_id,
-                        def && def->examine[0] ? def->examine
-                                               : "Nothing interesting happens.");
+                rc_player_examine_equipment_item(v.world, core_slot);
             }
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_COMBAT_STYLE) {
             rc_combat_set_player_style(v.world, v.ui.last_intent.primary);
@@ -9667,27 +9709,33 @@ int main(int argc, char **argv) {
                 rc_player_set_autocast_spell(v.world, spell_idx, 0);
             fprintf(stderr, "ui autocast hook: %s\n", v.ui.last_intent.text);
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_SELECTED_ITEM_ON_ITEM) {
-            rc_player_use_inventory_item_on_inventory_item(
-                v.world, v.ui.last_intent.primary, v.ui.last_intent.secondary);
+            if (rc_player_use_inventory_item_on_inventory_item(
+                    v.world, v.ui.last_intent.primary,
+                    v.ui.last_intent.secondary)) {
+                runec_ui_clear_selected_target(&v.ui);
+            }
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_SELECTED_SPELL_ON_ITEM) {
             int spell_idx = selected_spell_id_for_viewer(&v);
-            if (spell_idx >= 0) {
-                rc_player_cast_spell_on_inventory_item(
-                    v.world, spell_idx, v.ui.last_intent.secondary);
-            }
+            if (spell_idx >= 0 && rc_player_cast_spell_on_inventory_item(
+                    v.world, spell_idx, v.ui.last_intent.secondary))
+                runec_ui_clear_selected_target(&v.ui);
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_SELECTED_ITEM_ON_COMPONENT) {
             uint32_t component_id = (uint32_t)v.ui.last_intent.secondary;
-            rc_player_use_inventory_item_on_widget(
-                v.world, v.ui.last_intent.primary,
-                ui_component_group(component_id),
-                ui_component_child(component_id));
+            if (rc_player_use_inventory_item_on_widget(
+                    v.world, v.ui.last_intent.primary,
+                    ui_component_group(component_id),
+                    ui_component_child(component_id))) {
+                runec_ui_clear_selected_target(&v.ui);
+            }
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_SELECTED_SPELL_ON_COMPONENT) {
             int spell_idx = selected_spell_id_for_viewer(&v);
             if (spell_idx >= 0) {
                 uint32_t component_id = (uint32_t)v.ui.last_intent.secondary;
-                rc_player_cast_spell_on_widget(v.world, spell_idx,
-                                               ui_component_group(component_id),
-                                               ui_component_child(component_id));
+                if (rc_player_cast_spell_on_widget(
+                        v.world, spell_idx, ui_component_group(component_id),
+                        ui_component_child(component_id))) {
+                    runec_ui_clear_selected_target(&v.ui);
+                }
             }
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_COMPONENT_ACTION) {
             uint32_t component_id = (uint32_t)v.ui.last_intent.primary;
@@ -9737,6 +9785,7 @@ int main(int argc, char **argv) {
             v.tick_frac = (float)rc_viewer_tick_pacing_fraction(
                 &v.tick_pacing, 1.0 / TPS);
         }
+        viewer_sync_interaction_outcome(&v);
         update_npc_render_motion(&v, v.paused ? 0.0f : GetFrameTime());
 
         BeginDrawing();

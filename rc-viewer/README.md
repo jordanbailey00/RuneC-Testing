@@ -161,6 +161,13 @@ replacement, cancellation, delayed effects, death, or cooldown progression.
 After a long frame it advances at most five core ticks, records any discarded
 overload ticks, and resumes from the remaining fractional accumulator.
 
+Scene and UI context options use right-click. A stationary right-click opens
+the applicable menu; moving beyond the small drag threshold keeps right-drag
+camera orbit behavior. Examine, selected item/spell actions, and distant
+ground-item Take are submitted to core. Selection clears only after accepted
+input, and sequenced core interaction messages/failures are appended to chat.
+The viewer does not revalidate targets or implement the resulting action.
+
 The viewer defaults preserve current behavior: scene radius 1, startup preload
 radius 0, CPU/GPU chunk caps 128, and a 16 MB per-frame upload budget. Existing
 `RUNEC_SCENE_RADIUS_REGIONS` and

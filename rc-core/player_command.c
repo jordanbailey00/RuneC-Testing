@@ -14,7 +14,7 @@
 static int command_args_valid(RcPlayerCommandKind kind,
                               RcActionCategory category) {
     return kind > RC_PLAYER_COMMAND_NONE
-        && kind <= RC_PLAYER_COMMAND_PICKUP_ITEM
+        && kind <= RC_PLAYER_COMMAND_EXAMINE_GROUND_ITEM
         && category >= RC_ACTION_CATEGORY_SOFT
         && category <= RC_ACTION_CATEGORY_STRONG;
 }
@@ -166,6 +166,30 @@ static int equipment_reference_matches(RcWorld *world, int slot,
     return 1;
 }
 
+static int command_uses_interaction_admission(RcPlayerCommandKind kind) {
+    switch (kind) {
+    case RC_PLAYER_COMMAND_ATTACK_NPC:
+    case RC_PLAYER_COMMAND_INTERACT_NPC:
+    case RC_PLAYER_COMMAND_INTERACT_OBJECT:
+    case RC_PLAYER_COMMAND_INTERACT_INVENTORY:
+    case RC_PLAYER_COMMAND_INTERACT_EQUIPMENT:
+    case RC_PLAYER_COMMAND_WIDGET_ACTION:
+    case RC_PLAYER_COMMAND_USE_ITEM_ON_NPC:
+    case RC_PLAYER_COMMAND_USE_ITEM_ON_ITEM:
+    case RC_PLAYER_COMMAND_USE_ITEM_ON_OBJECT:
+    case RC_PLAYER_COMMAND_USE_ITEM_ON_GROUND:
+    case RC_PLAYER_COMMAND_USE_ITEM_ON_WIDGET:
+    case RC_PLAYER_COMMAND_CAST_ON_NPC:
+    case RC_PLAYER_COMMAND_CAST_ON_ITEM:
+    case RC_PLAYER_COMMAND_CAST_ON_OBJECT:
+    case RC_PLAYER_COMMAND_CAST_ON_GROUND:
+    case RC_PLAYER_COMMAND_CAST_ON_WIDGET:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
 void rc_player_action_refresh(RcWorld *world) {
     if (!world) return;
     RcPlayer *player = &world->player;
@@ -244,8 +268,11 @@ static int execute_command(RcWorld *world, const RcPlayerCommand *command) {
     case RC_PLAYER_COMMAND_UNEQUIP:
         return rc_item_result_accepted(
             rc_player_unequip_expected(world, a[0], (uint32_t)a[1]));
-    case RC_PLAYER_COMMAND_INTERACT_NPC:
-        rc_player_interact_npc(world, a[0], a[1]); return 1;
+    case RC_PLAYER_COMMAND_INTERACT_NPC: {
+        uint64_t generation = world->player.next_interaction_generation;
+        rc_player_interact_npc(world, a[0], a[1]);
+        return world->player.next_interaction_generation != generation;
+    }
     case RC_PLAYER_COMMAND_INTERACT_OBJECT:
         return rc_player_interact_object_placement(
             world, a[0], a[1], a[2], a[3], command->key, a[4]);
@@ -299,6 +326,11 @@ static int execute_command(RcWorld *world, const RcPlayerCommand *command) {
         return rc_player_cast_spell_on_object_placement(
             world, a[0], a[1], a[2], a[3], a[4], command->key);
     case RC_PLAYER_COMMAND_CAST_ON_GROUND:
+        if (a[1] < 0 || a[1] >= world->ground_item_count
+                || world->ground_items[a[1]].uid != a[2]
+                || world->ground_items[a[1]].version != a[3]) {
+            return 0;
+        }
         return rc_player_cast_spell_on_ground_item(world, a[0], a[1]);
     case RC_PLAYER_COMMAND_CAST_ON_WIDGET:
         return rc_player_cast_spell_on_widget(world, a[0], a[1], a[2]);
@@ -359,6 +391,26 @@ static int execute_command(RcWorld *world, const RcPlayerCommand *command) {
         }
         return rc_item_result_accepted(rc_player_pickup_item(world, a[0]));
     }
+    case RC_PLAYER_COMMAND_EXAMINE_NPC:
+        return rc_player_examine_npc(world, a[0]);
+    case RC_PLAYER_COMMAND_EXAMINE_OBJECT:
+        return rc_player_examine_object_placement(
+            world, a[0], a[1], a[2], a[3], command->key);
+    case RC_PLAYER_COMMAND_EXAMINE_INVENTORY:
+        if (!inventory_reference_matches(world, a[0], (uint32_t)a[1]))
+            return 0;
+        return rc_player_examine_inventory_item(world, a[0]);
+    case RC_PLAYER_COMMAND_EXAMINE_EQUIPMENT:
+        if (!equipment_reference_matches(world, a[0], (uint32_t)a[1]))
+            return 0;
+        return rc_player_examine_equipment_item(world, a[0]);
+    case RC_PLAYER_COMMAND_EXAMINE_GROUND_ITEM:
+        if (a[0] < 0 || a[0] >= world->ground_item_count
+                || world->ground_items[a[0]].uid != a[1]
+                || world->ground_items[a[0]].version != a[2]) {
+            return 0;
+        }
+        return rc_player_examine_ground_item(world, a[0]);
     default:
         return 0;
     }
@@ -386,10 +438,22 @@ void rc_player_command_process(RcWorld *world) {
                             || pending[i].kind == RC_PLAYER_COMMAND_RUN_TO
                             || pending[i].kind == RC_PLAYER_COMMAND_STEP;
         if (pending[i].category >= RC_ACTION_CATEGORY_NORMAL
-                && !movement_command) {
+                && !movement_command
+                && !command_uses_interaction_admission(
+                    (RcPlayerCommandKind)pending[i].kind)) {
             rc_player_cancel_action(world, RC_ACTION_CANCEL_REPLACED);
         }
+        uint64_t outcome_sequence =
+            world->player.interaction_outcome.sequence;
         int ok = execute_command(world, &pending[i]);
+        if (!ok && command_uses_interaction_admission(
+                (RcPlayerCommandKind)pending[i].kind)
+                && world->player.interaction_outcome.sequence
+                    == outcome_sequence) {
+            rc_interaction_reject(
+                &world->player, RC_INTERACTION_FAIL_INVALID_TARGET,
+                "That action is no longer available.");
+        }
         queue->last_sequence = pending[i].sequence;
         queue->last_result = ok ? RC_COMMAND_RESULT_EXECUTED
                                 : RC_COMMAND_RESULT_REJECTED_INVALID;

@@ -290,6 +290,7 @@ void runec_ui_set_minimap_rotation(RuneCUiState *ui, float radians);
 void runec_ui_set_item_icon(RuneCUiState *ui, uint32_t icon_item_id, Texture2D texture);
 void runec_ui_set_combat_weapon_name(RuneCUiState *ui, const char *name);
 void runec_ui_set_combat_style_profile(RuneCUiState *ui, int core_weapon_category);
+void runec_ui_add_chat_message(RuneCUiState *ui, const char *text);
 void runec_ui_set_active_tab(RuneCUiState *ui, RuneCUiTab tab);
 void runec_ui_set_dev_transport_options(RuneCUiState *ui,
                                         const char *const *labels,

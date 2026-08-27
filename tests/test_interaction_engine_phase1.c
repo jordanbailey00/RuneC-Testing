@@ -147,9 +147,11 @@ static void test_structural_validation(void) {
     assert(!rc_interaction_target_valid(&bad_inv));
     assert(!rc_interaction_begin(&world->player, 0, RC_INTERACTION_OP1,
                                  "Use", &bad_inv, 0));
-    assert(!rc_interaction_is_active(&world->player));
-    assert(world->player.interaction.last_failure
-           == RC_INTERACTION_FAIL_INVALID_TARGET);
+    assert(rc_interaction_is_active(&world->player));
+    assert(world->player.interaction.target.kind == RC_INTERACTION_OBJECT);
+    const RcInteractionOutcome *outcome =
+        rc_interaction_last_outcome(&world->player);
+    assert(outcome->failure == RC_INTERACTION_FAIL_INVALID_TARGET);
 
     RcInteractionTarget bad_npc = npc_target(-1);
     assert(!rc_interaction_target_valid(&bad_npc));
