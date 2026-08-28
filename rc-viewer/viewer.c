@@ -30,6 +30,9 @@
 #include "combat_visuals.h"
 #include "dev_validation.h"
 #include "minimap.h"
+#include "hitsplats.h"
+#include "health_bars.h"
+#include "actor_projection.h"
 #include "streaming.h"
 #include "tick_pacing.h"
 #include "streaming_async.h"
@@ -265,6 +268,11 @@ typedef struct {
     int radius_regions;
 } ViewerValidationScene;
 
+typedef struct {
+    RuneCHitsplatState hitsplats;
+    RuneCHealthBarState health_bar;
+} ViewerActorOverlayState;
+
 static const ViewerValidationScene VIEWER_VALIDATION_SCENES[] = {
     {"graardor", 2872, 5358, 2, 1},
     {"kbd", 2269, 4697, 0, 1},
@@ -314,6 +322,11 @@ typedef struct {
     RuneCItemDefRenderMap item_def_render_map;
     RuneCNpcRenderDefs npc_render_defs;
     RuneCObjectActionVisualMap object_action_visuals;
+    RuneCHitsplatCatalog hitsplat_catalog;
+    Texture2D hitsplat_textures[RUNEC_HITSPLAT_MAX_DEFS];
+    unsigned char hitsplat_texture_loaded[RUNEC_HITSPLAT_MAX_DEFS];
+    ViewerActorOverlayState player_overlay;
+    ViewerActorOverlayState *npc_overlays;
     ItemStackVariant item_stack_variants[RUNEC_ITEM_STACK_VARIANT_MAX];
     int item_stack_variant_count;
     AnimCache *anims;           // player animations
@@ -450,6 +463,79 @@ typedef struct {
     char initial_objects_path[1024];
     char active_scene_prefix[1024];
 } ViewerState;
+
+static int viewer_load_hitsplat_textures(ViewerState *v,
+                                         const char *sprite_directory) {
+    if (!v || !sprite_directory || !runec_hitsplat_catalog_validate_assets(
+            &v->hitsplat_catalog, sprite_directory)) {
+        return 0;
+    }
+    for (int id = 0; id < RUNEC_HITSPLAT_MAX_DEFS; id++) {
+        if (!v->hitsplat_catalog.defs[id].loaded) continue;
+        char path[256];
+        int n = snprintf(path, sizeof(path), "%s/hitsplat_%d.png",
+                         sprite_directory, id);
+        if (n < 0 || n >= (int)sizeof(path)) return 0;
+        Texture2D texture = runec_load_texture_asset(path);
+        if (texture.id == 0) {
+            fprintf(stderr, "hitsplats: failed to load %s\n", path);
+            return 0;
+        }
+        SetTextureFilter(texture, TEXTURE_FILTER_POINT);
+        v->hitsplat_textures[id] = texture;
+        v->hitsplat_texture_loaded[id] = 1;
+    }
+    return 1;
+}
+
+static void viewer_unload_hitsplat_textures(ViewerState *v) {
+    if (!v) return;
+    for (int id = 0; id < RUNEC_HITSPLAT_MAX_DEFS; id++) {
+        if (!v->hitsplat_texture_loaded[id]) continue;
+        UnloadTexture(v->hitsplat_textures[id]);
+        v->hitsplat_texture_loaded[id] = 0;
+    }
+}
+
+static void viewer_update_combat_overlays(ViewerState *v,
+                                          float frame_seconds) {
+    if (!v || !v->world || v->hitsplat_catalog.loaded_count <= 0) return;
+    float client_cycles = frame_seconds > 0.0f
+        ? frame_seconds * RUNEC_CLIENT_CYCLES_PER_SECOND : 0.0f;
+    runec_hitsplat_state_advance(&v->player_overlay.hitsplats, client_cycles);
+    runec_health_bar_advance(&v->player_overlay.health_bar, client_cycles);
+    runec_hitsplat_state_sync(
+        &v->player_overlay.hitsplats, &v->hitsplat_catalog,
+        v->world->player.combat.recent_hits,
+        v->world->player.combat.recent_hit_count, 1);
+    runec_health_bar_sync(
+        &v->player_overlay.health_bar, v->world->player.combat.recent_hits,
+        v->world->player.combat.recent_hit_count,
+        v->world->player.current_hp, v->world->player.max_hp);
+
+    for (int i = 0; i < v->world->npc_count; i++) {
+        const RcNpc *npc = &v->world->npcs[i];
+        RcNpcLifePhase life = rc_npc_life_phase(npc);
+        if (life == RC_NPC_LIFE_REMOVED || life == RC_NPC_LIFE_HIDDEN) {
+            runec_hitsplat_state_reset(&v->npc_overlays[i].hitsplats);
+            runec_health_bar_reset(&v->npc_overlays[i].health_bar);
+            continue;
+        }
+        runec_hitsplat_state_advance(&v->npc_overlays[i].hitsplats,
+                                     client_cycles);
+        runec_health_bar_advance(&v->npc_overlays[i].health_bar,
+                                 client_cycles);
+        runec_hitsplat_state_sync(
+            &v->npc_overlays[i].hitsplats, &v->hitsplat_catalog,
+            npc->combat.recent_hits, npc->combat.recent_hit_count, 0);
+        const RcNpcDef *def = rc_npc_def_for_npc(v->world, npc);
+        int maximum_hp = npc->spawn_hp > 0 ? npc->spawn_hp
+                         : def ? def->hitpoints : 0;
+        runec_health_bar_sync(
+            &v->npc_overlays[i].health_bar, npc->combat.recent_hits,
+            npc->combat.recent_hit_count, npc->current_hp, maximum_hp);
+    }
+}
 
 static void create_object_anim_plane_states(ViewerState *v, int plane);
 static void free_object_anim_plane(ViewerState *v, int plane);
@@ -2477,6 +2563,9 @@ static int activate_core_area_bounds(ViewerState *v, int origin_x,
     int ok = rc_world_activate_area(v->world, &request, &stats);
     if (ok > 0) {
         memset(v->npc_render, 0, sizeof(v->npc_render));
+        if (v->npc_overlays)
+            memset(v->npc_overlays, 0,
+                   RC_MAX_NPCS * sizeof(*v->npc_overlays));
         fprintf(stderr,
                 "core active area: origin=%d,%d size=%dx%d collision=%d"
                 " collision_pages=%u/%u collision_rows=%u/%u"
@@ -3012,9 +3101,12 @@ static int viewer_ensure_focus_npc(ViewerState *v,
     }
     if (!result.spawned)
         return 0;
-    if (result.index >= 0 && result.index < RC_MAX_NPCS)
+    if (result.index >= 0 && result.index < RC_MAX_NPCS) {
         memset(&v->npc_render[result.index], 0,
                sizeof(v->npc_render[result.index]));
+        memset(&v->npc_overlays[result.index], 0,
+               sizeof(v->npc_overlays[result.index]));
+    }
     fprintf(stderr, "dev transport: core spawned %s NPC %d at %d,%d,%d\n",
             d->label, d->npc_id, d->target_x, d->target_y, d->plane);
     return 1;
@@ -8084,9 +8176,13 @@ static float player_core_facing_angle(const RcPlayer *p, float fallback) {
     return fallback;
 }
 
-static float npc_core_facing_angle(const RcNpc *n, float fallback) {
+static float npc_core_facing_angle(const RcNpc *n, int size, float fallback) {
     if (!n) return fallback;
-    if (n->facing_entity >= 0 || n->facing_x >= 0 || n->facing_y >= 0) {
+    if (n->facing_entity >= 0) {
+        return runec_npc_target_angle(n->x, n->y, size, n->facing_x,
+                                      n->facing_y, fallback);
+    }
+    if (n->facing_x >= 0 || n->facing_y >= 0) {
         return face_angle_between_tiles(n->x, n->y, n->facing_x,
                                         n->facing_y, fallback);
     }
@@ -8238,11 +8334,13 @@ static void update_npc_render_motion(ViewerState *v, float dt) {
             v->npc_render[i].initialized = 0;
             v->npc_render[i].moving = 0;
             v->npc_render[i].move_anim_timer = 0.0f;
+            memset(&v->npc_overlays[i], 0, sizeof(v->npc_overlays[i]));
             continue;
         }
 
         if (!v->npc_render[i].initialized
                 || v->npc_render[i].uid != npc->uid) {
+            memset(&v->npc_overlays[i], 0, sizeof(v->npc_overlays[i]));
             snap_npc_render_state(v, i, npc);
             continue;
         }
@@ -8775,6 +8873,84 @@ static int update_npc_anim(ViewerState *v, int npc_idx, ModelEntry *me) {
     return 1;
 }
 
+static void draw_hitsplat_state(ViewerState *v,
+                                const RuneCHitsplatState *state,
+                                Vector2 anchor) {
+    if (!v || !state) return;
+    Font font = runec_ui_font_for_size(&v->ui.assets, 12.0f);
+    for (int slot_idx = 0; slot_idx < RUNEC_HITSPLAT_SLOT_COUNT;
+            slot_idx++) {
+        const RuneCHitsplatSlot *slot = &state->slots[slot_idx];
+        if (!slot->active || slot->remaining_cycles <= 0.0f) continue;
+        const RuneCHitsplatDef *definition = runec_hitsplat_def(
+            &v->hitsplat_catalog, slot->definition_id);
+        if (!definition || !v->hitsplat_texture_loaded[definition->id])
+            continue;
+
+        int offset_x = 0;
+        int offset_y = 0;
+        runec_hitsplat_slot_offset(slot_idx, &offset_x, &offset_y);
+        float visual_x = 0.0f;
+        float visual_y = 0.0f;
+        unsigned char alpha = 255;
+        runec_hitsplat_visual_offset(definition, slot, &visual_x, &visual_y,
+                                     &alpha);
+        float center_x = anchor.x + (float)offset_x
+                       + visual_x;
+        float center_y = anchor.y + (float)offset_y
+                       + visual_y;
+        DrawTexture(v->hitsplat_textures[definition->id],
+                    (int)(center_x - 12.0f), (int)(center_y - 12.0f),
+                    (Color){255, 255, 255, alpha});
+        if (!definition->shows_amount) continue;
+
+        char amount[16];
+        snprintf(amount, sizeof(amount), "%d", slot->amount);
+        Vector2 size = MeasureTextEx(font, amount, 12.0f, 0.0f);
+        Vector2 text_position = {
+            center_x - size.x * 0.5f,
+            center_y - size.y * 0.5f + (float)definition->text_offset_y,
+        };
+        DrawTextEx(font, amount,
+                   (Vector2){text_position.x + 1.0f,
+                             text_position.y + 1.0f},
+                   12.0f, 0.0f, (Color){0, 0, 0, alpha});
+        Color text_color = {
+            (unsigned char)(definition->text_color >> 16),
+            (unsigned char)(definition->text_color >> 8),
+            (unsigned char)definition->text_color,
+            alpha,
+        };
+        DrawTextEx(font, amount, text_position, 12.0f, 0.0f, text_color);
+    }
+}
+
+static int viewer_model_vertical_bounds(const ModelEntry *entry,
+                                        float *min_y, float *max_y) {
+    if (!entry || !entry->loaded || !entry->rest_verts)
+        return 0;
+    return runec_actor_model_vertical_bounds(
+        entry->rest_verts, entry->model.meshes[0].vertexCount,
+        min_y, max_y);
+}
+
+static void draw_health_bar(const RuneCHealthBarState *state,
+                            Vector2 anchor) {
+    if (!runec_health_bar_visible(state)) return;
+    int fill = runec_health_bar_fill_width(state);
+    int x = (int)anchor.x - RUNEC_HEALTH_BAR_WIDTH / 2;
+    int y = (int)anchor.y - 3;
+    if (fill > 0) {
+        DrawRectangle(x, y, fill, RUNEC_HEALTH_BAR_HEIGHT,
+                      (Color){0, 255, 0, 255});
+    }
+    if (fill < RUNEC_HEALTH_BAR_WIDTH) {
+        DrawRectangle(x + fill, y, RUNEC_HEALTH_BAR_WIDTH - fill,
+                      RUNEC_HEALTH_BAR_HEIGHT,
+                      (Color){255, 0, 0, 255});
+    }
+}
+
 static void draw_scene(ViewerState *v) {
     RcPlayer *p = &v->world->player;
     const RcCombatViewState *combat_view = &v->combat_view;
@@ -8906,7 +9082,7 @@ static void draw_scene(ViewerState *v) {
             int dx = n->x - n->prev_x;
             int dy = n->y - n->prev_y;
             if (n->facing_entity >= 0) {
-                face_angle = npc_core_facing_angle(n, face_angle);
+                face_angle = npc_core_facing_angle(n, size, face_angle);
             } else if (v->npc_render[i].moving
                     && (v->npc_render[i].last_dx || v->npc_render[i].last_dy)) {
                 face_angle = face_angle_between_tiles(0, 0,
@@ -8917,7 +9093,7 @@ static void draw_scene(ViewerState *v) {
                 face_angle = face_angle_between_tiles(n->prev_x, n->prev_y,
                                                       n->x, n->y, face_angle);
             } else {
-                face_angle = npc_core_facing_angle(n, face_angle);
+                face_angle = npc_core_facing_angle(n, size, face_angle);
             }
             // Animate into the shared mesh buffer just before drawing this
             // instance — two NPCs with the same model can play different anims
@@ -9000,7 +9176,9 @@ static void draw_scene(ViewerState *v) {
 
     for (int i = 0; i < npc_count; i++) {
         const RcNpc *n = &npcs[i];
-        if (!n->active || n->is_dead || n->plane != scene_plane) continue;
+        RcNpcLifePhase life = rc_npc_life_phase(n);
+        if (life == RC_NPC_LIFE_REMOVED || life == RC_NPC_LIFE_HIDDEN
+                || n->plane != scene_plane) continue;
         const RcNpcDef *def = rc_npc_def_for_npc(v->world, n);
         if (!def) continue;
         int size = def->size > 0 ? def->size : 1;
@@ -9010,65 +9188,47 @@ static void draw_scene(ViewerState *v) {
                   ? v->npc_render[i].render_y : (float)n->y;
         float nx_r = (nwx - g_world_origin_x) + 0.5f * (float)size;
         float nz_r = -((nwy - g_world_origin_y) + 0.5f * (float)size);
-        float ny_r = ground_yf_plane(v, scene_plane, nwx, nwy) + 2.15f;
-        Vector2 s = GetWorldToScreen((Vector3){nx_r, ny_r, nz_r}, v->camera);
-        int is_target = combat_view->target.kind == RC_COMBAT_ACTOR_NPC &&
-                        combat_view->target.uid == n->uid;
-        int hp_now = is_target ? combat_view->target_hp_current : n->combat.hp_current;
-        int hp_max = is_target ? combat_view->target_hp_max : n->combat.hp_max;
-        if (hp_max <= 0) hp_max = def->hitpoints;
-        if (hp_now <= 0 && n->current_hp > 0)
-            hp_now = n->current_hp;
-        if (hp_max > 0 && (is_target || hp_now < hp_max)) {
-            float w = 42.0f;
-            float h = 5.0f;
-            float pct = (float)hp_now / (float)hp_max;
-            if (pct < 0.0f) pct = 0.0f;
-            if (pct > 1.0f) pct = 1.0f;
-            DrawRectangle((int)(s.x - w * 0.5f), (int)(s.y - 14), (int)w,
-                          (int)h, (Color){64, 16, 14, 230});
-            DrawRectangle((int)(s.x - w * 0.5f), (int)(s.y - 14),
-                          (int)(w * pct), (int)h,
-                          (Color){30, 180, 38, 235});
-            DrawRectangleLines((int)(s.x - w * 0.5f), (int)(s.y - 14),
-                               (int)w, (int)h, is_target ? YELLOW : BLACK);
+        float ground_y = ground_yf_plane(v, scene_plane, nwx, nwy);
+        float model_min_y = 0.0f;
+        float model_max_y = 2.15f;
+        float model_mid_y = 1.0f;
+        ModelEntry *model = v->npc_models && v->npc_models->loaded
+                          ? model_find(v->npc_models, (uint32_t)def->id) : NULL;
+        if (viewer_model_vertical_bounds(model, &model_min_y, &model_max_y)) {
+            model_mid_y = runec_actor_model_midpoint(
+                model_min_y, model_max_y, NPC_MODEL_SCALE);
         }
-        const RcCombatActorState *state = &n->combat;
-        for (int hit = 0; hit < state->recent_hit_count && hit < 4; hit++) {
-            const RcCombatRecentHit *recent = &state->recent_hits[hit];
-            if (recent->timer <= 0) continue;
-            char text[12];
-            snprintf(text, sizeof(text), "%d", recent->damage);
-            Color fill = recent->hit_type == RC_HIT_TYPE_MISS
-                       ? (Color){40, 44, 58, 235}
-                       : (recent->hit_type == RC_HIT_TYPE_MAX
-                          ? (Color){210, 38, 24, 245}
-                          : (Color){150, 26, 20, 235});
-            int x = (int)s.x + (hit - 1) * 18;
-            int y = (int)(s.y - 30 - hit * 2);
-            DrawCircle(x, y, 13.0f, fill);
-            DrawCircleLines(x, y, 13.0f, BLACK);
-            DrawText(text, x - 5, y - 8, 16, WHITE);
-        }
+        float health_bar_y = runec_health_bar_model_anchor(
+            model_min_y, model_max_y, NPC_MODEL_SCALE);
+        Vector2 head = GetWorldToScreen(
+            (Vector3){nx_r, ground_y + health_bar_y, nz_r}, v->camera);
+        Vector2 middle = GetWorldToScreen(
+            (Vector3){nx_r, ground_y + model_mid_y, nz_r}, v->camera);
+        draw_health_bar(&v->npc_overlays[i].health_bar, head);
+        draw_hitsplat_state(v, &v->npc_overlays[i].hitsplats, middle);
     }
 
-    Vector2 ps = GetWorldToScreen((Vector3){px, py + 2.25f, pz}, v->camera);
-    for (int hit = 0; hit < p->combat.recent_hit_count && hit < 4; hit++) {
-        const RcCombatRecentHit *recent = &p->combat.recent_hits[hit];
-        if (recent->timer <= 0) continue;
-        char text[12];
-        snprintf(text, sizeof(text), "%d", recent->damage);
-        Color fill = recent->hit_type == RC_HIT_TYPE_MISS
-                   ? (Color){40, 44, 58, 235}
-                   : (recent->hit_type == RC_HIT_TYPE_MAX
-                      ? (Color){210, 38, 24, 245}
-                      : (Color){150, 26, 20, 235});
-        int x = (int)ps.x + (hit - 1) * 18;
-        int y = (int)(ps.y - 30 - hit * 2);
-        DrawCircle(x, y, 13.0f, fill);
-        DrawCircleLines(x, y, 13.0f, BLACK);
-        DrawText(text, x - 5, y - 8, 16, WHITE);
+    float player_min_y = 0.0f;
+    float player_max_y = 2.25f;
+    float player_mid_y = 1.0f;
+    ModelEntry *player_anchor_model = v->composed_player_model.loaded
+                                    ? &v->composed_player_model
+                                    : (v->player_model
+                                       && v->player_model->loaded
+                                       ? &v->player_model->entries[0] : NULL);
+    if (viewer_model_vertical_bounds(player_anchor_model,
+                                     &player_min_y, &player_max_y)) {
+        player_mid_y = runec_actor_model_midpoint(
+            player_min_y, player_max_y, 1.0f);
     }
+    float player_health_bar_y = runec_health_bar_model_anchor(
+        player_min_y, player_max_y, 1.0f);
+    Vector2 player_head = GetWorldToScreen(
+        (Vector3){px, py + player_health_bar_y, pz}, v->camera);
+    Vector2 ps = GetWorldToScreen(
+        (Vector3){px, py + player_mid_y, pz}, v->camera);
+    draw_health_bar(&v->player_overlay.health_bar, player_head);
+    draw_hitsplat_state(v, &v->player_overlay.hitsplats, ps);
 
     if (combat_view->target.kind == RC_COMBAT_ACTOR_NPC &&
             combat_view->target.uid >= 0 && combat_view->target_hp_max > 0) {
@@ -9224,6 +9384,18 @@ int main(int argc, char **argv) {
     }
     const char *combat_visuals_path = env_path("RUNEC_COMBAT_VISUALS",
         "data/defs/combat_visuals.tsv");
+    const char *npc_attack_anims_path = env_path("RUNEC_NPC_ATTACK_ANIMS",
+        "data/defs/npc_attack_anims.tsv");
+    const char *hitsplats_path = env_path("RUNEC_HITSPLATS",
+        "data/defs/hitsplats.bin");
+    const char *hitsplat_sprite_directory = env_path(
+        "RUNEC_HITSPLAT_SPRITES", "data/sprites/ui");
+    if (runec_hitsplat_catalog_load(&v.hitsplat_catalog, hitsplats_path) <= 0
+            || !runec_hitsplat_catalog_validate_assets(
+                &v.hitsplat_catalog, hitsplat_sprite_directory)) {
+        fprintf(stderr, "viewer: required B237 hitsplats are unavailable\n");
+        return 1;
+    }
 
     RcWorldConfig cfg = rc_preset_base_only();
     cfg.streaming = backend_streaming;
@@ -9285,7 +9457,21 @@ int main(int argc, char **argv) {
             v.streaming.upload_budget_mb_per_frame);
     v.world = rc_world_create_config(&cfg);
     if (!v.world) { fprintf(stderr, "Failed to create world\n"); return 1; }
-    runec_npc_render_defs_load(&v.npc_render_defs, cfg.npc_defs_path);
+    v.npc_overlays = calloc(RC_MAX_NPCS, sizeof(*v.npc_overlays));
+    if (!v.npc_overlays) {
+        fprintf(stderr, "viewer: failed to allocate NPC overlay state\n");
+        rc_world_destroy(v.world);
+        return 1;
+    }
+    if (runec_npc_render_defs_load(&v.npc_render_defs, cfg.npc_defs_path) <= 0
+            || runec_npc_render_defs_apply_attack_anims(
+                &v.npc_render_defs, npc_attack_anims_path) <= 0) {
+        fprintf(stderr,
+                "viewer: required NPC render definitions are unavailable\n");
+        free(v.npc_overlays);
+        rc_world_destroy(v.world);
+        return 1;
+    }
     runec_object_action_visuals_load(&v.object_action_visuals,
                                      cfg.object_behaviors_path);
     // Register all OSRS content modules (boss scripts, etc.). See
@@ -9303,15 +9489,18 @@ int main(int argc, char **argv) {
         int combat_visual_count = rc_load_combat_visuals(combat_visuals_path);
         if (combat_visual_count < 0) {
             fprintf(stderr, "viewer smoke: failed to load combat visuals\n");
+            free(v.npc_overlays);
             rc_world_destroy(v.world);
             return 1;
         }
         if (!activate_core_area_for_scene_bounds(&v)) {
+            free(v.npc_overlays);
             rc_world_destroy(v.world);
             return 1;
         }
         if (env_bool("RUNEC_VIEWER_SMOKE_SCENES", 0)
                 && validate_viewer_scene_assets(&v) < 0) {
+            free(v.npc_overlays);
             rc_world_destroy(v.world);
             return 1;
         }
@@ -9322,6 +9511,7 @@ int main(int argc, char **argv) {
             if (prepared <= 0 || validate_mapsquare_window_assets(
                     &v, g_player_start_x, g_player_start_y,
                     v.world->player.plane) < 0) {
+                free(v.npc_overlays);
                 rc_world_destroy(v.world);
                 return 1;
             }
@@ -9332,6 +9522,7 @@ int main(int argc, char **argv) {
                 "viewer smoke: PASS backend=%s combat_visuals=%d npcs=%d\n",
                 env_path("RUNEC_ASSET_BACKEND", "auto"),
                 combat_visual_count, v.world->npc_count);
+        free(v.npc_overlays);
         rc_world_destroy(v.world);
         return 0;
     }
@@ -9340,11 +9531,17 @@ int main(int argc, char **argv) {
                env_path("RUNEC_VIEWER_TITLE", "RuneC Viewer"));
     if (!IsWindowReady()) {
         print_gl_context_help("raylib InitWindow");
+        free(v.npc_overlays);
         rc_world_destroy(v.world);
         return 1;
     }
     SetTargetFPS(60);
     runec_ui_init(&v.ui);
+    if (!viewer_load_hitsplat_textures(&v, hitsplat_sprite_directory)) {
+        fprintf(stderr, "viewer: failed to load required hitsplat textures\n");
+        exit_status = 1;
+        goto cleanup;
+    }
     viewer_sync_dev_transport_labels(&v.ui);
     rc_load_combat_visuals(combat_visuals_path);
     fprintf(stderr,
@@ -9786,7 +9983,9 @@ int main(int argc, char **argv) {
                 &v.tick_pacing, 1.0 / TPS);
         }
         viewer_sync_interaction_outcome(&v);
-        update_npc_render_motion(&v, v.paused ? 0.0f : GetFrameTime());
+        float presentation_dt = v.paused ? 0.0f : GetFrameTime();
+        update_npc_render_motion(&v, presentation_dt);
+        viewer_update_combat_overlays(&v, presentation_dt);
 
         BeginDrawing();
         ClearBackground((Color){40, 45, 55, 255});
@@ -9850,6 +10049,8 @@ cleanup:
     anim_cache_free(v.npc_anims);
     anim_cache_free(v.npc_fallback_anims);
     rc_world_destroy(v.world);
+    free(v.npc_overlays);
+    viewer_unload_hitsplat_textures(&v);
     runec_ui_shutdown(&v.ui);
     free(v.minimap_tiles);
     if (v.alpha_cutout_shader_static_loaded)

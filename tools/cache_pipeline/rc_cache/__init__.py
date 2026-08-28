@@ -14,6 +14,7 @@ from .bytes import (
 )
 from .config import (
     CONFIG_ENUM,
+    CONFIG_HITMARK,
     CONFIG_ITEM,
     CONFIG_NPC,
     CONFIG_OBJECT,
@@ -54,6 +55,7 @@ from .container import (
     decompress_container,
 )
 from .definitions import (
+    HitmarkDef,
     ItemDef,
     LocationDef,
     NpcDef,
@@ -61,6 +63,7 @@ from .definitions import (
     SpotanimDef,
     VarbitDef,
     VarpDef,
+    decode_hitmark_definition,
     decode_item_definition,
     decode_location_definition,
     decode_npc_definition,
@@ -124,6 +127,7 @@ __all__ = [
     "COMPRESSION_GZIP",
     "COMPRESSION_NONE",
     "CONFIG_ENUM",
+    "CONFIG_HITMARK",
     "CONFIG_ITEM",
     "CONFIG_NPC",
     "CONFIG_OBJECT",
@@ -134,6 +138,7 @@ __all__ = [
     "CONFIG_VARP",
     "FrameBaseDef",
     "FrameDef",
+    "HitmarkDef",
     "IF3_LISTENER_NAMES",
     "INDEX_CLIENTSCRIPTS",
     "INDEX_CONFIGS",
@@ -165,6 +170,7 @@ __all__ = [
     "decompress_container",
     "decode_frame",
     "decode_framebase",
+    "decode_hitmark_definition",
     "decode_item_definition",
     "decode_interface",
     "decode_legacy_frame_archive",

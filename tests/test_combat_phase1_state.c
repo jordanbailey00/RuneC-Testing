@@ -1,5 +1,6 @@
 #include "../rc-core/api.h"
 #include "../rc-core/combat.h"
+#include "../rc-core/combat_hit.h"
 #include "../rc-core/npc.h"
 #include "runtime_test_fixture.h"
 
@@ -69,20 +70,39 @@ static void test_start_and_stop_mirror_legacy_fields(void) {
         .kind = RC_COMBAT_ACTOR_PLAYER,
         .uid = 0,
     };
+    rc_combat_actor_record_hit(&world->player.combat, 3, 5,
+                               COMBAT_MELEE_CRUSH, npc->uid,
+                               RC_HIT_TYPE_NORMAL, 0, 4);
+    uint64_t player_hit_sequence =
+        world->player.combat.recent_hits[0].sequence;
     rc_combat_stop_actor(world, player_ref, RC_COMBAT_STATE_CANCELLED);
     assert(world->player.attack_target == -1);
     assert(world->player.attack_target_def_id == -1);
     assert(!rc_combat_actor_has_target(&world->player.combat));
     assert(world->player.combat.flags == RC_COMBAT_STATE_CANCELLED);
+    assert(world->player.combat.recent_hit_count == 1);
+    assert(world->player.combat.recent_hits[0].sequence
+           == player_hit_sequence);
+    assert(world->player.combat.next_hit_sequence == player_hit_sequence);
 
     RcCombatActorRef npc_ref = {
         .kind = RC_COMBAT_ACTOR_NPC,
         .uid = npc->uid,
     };
+    rc_combat_actor_record_hit(&npc->combat, 4, 6, COMBAT_MELEE_STAB,
+                               RC_HIT_SOURCE_PLAYER, RC_HIT_TYPE_NORMAL,
+                               0, 4);
+    uint64_t npc_hit_sequence = npc->combat.recent_hits[0].sequence;
     rc_combat_stop_actor(world, npc_ref, RC_COMBAT_STATE_CANCELLED);
     assert(npc->target_uid == -1);
     assert(!rc_combat_actor_has_target(&npc->combat));
     assert(npc->combat.flags == RC_COMBAT_STATE_CANCELLED);
+    assert(npc->combat.recent_hit_count == 1);
+    assert(npc->combat.recent_hits[0].sequence == npc_hit_sequence);
+    rc_combat_actor_record_hit(&npc->combat, 2, 6, COMBAT_MELEE_STAB,
+                               RC_HIT_SOURCE_PLAYER, RC_HIT_TYPE_NORMAL,
+                               0, 4);
+    assert(npc->combat.recent_hits[1].sequence == npc_hit_sequence + 1);
 
     rc_world_destroy(world);
 }

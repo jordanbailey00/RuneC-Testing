@@ -76,6 +76,17 @@ schema = ""
 parity_status = "ready_with_source_gaps"
 
 [[dataset]]
+name = "npc_attack_anims"
+domain = "combat"
+authority = "curated"
+source = "content/npc_attack_anims/animations.tsv"
+exporter = "tools/export_npc_attack_anims.py"
+output = "data/defs/npc_attack_anims.tsv"
+runtime_consumer = "rc-viewer/npc_render_defs.c"
+schema = "B237 standing sequence to compatible basic attack sequence"
+parity_status = "ready_with_accepted_simplifications"
+
+[[dataset]]
 name = "item_specials"
 domain = "items"
 authority = "curated"

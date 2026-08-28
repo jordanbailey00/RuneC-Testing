@@ -514,6 +514,23 @@ class PlayerWeaponPoseTests(unittest.TestCase):
                 pos += 1 + translator_count * 7
         self.assertEqual(required - available, set())
 
+    def test_npc_attack_animation_table_is_strict_and_exportable(self) -> None:
+        path = ROOT / "content/npc_attack_anims/animations.tsv"
+        required = export_animations.read_npc_attack_sequence_ids(path)
+        self.assertGreater(len(required), 250)
+        self.assertIn(6489, required)
+        self.assertIn(422, required)
+
+        with TemporaryDirectory() as tmp:
+            malformed = Path(tmp) / "npc_attack_anims.tsv"
+            malformed.write_text(
+                "stand_anim|attack_anim|note\n"
+                "6487|6489|curated:b237:test\n"
+                "6487|422|curated:b237:duplicate\n"
+            )
+            with self.assertRaisesRegex(ValueError, "invalid NPC attack"):
+                export_animations.read_npc_attack_sequence_ids(malformed)
+
     def test_pose_source_rejects_name_drift_and_duplicates(self) -> None:
         items = {11804: self.weapon(11804, "Bandos godsword")}
         with TemporaryDirectory() as tmp:

@@ -50,6 +50,10 @@ TSV_SCHEMAS = {
         "schema_version": 1,
         "required_columns": ("kind", "key", "style", "attack_anim", "authority"),
     },
+    "npc_attack_anims": {
+        "schema_version": 1,
+        "required_columns": ("stand_anim", "attack_anim", "note"),
+    },
 }
 
 REQUIRED_KEYS = {

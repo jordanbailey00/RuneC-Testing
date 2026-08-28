@@ -1,0 +1,12 @@
+id = "npc_attack_anims"
+format = "tsv"
+path = "data/defs/npc_attack_anims.tsv"
+schema_version = 1
+producer = "tools/export_npc_attack_anims.py"
+consumers = ["rc-viewer/npc_render_defs.c"]
+source_dataset = "content/npc_attack_anims/animations.tsv"
+required_columns = ["stand_anim", "attack_anim", "note"]
+
+[compatibility]
+reader = "strict_v1"
+failure = "missing, malformed, duplicate, or unsorted rows are fatal"

@@ -1,0 +1,6 @@
+NPC attack animation export
+
+source: content/npc_attack_anims/animations.tsv
+authority: RuneC-owned reviewed B237 stance mapping
+rows: 345
+validation failures: 0

@@ -43,6 +43,7 @@ typedef struct {
     int style;
     int source_uid;
     int timer;
+    uint64_t sequence;
     uint8_t hit_type;
     uint8_t flags;
 } RcCombatHitView;

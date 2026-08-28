@@ -35,6 +35,7 @@ REQUIRED_REPORTS = (
     "items_full.txt",
     "normalization.txt",
     "npc_defs_full.txt",
+    "npc_attack_anims.txt",
     "npc_models_full.txt",
     "npc_reconciliation.txt",
     "object_behaviors.txt",

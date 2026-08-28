@@ -84,10 +84,17 @@ presentation responsibilities.
   - viewer-only NPC animation/model metadata loader
   - extracts NPC stand/walk/attack/death animation IDs and model links from
     `npc_defs.bin` without exposing them through `rc-core`
+  - applies the required reviewed B237 basic attack mapping from
+    `data/defs/npc_attack_anims.tsv`; exact per-NPC/style combat visuals take
+    precedence over this unambiguous stance-family data
 - `combat_visuals.c` / `combat_visuals.h`
   - viewer-only combat presentation profile loader
   - owns projectile, spotanim, animation, attachment, and visual timing
     metadata; `rc-core` only consumes backend hit-delay profiles
+- `hitsplats.c` / `hitsplats.h`
+  - viewer-only B237 hitsplat catalog, four-slot presentation state, and basic
+    hit-to-visual selection
+  - consumes sequenced core hit events without owning damage or combat timing
 - `object_action_visuals.c` / `object_action_visuals.h`
   - viewer-only object action presentation metadata loader
   - extracts action animation IDs from `object_behaviors.bin` without
@@ -110,6 +117,8 @@ presentation responsibilities.
   - `data/regions/mapsquare.materials.tanim`
   - `data/regions/mapsquare.catalog`
   - `data/regions/world.collision-tiles.indexed.bin`
+  - `data/defs/hitsplats.bin`
+  - `data/defs/npc_attack_anims.tsv`
   - `data/defs/npc_defs.bin`
   - `data/spawns/world.npc-spawns.indexed.bin`
   - `data/spawns/world.ground-items.indexed.bin`
@@ -122,11 +131,13 @@ presentation responsibilities.
   - `RUNEC_TERRAIN`, `RUNEC_OBJECTS`, `RUNEC_CMAP`
   - `RUNEC_OBJECT_PLACEMENTS` (defaults to the indexed world placement file)
   - `RUNEC_COLLISION_TILES` (defaults to the indexed world collision file)
-  - `RUNEC_NPC_DEFS`, `RUNEC_NPC_SPAWNS`, `RUNEC_NPC_MODELS`
+  - `RUNEC_NPC_DEFS`, `RUNEC_NPC_ATTACK_ANIMS`, `RUNEC_NPC_SPAWNS`,
+    `RUNEC_NPC_MODELS`
   - `RUNEC_NPC_ANIMS`, `RUNEC_PLAYER_MODELS`,
     `RUNEC_PLAYER_ANIMS`, `RUNEC_FALLBACK_ANIMS`
   - `RUNEC_ITEM_MODELS`, `RUNEC_ITEM_RENDER_MAP`
   - `RUNEC_COMBAT_VISUALS`, `RUNEC_COMBAT_PROFILES`
+  - `RUNEC_HITSPLATS`, `RUNEC_HITSPLAT_SPRITES`
   - `RUNEC_WORLD_ORIGIN_X`, `RUNEC_WORLD_ORIGIN_Y`,
     `RUNEC_WORLD_W`, `RUNEC_WORLD_H`
   - `RUNEC_PLAYER_START_X`, `RUNEC_PLAYER_START_Y`,
@@ -160,6 +171,23 @@ may interpolate presentation between ticks, but it does not own action
 replacement, cancellation, delayed effects, death, or cooldown progression.
 After a long frame it advances at most five core ticks, records any discarded
 overload ticks, and resumes from the remaining fractional accumulator.
+
+Hitsplats are a read-only projection of sequenced core hit events. The viewer
+uses all concrete B237 cache definitions and sprites, their cache-defined
+duration/fade/offset metadata, and the client's four fixed display positions
+and replacement policies. Basic combat selects the B237 zero, regular,
+maximum, public-tint, and poison types. Specialty mechanics remain responsible
+for selecting their own cache type; the viewer does not infer venom, healing,
+prayer drain, shields, bleed, burn, or encounter semantics from damage values.
+
+Ordinary actor health bars are also a read-only hit-event projection. A new
+hit shows the B237 default `30x5` bar for 300 client cycles for either the
+player or an NPC, including misses and killing hits. The green fill and red
+remainder use the cache sprite colors exactly, with no decorative border. Bars
+project from stable base-model logical height plus the client's 15-unit head
+clearance; hitsplats remain centered on the model. Target selection alone does
+not show a bar, and missing health does not leave one visible indefinitely.
+Special encounter/interface bars are separate authored content.
 
 Scene and UI context options use right-click. A stationary right-click opens
 the applicable menu; moving beyond the small drag threshold keeps right-drag
@@ -278,6 +306,9 @@ Today `rc-viewer` is primarily:
 - a renderer for core-owned dynamic object state, linked-below scenes,
   bounded mapsquare scenes, compatibility region slices, viewer-owned combat
   projectiles, spot animations, combat attack animations, and equipment visuals
+- model-centered player/NPC hitsplats and footprint-centered NPC facing;
+  health bars remain anchored above model bounds, while multi-tile actors face
+  the target from their rendered center rather than their southwest tile
 - isolated combat-validation helpers for local manual testing, kept out of
   `rc-core` so they can be disabled or removed without changing simulation
   rules

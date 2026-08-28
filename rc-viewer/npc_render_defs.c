@@ -4,6 +4,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 enum {
@@ -163,6 +164,112 @@ int runec_npc_render_defs_load(RuneCNpcRenderDefs *defs, const char *path) {
     defs->loaded = 1;
     fprintf(stderr, "npc_render_defs: loaded %d defs from %s\n", loaded, path);
     return loaded;
+}
+
+int runec_npc_render_defs_apply_attack_anims(RuneCNpcRenderDefs *defs,
+                                              const char *path) {
+    if (!defs || !defs->loaded || !path) return 0;
+    FILE *f = rc_asset_fopen(path, "r");
+    if (!f) {
+        fprintf(stderr, "npc_render_defs: can't open attack animations %s\n",
+                path);
+        return -1;
+    }
+
+    char line[256];
+    int rows = 0;
+    int applied = 0;
+    long previous_stand_anim = -1;
+    int saw_header = 0;
+    int line_number = 0;
+    while (fgets(line, sizeof(line), f)) {
+        line_number++;
+        if (!strchr(line, '\n') && !feof(f)) {
+            fprintf(stderr,
+                    "npc_render_defs: attack animation line %d is too long\n",
+                    line_number);
+            rc_asset_close(f);
+            return -1;
+        }
+        char *cursor = line;
+        while (*cursor == ' ' || *cursor == '\t') cursor++;
+        if (!*cursor || *cursor == '\n' || *cursor == '#') continue;
+        cursor[strcspn(cursor, "\r\n")] = '\0';
+        if (strcmp(cursor, "stand_anim|attack_anim|note") == 0) {
+            if (saw_header || rows > 0) {
+                fprintf(stderr,
+                        "npc_render_defs: misplaced attack animation header "
+                        "at line %d\n", line_number);
+                rc_asset_close(f);
+                return -1;
+            }
+            saw_header = 1;
+            continue;
+        }
+        if (!saw_header) {
+            fprintf(stderr,
+                    "npc_render_defs: missing attack animation header before "
+                    "line %d\n", line_number);
+            rc_asset_close(f);
+            return -1;
+        }
+
+        char *first_separator = strchr(cursor, '|');
+        char *second_separator = first_separator
+                               ? strchr(first_separator + 1, '|') : NULL;
+        if (!first_separator || !second_separator
+                || strchr(second_separator + 1, '|')
+                || !second_separator[1]) {
+            fprintf(stderr,
+                    "npc_render_defs: malformed attack animation row at "
+                    "line %d\n", line_number);
+            rc_asset_close(f);
+            return -1;
+        }
+        *first_separator = '\0';
+        *second_separator = '\0';
+        char *end = NULL;
+        long stand_anim = strtol(cursor, &end, 10);
+        if (!end || *end != '\0') {
+            fprintf(stderr,
+                    "npc_render_defs: invalid stand animation at line %d\n",
+                    line_number);
+            rc_asset_close(f);
+            return -1;
+        }
+        cursor = first_separator + 1;
+        long attack_anim = strtol(cursor, &end, 10);
+        if (!end || *end != '\0'
+                || stand_anim < 0 || stand_anim > INT32_MAX
+                || attack_anim <= 0 || attack_anim > INT32_MAX
+                || stand_anim <= previous_stand_anim) {
+            fprintf(stderr,
+                    "npc_render_defs: invalid or unsorted attack animation "
+                    "at line %d\n", line_number);
+            rc_asset_close(f);
+            return -1;
+        }
+        previous_stand_anim = stand_anim;
+
+        rows++;
+        for (int i = 0; i < defs->count; i++) {
+            RuneCNpcRenderDef *def = &defs->defs[i];
+            if (def->attack_anim < 0 && def->stand_anim == stand_anim) {
+                def->attack_anim = (int)attack_anim;
+                applied++;
+            }
+        }
+    }
+    rc_asset_close(f);
+    if (!saw_header || rows <= 0) {
+        fprintf(stderr, "npc_render_defs: empty attack animation table %s\n",
+                path);
+        return -1;
+    }
+    fprintf(stderr,
+            "npc_render_defs: applied %d attack animations from %d stances in %s\n",
+            applied, rows, path);
+    return applied;
 }
 
 const RuneCNpcRenderDef *runec_npc_render_find(

@@ -64,6 +64,7 @@ CONTENT_EXPORT_COMMANDS = (
     ("activity-schemas", "tools/export_activity_schemas.py"),
     ("dialogue", "tools/export_dialogue.py"),
     ("combat-visuals", "tools/export_combat_visuals.py"),
+    ("npc-attack-anims", "tools/export_npc_attack_anims.py"),
     ("item-effects", "tools/export_item_effects.py"),
     ("static-ground-items", "tools/export_static_ground_items.py"),
 )
@@ -76,6 +77,7 @@ CONTENT_EXPORT_OUTPUTS = (
     "data/defs/activity_schemas.bin",
     "data/defs/dialogue.bin",
     "data/defs/combat_visuals.tsv",
+    "data/defs/npc_attack_anims.tsv",
     "data/spawns/world.ground-items.indexed.bin",
     "tools/reports/encounters.txt",
     "tools/reports/activity_spawns.txt",
@@ -83,6 +85,7 @@ CONTENT_EXPORT_OUTPUTS = (
     "tools/reports/activity_mechanics.txt",
     "tools/reports/activity_schemas.txt",
     "tools/reports/combat_visuals.txt",
+    "tools/reports/npc_attack_anims.txt",
     "tools/reports/item_effects.txt",
     "tools/reports/static_ground_items.txt",
 )
@@ -127,6 +130,20 @@ def snapshot_cmd(*paths: str) -> tuple[str, ...]:
     return py_cmd("tools/export_runtime_snapshots.py", "--paths", *paths)
 
 CACHE_DERIVED_REBUILD_SPECS = (
+    RuntimeOutputSpec(
+        dataset="hitsplats",
+        logical_paths=("defs/hitsplats.bin",),
+        rebuild_inputs=B237_CACHE_INPUT,
+        commands=(
+            py_cmd(
+                "tools/cache_pipeline/export_hitsplats.py",
+                "--cache", "{b237_cache}",
+                "--output", "data/defs/hitsplats.bin",
+                "--sprites", "data/sprites/ui",
+            ),
+        ),
+        authority="B237 hitmark config and sprites decoded by RuneC cache tools",
+    ),
     RuntimeOutputSpec(
         dataset="spotanims",
         logical_paths=("defs/spotanims.bin",),
@@ -255,6 +272,8 @@ POST_DEF_RENDER_REBUILD_SPECS = (
                 "data/defs/npc_defs.bin",
                 "--combat-visuals",
                 "data/defs/combat_visuals.tsv",
+                "--npc-attack-anims",
+                "data/defs/npc_attack_anims.tsv",
                 "--output",
                 "data/anims/npcs.anims",
             ),
@@ -281,11 +300,13 @@ POST_DEF_RENDER_REBUILD_SPECS = (
                 "data/defs/combat_visuals.tsv",
                 "--npc-defs",
                 "data/defs/npc_defs.bin",
+                "--npc-attack-anims",
+                "data/defs/npc_attack_anims.tsv",
                 "--output",
                 "data/anims/all.anims",
             ),
         ),
-        authority="b237 cache sequence/frame data explicitly scoped from spotanims, item render BAS, combat visuals, object anims, and NPC defs",
+        authority="b237 cache sequence/frame data explicitly scoped from spotanims, item render BAS, combat visuals, object anims, NPC defs, and reviewed NPC attack mappings",
     ),
 )
 
@@ -713,6 +734,7 @@ STAGE_SPECS: dict[str, StageSpec] = {
             "tools/export_dialogue.py",
             "tools/export_encounters.py",
             "tools/export_item_effects.py",
+            "tools/export_npc_attack_anims.py",
         ),
         outputs=("data/defs/", "generated/pipeline/stages/export-content.json"),
         description="Regenerate runtime outputs that are built from tracked RuneC-owned content.",

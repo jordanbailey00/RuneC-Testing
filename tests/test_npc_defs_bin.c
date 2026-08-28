@@ -127,15 +127,24 @@ int main(void) {
     rc_world_destroy(transform_world);
     RuneCNpcRenderDefs render_defs;
     assert(runec_npc_render_defs_load(&render_defs, path) > 10000);
+    char attack_anims_path[512];
+    path_join(attack_anims_path, sizeof(attack_anims_path),
+              "data/defs/npc_attack_anims.tsv");
+    assert(runec_npc_render_defs_apply_attack_anims(
+        &render_defs, attack_anims_path) > 3000);
     const RuneCNpcRenderDef *jad_render =
         runec_npc_render_find(&render_defs, 3127);
     const RuneCNpcRenderDef *zuk_render =
         runec_npc_render_find(&render_defs, 7706);
     const RuneCNpcRenderDef *nex_render =
         runec_npc_render_find(&render_defs, 11278);
+    const RuneCNpcRenderDef *varrock_guard_render =
+        runec_npc_render_find(&render_defs, 3010);
     assert(jad_render && jad_render->model_count > 0);
     assert(zuk_render && zuk_render->model_count > 0);
     assert(nex_render && nex_render->model_count > 0);
+    assert(varrock_guard_render && varrock_guard_render->stand_anim == 6487);
+    assert(varrock_guard_render->attack_anim == 6489);
 
     char spawns_path[512];
     path_join(spawns_path, sizeof(spawns_path),

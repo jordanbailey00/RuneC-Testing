@@ -443,6 +443,7 @@ typedef struct {
     int style;
     int source_uid;
     int timer;
+    uint64_t sequence;
     uint8_t hit_type;
     uint8_t flags;
 } RcCombatRecentHit;
@@ -480,6 +481,7 @@ typedef struct {
     bool in_multi_combat;
     RcCombatRecentHit recent_hits[4];
     int recent_hit_count;
+    uint64_t next_hit_sequence;
 } RcCombatActorState;
 
 #define RC_MAX_COMBAT_ATTACK_EVENTS 64

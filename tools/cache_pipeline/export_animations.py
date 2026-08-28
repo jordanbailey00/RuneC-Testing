@@ -944,6 +944,33 @@ def read_combat_visual_sequence_ids(path: Path) -> set[int]:
     return out
 
 
+def read_npc_attack_sequence_ids(path: Path) -> set[int]:
+    out: set[int] = set()
+    if not path.exists():
+        return out
+    previous = -1
+    saw_header = False
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line == "stand_anim|attack_anim|note":
+            saw_header = True
+            continue
+        parts = line.split("|")
+        if len(parts) != 3:
+            raise ValueError(f"malformed NPC attack animation row in {path}")
+        stand_anim = int(parts[0])
+        attack_anim = int(parts[1])
+        if stand_anim <= previous or attack_anim <= 0 or attack_anim > 0xFFFF:
+            raise ValueError(f"invalid NPC attack animation row in {path}")
+        previous = stand_anim
+        out.add(attack_anim)
+    if not saw_header or not out:
+        raise ValueError(f"empty NPC attack animation table: {path}")
+    return out
+
+
 def read_npc_def_sequence_ids(path: Path) -> set[int]:
     out: set[int] = set()
     if not path.exists():
@@ -1010,6 +1037,8 @@ def main() -> None:
                         help="include BAS sequence ids referenced by item_render.map")
     parser.add_argument("--combat-visuals", type=Path,
                         help="include attack/projectile sequence ids from combat_visuals.tsv")
+    parser.add_argument("--npc-attack-anims", type=Path,
+                        help="include attack sequence ids from npc_attack_anims.tsv")
     parser.add_argument("--npc-defs", type=Path,
                         help="include stand/walk/run/attack/death sequence ids from npc_defs.bin")
     args = parser.parse_args()
@@ -1036,6 +1065,10 @@ def main() -> None:
             combat_visual_ids = read_combat_visual_sequence_ids(args.combat_visuals)
             needed |= combat_visual_ids
             print(f"including {len(combat_visual_ids)} combat visual sequence IDs")
+        if args.npc_attack_anims:
+            npc_attack_ids = read_npc_attack_sequence_ids(args.npc_attack_anims)
+            needed |= npc_attack_ids
+            print(f"including {len(npc_attack_ids)} NPC attack sequence IDs")
         if args.npc_defs:
             npc_def_ids = read_npc_def_sequence_ids(args.npc_defs)
             needed |= npc_def_ids

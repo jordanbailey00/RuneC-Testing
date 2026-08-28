@@ -114,12 +114,16 @@ void rc_combat_actor_record_hit(RcCombatActorState *state, int damage,
     } else {
         state->recent_hit_count++;
     }
+    state->next_hit_sequence++;
+    if (state->next_hit_sequence == 0)
+        state->next_hit_sequence++;
     state->recent_hits[idx] = (RcCombatRecentHit){
         .damage = damage,
         .max_hit = max_hit,
         .style = style,
         .source_uid = source_uid,
         .timer = timer,
+        .sequence = state->next_hit_sequence,
         .hit_type = hit_type,
         .flags = flags,
     };

@@ -203,6 +203,25 @@ if(TARGET test_minimap)
     )
 endif()
 
+if(TARGET test_hitsplats)
+    target_sources(test_hitsplats PRIVATE
+        rc-viewer/hitsplats.c
+        rc-viewer/actor_projection.c
+    )
+    target_include_directories(test_hitsplats PRIVATE
+        rc-viewer
+    )
+endif()
+
+if(TARGET test_health_bars)
+    target_sources(test_health_bars PRIVATE
+        rc-viewer/health_bars.c
+    )
+    target_include_directories(test_health_bars PRIVATE
+        rc-viewer
+    )
+endif()
+
 if(TARGET test_streaming_async)
     target_sources(test_streaming_async PRIVATE
         rc-viewer/streaming.c

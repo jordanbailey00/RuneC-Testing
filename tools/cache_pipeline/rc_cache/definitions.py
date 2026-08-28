@@ -735,6 +735,80 @@ class SpotanimDef(DecodeSummary):
     recolor_to: list[int] = field(default_factory=list)
 
 
+@dataclass
+class HitmarkDef(DecodeSummary):
+    hitmark_id: int = 0
+    font_id: int = -1
+    text_color: int = 0xFFFFFF
+    class_graphic_id: int = -1
+    left_graphic_id: int = -1
+    middle_graphic_id: int = -1
+    right_graphic_id: int = -1
+    scroll_x: int = 0
+    text_format: str = ""
+    display_cycles: int = 70
+    scroll_y: int = 0
+    fade_start_cycle: int = -1
+    replacement_mode: int = -1
+    text_offset_y: int = 0
+    morph_varbit: int = -1
+    morph_varp: int = -1
+    morph_fallback: int = -1
+    morph_ids: list[int] = field(default_factory=list)
+
+
+def decode_hitmark_definition(hitmark_id: int, data: bytes) -> HitmarkDef:
+    d = HitmarkDef(hitmark_id=hitmark_id)
+    buf = io.BytesIO(data)
+    while True:
+        op = read_u8(buf)
+        if op == 0:
+            break
+        if op == 1:
+            d.font_id = _read_big_smart2(buf)
+        elif op == 2:
+            d.text_color = int.from_bytes(buf.read(3), "big")
+        elif op == 3:
+            d.class_graphic_id = _read_big_smart2(buf)
+        elif op == 4:
+            d.left_graphic_id = _read_big_smart2(buf)
+        elif op == 5:
+            d.middle_graphic_id = _read_big_smart2(buf)
+        elif op == 6:
+            d.right_graphic_id = _read_big_smart2(buf)
+        elif op == 7:
+            d.scroll_x = read_i16(buf)
+        elif op == 8:
+            if read_u8(buf) != 0:
+                d.unknown_opcode = op
+                break
+            d.text_format = read_string(buf)
+        elif op == 9:
+            d.display_cycles = read_u16(buf)
+        elif op == 10:
+            d.scroll_y = read_i16(buf)
+        elif op == 11:
+            d.fade_start_cycle = 0
+        elif op == 12:
+            d.replacement_mode = read_u8(buf)
+        elif op == 13:
+            d.text_offset_y = read_i16(buf)
+        elif op == 14:
+            d.fade_start_cycle = read_u16(buf)
+        elif op in (17, 18):
+            d.morph_varbit = u16_or_missing(read_u16(buf))
+            d.morph_varp = u16_or_missing(read_u16(buf))
+            if op == 18:
+                d.morph_fallback = u16_or_missing(read_u16(buf))
+            count = read_u8(buf)
+            d.morph_ids = [u16_or_missing(read_u16(buf))
+                           for _ in range(count + 1)]
+        else:
+            d.unknown_opcode = op
+            break
+    return d
+
+
 def decode_spotanim_definition(spotanim_id: int, data: bytes) -> SpotanimDef:
     d = SpotanimDef(spotanim_id=spotanim_id)
     buf = io.BytesIO(data)

@@ -1132,15 +1132,31 @@ void rc_combat_stop_actor(struct RcWorld *world, RcCombatActorRef actor,
     (void)reason;
     if (!world) return;
     if (actor.kind == RC_COMBAT_ACTOR_PLAYER && actor.uid == 0) {
+        RcCombatRecentHit recent_hits[4];
+        int recent_hit_count = world->player.combat.recent_hit_count;
+        uint64_t next_hit_sequence = world->player.combat.next_hit_sequence;
+        memcpy(recent_hits, world->player.combat.recent_hits,
+               sizeof(recent_hits));
         world->player.attack_target = -1;
         world->player.attack_target_def_id = -1;
         rc_combat_init_player_state(&world->player);
+        memcpy(world->player.combat.recent_hits, recent_hits,
+               sizeof(recent_hits));
+        world->player.combat.recent_hit_count = recent_hit_count;
+        world->player.combat.next_hit_sequence = next_hit_sequence;
         world->player.combat.flags = RC_COMBAT_STATE_CANCELLED;
     } else if (actor.kind == RC_COMBAT_ACTOR_NPC) {
         RcNpc *npc = find_npc_by_uid(world, actor.uid);
         if (!npc) return;
+        RcCombatRecentHit recent_hits[4];
+        int recent_hit_count = npc->combat.recent_hit_count;
+        uint64_t next_hit_sequence = npc->combat.next_hit_sequence;
+        memcpy(recent_hits, npc->combat.recent_hits, sizeof(recent_hits));
         npc->target_uid = -1;
         rc_combat_init_npc_state(npc);
+        memcpy(npc->combat.recent_hits, recent_hits, sizeof(recent_hits));
+        npc->combat.recent_hit_count = recent_hit_count;
+        npc->combat.next_hit_sequence = next_hit_sequence;
         npc->combat.flags = RC_COMBAT_STATE_CANCELLED;
     }
 }
@@ -1191,6 +1207,7 @@ static void combat_copy_hit_view(RcCombatHitView *dst,
     dst->style = src->style;
     dst->source_uid = src->source_uid;
     dst->timer = src->timer;
+    dst->sequence = src->sequence;
     dst->hit_type = src->hit_type;
     dst->flags = src->flags;
 }

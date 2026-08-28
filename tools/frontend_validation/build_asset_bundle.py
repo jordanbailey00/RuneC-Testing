@@ -18,6 +18,7 @@ DEFAULT_VISUALS = ROOT / "data/defs/combat_visuals.tsv"
 
 BASE_ASSETS = {
     "defs/npc_defs.bin": ROOT / "data/defs/npc_defs.bin",
+    "defs/npc_attack_anims.tsv": ROOT / "data/defs/npc_attack_anims.tsv",
     "defs/items.bin": ROOT / "data/defs/items.bin",
     "defs/prayers.bin": ROOT / "data/defs/prayers.bin",
     "defs/spells.bin": ROOT / "data/defs/spells.bin",
@@ -265,6 +266,7 @@ def env_from_manifest(bundle_root: Path, manifest: dict) -> dict[str, str | int 
         "RUNEC_COMBAT_VISUALS": "defs/combat_visuals.tsv",
         "RUNEC_SPOTANIMS": "defs/spotanims.bin",
         "RUNEC_NPC_DEFS": "defs/npc_defs.bin",
+        "RUNEC_NPC_ATTACK_ANIMS": "defs/npc_attack_anims.tsv",
         "RUNEC_ITEMS": "defs/items.bin",
         "RUNEC_PRAYERS": "defs/prayers.bin",
         "RUNEC_SPELLS": "defs/spells.bin",

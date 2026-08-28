@@ -26,6 +26,8 @@ typedef struct {
 
 void runec_npc_render_defs_init(RuneCNpcRenderDefs *defs);
 int runec_npc_render_defs_load(RuneCNpcRenderDefs *defs, const char *path);
+int runec_npc_render_defs_apply_attack_anims(RuneCNpcRenderDefs *defs,
+                                              const char *path);
 const RuneCNpcRenderDef *runec_npc_render_find(
     const RuneCNpcRenderDefs *defs, int npc_id);
 

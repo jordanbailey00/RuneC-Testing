@@ -76,7 +76,20 @@ STORE_EXTENSIONS = {
 }
 STORE_SUFFIXES = (".indexed.bin",)
 
+HITSPLAT_DEFINITION_IDS = (
+    0, 1, 3, 4, 5, 6, 7,
+    26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42,
+    48, 49, 50, 51, 52, 56, 57, 58, 62, 63, 64, 67, 68, 69, 70, 71, 72,
+    73, 74, 75, 76, 78, 79, 80, 81,
+)
+HITSPLAT_LOGICAL_PATHS = tuple(
+    f"sprites/ui/hitsplat_{definition_id}.png"
+    for definition_id in HITSPLAT_DEFINITION_IDS
+)
+
 REQUIRED_LOGICAL_PATHS = (
+    "defs/hitsplats.bin",
+    *HITSPLAT_LOGICAL_PATHS,
     "defs/npc_defs.bin",
     "spawns/world.npc-spawns.indexed.bin",
     "spawns/world.ground-items.indexed.bin",
@@ -98,6 +111,7 @@ REQUIRED_LOGICAL_PATHS = (
     "defs/prayers.bin",
     "defs/spells.bin",
     "defs/combat_visuals.tsv",
+    "defs/npc_attack_anims.tsv",
     "defs/player_actions.bin",
     "defs/regular_npc_mechanics.bin",
     "defs/activity_schemas.bin",
