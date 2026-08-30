@@ -222,6 +222,15 @@ if(TARGET test_health_bars)
     )
 endif()
 
+if(TARGET test_input_feedback)
+    target_sources(test_input_feedback PRIVATE
+        rc-viewer/input_feedback.c
+    )
+    target_include_directories(test_input_feedback PRIVATE
+        rc-viewer
+    )
+endif()
+
 if(TARGET test_streaming_async)
     target_sources(test_streaming_async PRIVATE
         rc-viewer/streaming.c

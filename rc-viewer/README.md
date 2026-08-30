@@ -172,6 +172,15 @@ replacement, cancellation, delayed effects, death, or cooldown progression.
 After a long frame it advances at most five core ticks, records any discarded
 overload ticks, and resumes from the remaining fractional accumulator.
 
+Scene clicks provide immediate client-only feedback while the queued command
+waits for that input phase. Movement uses B237's four yellow click-cross frames;
+NPC, object, ground-item, and selected-target interactions use the four red
+frames. Every frame lasts 100 ms. An accepted movement submission also places a
+temporary minimap destination immediately. That temporary marker is reconciled
+on the next core tick and is then replaced by the authoritative route endpoint
+or removed when no route exists. This presentation path never computes routes,
+predicts character tiles, or advances gameplay early.
+
 Hitsplats are a read-only projection of sequenced core hit events. The viewer
 uses all concrete B237 cache definitions and sprites, their cache-defined
 duration/fade/offset metadata, and the client's four fixed display positions

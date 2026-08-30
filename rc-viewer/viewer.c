@@ -33,6 +33,7 @@
 #include "hitsplats.h"
 #include "health_bars.h"
 #include "actor_projection.h"
+#include "input_feedback.h"
 #include "streaming.h"
 #include "tick_pacing.h"
 #include "streaming_async.h"
@@ -399,6 +400,7 @@ typedef struct {
     int show_collision;
     int god_mode;
     RuneCUiState ui;
+    RuneCInputFeedback input_feedback;
     RcCombatViewState combat_view;
     ViewerCombatProjectile combat_projectiles[VIEWER_MAX_COMBAT_PROJECTILES];
     int combat_projectile_count;
@@ -3247,6 +3249,7 @@ static void viewer_finish_dev_transport(ViewerState *v,
     v->tick_frac = 0.0f;
     v->player_moving = 0;
     v->scene_plane_override = -1;
+    runec_input_feedback_reset(&v->input_feedback);
 
     ensure_active_scene_plane(v, p->plane);
     if (strcmp(d->key, "varrock") == 0)
@@ -3270,11 +3273,42 @@ static Color minimap_tile_color(const ViewerState *v, int wx, int wy) {
     return v->minimap_tiles[lx + ly * v->minimap_tiles_w];
 }
 
-static void route_player_to(ViewerState *v, int tx, int ty) {
-    if (v->world->player.running)
-        rc_player_run_to(v->world, tx, ty);
-    else
-        rc_player_walk_to(v->world, tx, ty);
+static int route_player_to(ViewerState *v, int tx, int ty) {
+    int accepted = v->world->player.running
+        ? rc_player_run_to(v->world, tx, ty)
+        : rc_player_walk_to(v->world, tx, ty);
+    if (accepted) {
+        runec_input_feedback_start_destination(
+            &v->input_feedback, tx, ty, v->world->player.plane,
+            v->world->tick);
+    }
+    return accepted;
+}
+
+static void viewer_start_click_feedback(
+    ViewerState *v, RuneCClickFeedbackStyle style) {
+    Vector2 mouse = GetMousePosition();
+    runec_input_feedback_start_click(
+        &v->input_feedback, style, (int)lroundf(mouse.x),
+        (int)lroundf(mouse.y));
+}
+
+static void viewer_draw_click_feedback(const ViewerState *v) {
+    int frame = runec_input_feedback_click_frame(&v->input_feedback);
+    if (frame < 0)
+        return;
+    int asset_frame = frame;
+    if (v->input_feedback.click_style == RUNEC_CLICK_FEEDBACK_RED)
+        asset_frame += RUNEC_CLICK_FEEDBACK_FRAME_COUNT;
+    char asset_name[32];
+    snprintf(asset_name, sizeof(asset_name), "clickcross_%d", asset_frame);
+    const Texture2D *texture = runec_ui_asset(&v->ui.assets, asset_name);
+    if (!texture)
+        return;
+    DrawTexture(*texture,
+                v->input_feedback.click_screen_x - texture->width / 2,
+                v->input_feedback.click_screen_y - texture->height / 2,
+                WHITE);
 }
 
 static int viewer_tile_in_loaded_scene(int x, int y) {
@@ -4331,18 +4365,20 @@ static int viewer_find_npc_index_by_uid(ViewerState *v, int npc_uid) {
     return -1;
 }
 
-static void viewer_left_click_npc(ViewerState *v, int npc_uid) {
+static int viewer_left_click_npc(ViewerState *v, int npc_uid) {
     RcNpc *npc = viewer_find_npc_by_uid(v, npc_uid);
     const RcNpcDef *def = rc_npc_def_for_npc(v ? v->world : NULL, npc);
     if (!def)
-        return;
+        return 0;
     int opt = npc_default_left_click_option(def);
     if (opt < 0)
-        return;
+        return 0;
     if (rc_npc_def_option_is_attack(def, opt))
-        rc_player_attack_npc(v->world, npc_uid);
-    else
+        return rc_player_attack_npc(v->world, npc_uid);
+    else {
         rc_player_interact_npc(v->world, npc_uid, opt);
+        return 1;
+    }
 }
 
 static void reset_viewer_context(ViewerState *v) {
@@ -8463,12 +8499,23 @@ static void sync_ui_minimap(ViewerState *v) {
     runec_ui_clear_minimap(&v->ui);
     runec_ui_add_minimap_dot(&v->ui, 0, 0, RUNEC_UI_MINIMAP_DOT_PLAYER);
 
-    if (p->route_idx < p->route_len && p->route_len > 0) {
-        int tx = p->route_x[p->route_len - 1];
-        int ty = p->route_y[p->route_len - 1];
+    int destination_active = 0;
+    int destination_x = 0;
+    int destination_y = 0;
+    if (v->input_feedback.pending_destination_active
+            && v->input_feedback.pending_destination_plane == p->plane) {
+        destination_active = 1;
+        destination_x = v->input_feedback.pending_destination_x;
+        destination_y = v->input_feedback.pending_destination_y;
+    } else if (p->route_idx < p->route_len && p->route_len > 0) {
+        destination_active = 1;
+        destination_x = p->route_x[p->route_len - 1];
+        destination_y = p->route_y[p->route_len - 1];
+    }
+    if (destination_active) {
         Vector2 offset = runec_minimap_rotate_offset(
-            (float)tx + 0.5f - player_x,
-            (float)ty + 0.5f - player_y, v->cam_yaw);
+            (float)destination_x + 0.5f - player_x,
+            (float)destination_y + 0.5f - player_y, v->cam_yaw);
         runec_ui_add_minimap_dot(&v->ui, offset.x, offset.y,
                                  RUNEC_UI_MINIMAP_DOT_DESTINATION);
     }
@@ -8605,8 +8652,11 @@ static void handle_input(ViewerState *v, int ui_capture) {
                         accepted = rc_player_cast_spell_on_npc(
                             v->world, spell_id, hover.npc_uid);
                 }
-                if (accepted)
+                if (accepted) {
+                    viewer_start_click_feedback(
+                        v, RUNEC_CLICK_FEEDBACK_RED);
                     runec_ui_clear_selected_target(&v->ui);
+                }
                 return;
             }
             if (have_hover && hover.kind == VIEWER_HOVER_OBJECT) {
@@ -8627,8 +8677,11 @@ static void handle_input(ViewerState *v, int ui_capture) {
                             hover.object.placement_key);
                     }
                 }
-                if (accepted)
+                if (accepted) {
+                    viewer_start_click_feedback(
+                        v, RUNEC_CLICK_FEEDBACK_RED);
                     runec_ui_clear_selected_target(&v->ui);
+                }
                 return;
             }
             if (have_hover && hover.kind == VIEWER_HOVER_GROUND_ITEM) {
@@ -8646,14 +8699,18 @@ static void handle_input(ViewerState *v, int ui_capture) {
                             v->world, spell_id, hover.ground_item_idx);
                     }
                 }
-                if (accepted)
+                if (accepted) {
+                    viewer_start_click_feedback(
+                        v, RUNEC_CLICK_FEEDBACK_RED);
                     runec_ui_clear_selected_target(&v->ui);
+                }
                 return;
             }
         }
 
         if (have_hover && hover.kind == VIEWER_HOVER_NPC) {
-            viewer_left_click_npc(v, hover.npc_uid);
+            if (viewer_left_click_npc(v, hover.npc_uid))
+                viewer_start_click_feedback(v, RUNEC_CLICK_FEEDBACK_RED);
             return;
         }
         if (have_hover && hover.kind == VIEWER_HOVER_OBJECT) {
@@ -8661,9 +8718,13 @@ static void handle_input(ViewerState *v, int ui_capture) {
             int option = hover.option >= 0 ? hover.option
                                            : object_first_action_option(v, object);
             if (option >= 0) {
-                viewer_interact_object(v, object, option);
+                if (viewer_interact_object(v, object, option))
+                    viewer_start_click_feedback(
+                        v, RUNEC_CLICK_FEEDBACK_RED);
             } else {
-                route_player_to(v, object.x, object.y);
+                viewer_start_click_feedback(
+                    v, RUNEC_CLICK_FEEDBACK_YELLOW);
+                (void)route_player_to(v, object.x, object.y);
             }
             return;
         }
@@ -8672,10 +8733,17 @@ static void handle_input(ViewerState *v, int ui_capture) {
             int tx = hover.tile_x;
             int ty = hover.tile_y;
             int ground_idx = hover.ground_item_idx;
-            if (ground_idx >= 0)
-                rc_player_pickup_item(v->world, ground_idx);
-            else
-                route_player_to(v, tx, ty);
+            if (ground_idx >= 0) {
+                if (rc_item_result_accepted(
+                        rc_player_pickup_item(v->world, ground_idx))) {
+                    viewer_start_click_feedback(
+                        v, RUNEC_CLICK_FEEDBACK_RED);
+                }
+            } else {
+                viewer_start_click_feedback(
+                    v, RUNEC_CLICK_FEEDBACK_YELLOW);
+                (void)route_player_to(v, tx, ty);
+            }
         }
     }
 
@@ -9786,6 +9854,7 @@ int main(int argc, char **argv) {
         ? viewer_streaming_now_ms() : 0.0;
 
     while (!WindowShouldClose()) {
+        runec_input_feedback_advance(&v.input_feedback, GetFrameTime());
         viewer_process_deferred_mapsquare_eviction(&v);
         viewer_process_mapsquare_loading(&v);
         RcPlayer *p = &v.world->player;
@@ -9963,6 +10032,8 @@ int main(int argc, char **argv) {
                 int old_plane = v.world->player.plane;
                 viewer_apply_god_mode(&v);
                 rc_world_tick(v.world);
+                runec_input_feedback_reconcile_tick(
+                    &v.input_feedback, v.world->tick);
                 viewer_tick_combat_projectiles(&v);
                 viewer_tick_attack_anims(&v);
                 viewer_capture_combat_attack_events(&v);
@@ -9998,6 +10069,7 @@ int main(int argc, char **argv) {
         viewer_sync_scene_plane_ui(&v);
         sync_ui_minimap(&v);
         runec_ui_draw(&v.ui, GetScreenWidth(), GetScreenHeight());
+        viewer_draw_click_feedback(&v);
         draw_hover_action_label(&v, ui_capture);
         draw_streaming_telemetry_overlay(&v);
         EndDrawing();

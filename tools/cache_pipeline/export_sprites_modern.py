@@ -106,6 +106,8 @@ def build_sprite_map(graphic_symbols: Path | None = None) -> dict[int, list[str]
     _add(sprites, 1611, "mini_bottom")
     _add(sprites, 5813, "compass_outline")
     _add(sprites, 5832, "border_map_compass")
+    for frame, sprite_id in enumerate(range(1430, 1438)):
+        _add(sprites, sprite_id, f"clickcross_{frame}")
 
     side_icons = {
         168: ("side_icons_0", "side_icon_combat"),
