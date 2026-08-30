@@ -486,6 +486,21 @@ void runec_ui_assets_load(RuneCUiAssets *assets) {
             break;
         }
     }
+    const char *bold_font_paths[] = {
+        "data/fonts/runescape_bold.ttf",
+    };
+    for (int i = 0; i < (int)(sizeof(bold_font_paths) / sizeof(bold_font_paths[0])); i++) {
+        const char *font_path = bold_font_paths[i];
+        if (!rc_asset_exists(font_path))
+            continue;
+        assets->bold_font = runec_load_font_asset(font_path, 12);
+        if (assets->bold_font.texture.id != 0) {
+            SetTextureFilter(assets->bold_font.texture, TEXTURE_FILTER_POINT);
+            assets->bold_font_loaded = 1;
+            fprintf(stderr, "ui_assets: loaded bold font %s\n", font_path);
+            break;
+        }
+    }
 }
 
 void runec_ui_assets_unload(RuneCUiAssets *assets) {
@@ -506,6 +521,10 @@ void runec_ui_assets_unload(RuneCUiAssets *assets) {
     if (assets->small_font_loaded) {
         UnloadFont(assets->small_font);
         assets->small_font_loaded = 0;
+    }
+    if (assets->bold_font_loaded) {
+        UnloadFont(assets->bold_font);
+        assets->bold_font_loaded = 0;
     }
     assets->loaded_count = 0;
     assets->missing_count = 0;
@@ -542,6 +561,11 @@ Font runec_ui_font_for_size(const RuneCUiAssets *assets, float size) {
     if (size <= 12.0f && assets->small_font_loaded)
         return assets->small_font;
     return runec_ui_font(assets);
+}
+
+Font runec_ui_bold_font(const RuneCUiAssets *assets) {
+    return assets->bold_font_loaded ? assets->bold_font
+                                    : runec_ui_font_for_size(assets, 12.0f);
 }
 
 void runec_ui_draw_text_shadow(const RuneCUiAssets *assets, const char *text,

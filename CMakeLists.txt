@@ -231,6 +231,24 @@ if(TARGET test_input_feedback)
     )
 endif()
 
+if(TARGET test_context_menu)
+    target_sources(test_context_menu PRIVATE
+        rc-viewer/context_menu.c
+    )
+    target_include_directories(test_context_menu PRIVATE
+        rc-viewer
+    )
+endif()
+
+if(TARGET test_route_overlay)
+    target_sources(test_route_overlay PRIVATE
+        rc-viewer/route_overlay.c
+    )
+    target_include_directories(test_route_overlay PRIVATE
+        rc-viewer
+    )
+endif()
+
 if(TARGET test_streaming_async)
     target_sources(test_streaming_async PRIVATE
         rc-viewer/streaming.c

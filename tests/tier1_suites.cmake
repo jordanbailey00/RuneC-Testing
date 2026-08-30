@@ -91,6 +91,7 @@ rc_add_tier1_suite(movement_pathfinding_los_routing
     test_combat_phase3_movement_range_facing
     test_interaction_engine_phase4
     test_input_feedback
+    test_route_overlay
     test_movement_routing_runtime
     test_npc_facing_runtime
     test_objects_runtime

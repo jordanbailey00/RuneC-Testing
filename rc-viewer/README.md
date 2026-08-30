@@ -199,11 +199,24 @@ not show a bar, and missing health does not leave one visible indefinitely.
 Special encounter/interface bars are separate authored content.
 
 Scene and UI context options use right-click. A stationary right-click opens
-the applicable menu; moving beyond the small drag threshold keeps right-drag
-camera orbit behavior. Examine, selected item/spell actions, and distant
-ground-item Take are submitted to core. Selection clears only after accepted
-input, and sequenced core interaction messages/failures are appended to chat.
-The viewer does not revalidate targets or implement the resulting action.
+the applicable OSRS-style menu; moving beyond the small drag threshold keeps
+right-drag camera orbit behavior. Menu width follows its bold 12-pixel text,
+the click is its centered horizontal anchor, and the 19-pixel header, 15-pixel
+rows, B237-era colors, hover color, and NPC/object/item target colors match the
+client contract. NPCs, objects, ground items, bare scene tiles, inventory,
+equipment, prayers, spells, and decoded widgets share that presentation.
+Examine, selected item/spell actions, distant ground-item Take, and Walk here
+remain submissions to core. Selection clears only after accepted input, and
+sequenced core interaction messages/failures are appended to chat. The viewer
+does not revalidate targets or implement the resulting action.
+
+The terrain tile under the scene cursor is outlined with four corner brackets
+using the loaded heightmap's real corner heights. An accepted movement click
+immediately runs the existing core pathfinder as a read-only viewer preview and
+highlights every traversed tile without waiting for a world tick. The next core
+tick replaces that preview with the authoritative player route. Fill and edge
+geometry are submitted in two batches. The preview never writes a destination,
+route, position, or other gameplay state.
 
 The viewer defaults preserve current behavior: scene radius 1, startup preload
 radius 0, CPU/GPU chunk caps 128, and a 16 MB per-frame upload budget. Existing

@@ -34,6 +34,7 @@
 #include "health_bars.h"
 #include "actor_projection.h"
 #include "input_feedback.h"
+#include "route_overlay.h"
 #include "streaming.h"
 #include "tick_pacing.h"
 #include "streaming_async.h"
@@ -70,9 +71,12 @@
 #define VIEWER_CONTEXT_NONE 0
 #define VIEWER_CONTEXT_NPC 1
 #define VIEWER_CONTEXT_OBJECT 2
+#define VIEWER_CONTEXT_GROUND_ITEM 3
+#define VIEWER_CONTEXT_TILE 4
 #define VIEWER_CONTEXT_WALK_HERE -10
 #define VIEWER_CONTEXT_EXAMINE -11
 #define VIEWER_CONTEXT_CANCEL -12
+#define VIEWER_CONTEXT_TAKE -13
 #define VIEWER_HOVER_NONE 0
 #define VIEWER_HOVER_NPC 1
 #define VIEWER_HOVER_OBJECT 2
@@ -401,6 +405,11 @@ typedef struct {
     int god_mode;
     RuneCUiState ui;
     RuneCInputFeedback input_feedback;
+    RcRoute route_preview;
+    int route_preview_active;
+    int route_preview_start_x;
+    int route_preview_start_y;
+    int route_preview_plane;
     RcCombatViewState combat_view;
     ViewerCombatProjectile combat_projectiles[VIEWER_MAX_COMBAT_PROJECTILES];
     int combat_projectile_count;
@@ -415,6 +424,9 @@ typedef struct {
     int context_kind;
     int context_npc_uid;
     ViewerPickedObject context_object;
+    int context_ground_item_idx;
+    int context_tile_x;
+    int context_tile_y;
     int context_action_option[RUNEC_UI_CONTEXT_ACTIONS];
     uint64_t interaction_outcome_seen;
     int scene_right_tracking;
@@ -1811,6 +1823,129 @@ static float ground_yf_plane(ViewerState *v, int plane, float world_x,
 
 static float ground_yf(ViewerState *v, float world_x, float world_y) {
     return ground_yf_plane(v, viewer_scene_plane(v), world_x, world_y);
+}
+
+static float ground_corner_y_plane(ViewerState *v, int plane,
+                                   int tile_x, int tile_y,
+                                   int corner_x, int corner_y) {
+    TerrainMesh *terrain = viewer_mapsquare_terrain_at(
+        v, plane, tile_x, tile_y);
+    if (!terrain)
+        terrain = viewer_terrain_for_plane(v, plane);
+    if (terrain && terrain->loaded && terrain->heightmap) {
+        int local_x = tile_x - g_world_origin_x + corner_x;
+        int local_y = tile_y - g_world_origin_y + corner_y;
+        int hx = local_x - terrain->hm_min_x;
+        int hy = local_y - terrain->hm_min_y;
+        if (hx >= 0 && hx < terrain->hm_width
+                && hy >= 0 && hy < terrain->hm_height) {
+            return terrain->heightmap[hx + hy * terrain->hm_width] + 0.08f;
+        }
+    }
+    return ground_yf_plane(v, plane,
+                           (float)tile_x + (float)corner_x,
+                           (float)tile_y + (float)corner_y) + 0.03f;
+}
+
+static void tile_overlay_corners(ViewerState *v, int plane,
+                                 int tile_x, int tile_y,
+                                 Vector3 corners[4]) {
+    static const int offset_x[4] = {0, 1, 1, 0};
+    static const int offset_y[4] = {0, 0, 1, 1};
+    for (int i = 0; i < 4; i++) {
+        int world_x = tile_x + offset_x[i];
+        int world_y = tile_y + offset_y[i];
+        corners[i] = (Vector3){
+            (float)(world_x - g_world_origin_x),
+            ground_corner_y_plane(v, plane, tile_x, tile_y,
+                                  offset_x[i], offset_y[i]),
+            -(float)(world_y - g_world_origin_y),
+        };
+    }
+}
+
+static Vector3 vector3_toward(Vector3 from, Vector3 to, float amount) {
+    return (Vector3){
+        from.x + (to.x - from.x) * amount,
+        from.y + (to.y - from.y) * amount,
+        from.z + (to.z - from.z) * amount,
+    };
+}
+
+static void emit_route_tile_fill(ViewerState *v, int plane,
+                                 int tile_x, int tile_y) {
+    Vector3 c[4];
+    tile_overlay_corners(v, plane, tile_x, tile_y, c);
+    for (int i = 0; i < 3; i++)
+        rlVertex3f(c[i].x, c[i].y, c[i].z);
+    rlVertex3f(c[0].x, c[0].y, c[0].z);
+    rlVertex3f(c[2].x, c[2].y, c[2].z);
+    rlVertex3f(c[3].x, c[3].y, c[3].z);
+}
+
+static void emit_route_tile_edges(ViewerState *v, int plane,
+                                  int tile_x, int tile_y) {
+    Vector3 c[4];
+    tile_overlay_corners(v, plane, tile_x, tile_y, c);
+    for (int i = 0; i < 4; i++) {
+        Vector3 next = c[(i + 1) % 4];
+        rlVertex3f(c[i].x, c[i].y, c[i].z);
+        rlVertex3f(next.x, next.y, next.z);
+    }
+}
+
+static void draw_hovered_tile(ViewerState *v, int plane,
+                              int tile_x, int tile_y) {
+    Vector3 c[4];
+    tile_overlay_corners(v, plane, tile_x, tile_y, c);
+    Color color = (Color){255, 255, 0, 255};
+    for (int i = 0; i < 4; i++) {
+        DrawLine3D(c[i], vector3_toward(c[i], c[(i + 1) % 4], 0.26f),
+                   color);
+        DrawLine3D(c[i], vector3_toward(c[i], c[(i + 3) % 4], 0.26f),
+                   color);
+    }
+}
+
+static void draw_route_waypoints(ViewerState *v, int scene_plane,
+                                 int start_x, int start_y,
+                                 const int *waypoint_x,
+                                 const int *waypoint_y,
+                                 int waypoint_index, int waypoint_count) {
+    if (!v || !waypoint_x || !waypoint_y
+            || waypoint_index >= waypoint_count)
+        return;
+    RuneCRouteOverlayCursor cursor;
+    runec_route_overlay_begin(
+        &cursor, start_x, start_y, waypoint_x, waypoint_y,
+        waypoint_index, waypoint_count);
+    int tile_x = 0;
+    int tile_y = 0;
+    rlSetTexture(0);
+    rlBegin(RL_TRIANGLES);
+    rlColor4ub(255, 255, 0, 48);
+    while (runec_route_overlay_next(&cursor, &tile_x, &tile_y))
+        emit_route_tile_fill(v, scene_plane, tile_x, tile_y);
+    rlEnd();
+
+    runec_route_overlay_begin(
+        &cursor, start_x, start_y, waypoint_x, waypoint_y,
+        waypoint_index, waypoint_count);
+    rlBegin(RL_LINES);
+    rlColor4ub(255, 255, 0, 180);
+    while (runec_route_overlay_next(&cursor, &tile_x, &tile_y))
+        emit_route_tile_edges(v, scene_plane, tile_x, tile_y);
+    rlEnd();
+}
+
+static void draw_player_route(ViewerState *v, const RcPlayer *player,
+                              int scene_plane) {
+    if (!player || player->plane != scene_plane)
+        return;
+    draw_route_waypoints(
+        v, scene_plane, player->x, player->y,
+        player->route_x, player->route_y,
+        player->route_idx, player->route_len);
 }
 
 static int append_unique_model_id(uint32_t *ids, int count, uint32_t id) {
@@ -3250,6 +3385,7 @@ static void viewer_finish_dev_transport(ViewerState *v,
     v->player_moving = 0;
     v->scene_plane_override = -1;
     runec_input_feedback_reset(&v->input_feedback);
+    v->route_preview_active = 0;
 
     ensure_active_scene_plane(v, p->plane);
     if (strcmp(d->key, "varrock") == 0)
@@ -3274,13 +3410,26 @@ static Color minimap_tile_color(const ViewerState *v, int wx, int wy) {
 }
 
 static int route_player_to(ViewerState *v, int tx, int ty) {
+    RcPlayer *player = &v->world->player;
     int accepted = v->world->player.running
         ? rc_player_run_to(v->world, tx, ty)
         : rc_player_walk_to(v->world, tx, ty);
+    v->route_preview_active = 0;
     if (accepted) {
         runec_input_feedback_start_destination(
-            &v->input_feedback, tx, ty, v->world->player.plane,
+            &v->input_feedback, tx, ty, player->plane,
             v->world->tick);
+        RcRouteTarget target = rc_route_target_point(tx, ty);
+        RcRoute preview = rc_find_route(
+            &v->world->map, player->x, player->y,
+            1, 1, player->plane, &target, false);
+        if (rc_route_status_has_path(preview.status)) {
+            v->route_preview = preview;
+            v->route_preview_active = 1;
+            v->route_preview_start_x = player->x;
+            v->route_preview_start_y = player->y;
+            v->route_preview_plane = player->plane;
+        }
     }
     return accepted;
 }
@@ -4385,6 +4534,9 @@ static void reset_viewer_context(ViewerState *v) {
     v->context_kind = VIEWER_CONTEXT_NONE;
     v->context_npc_uid = -1;
     v->context_object = (ViewerPickedObject){0};
+    v->context_ground_item_idx = -1;
+    v->context_tile_x = -1;
+    v->context_tile_y = -1;
     for (int i = 0; i < RUNEC_UI_CONTEXT_ACTIONS; i++)
         v->context_action_option[i] = VIEWER_CONTEXT_CANCEL;
 }
@@ -4395,16 +4547,16 @@ static void open_npc_context_menu(ViewerState *v, int npc_uid) {
     if (!def)
         return;
     const char *actions[RUNEC_UI_CONTEXT_ACTIONS];
-    char action_text[RUNEC_UI_CONTEXT_ACTIONS][32];
+    char action_text[RUNEC_UI_CONTEXT_ACTIONS][RUNEC_UI_CONTEXT_TEXT_MAX];
     int action_options[RUNEC_UI_CONTEXT_ACTIONS];
     int count = 0;
 
-    for (int i = 0; i < RC_NPC_OPTION_COUNT && count < RUNEC_UI_CONTEXT_ACTIONS - 2; i++) {
+    for (int i = 0; i < RC_NPC_OPTION_COUNT
+            && count < RUNEC_UI_CONTEXT_ACTIONS - 3; i++) {
         const char *option = rc_npc_def_option(def, i);
         if (!option || !option[0])
             continue;
-        snprintf(action_text[count], sizeof(action_text[count]), "%s %.22s",
-                 option, def->name);
+        snprintf(action_text[count], sizeof(action_text[count]), "%s", option);
         actions[count] = action_text[count];
         action_options[count] = i;
         count++;
@@ -4416,8 +4568,7 @@ static void open_npc_context_menu(ViewerState *v, int npc_uid) {
         count++;
     }
     if (count < RUNEC_UI_CONTEXT_ACTIONS - 1) {
-        snprintf(action_text[count], sizeof(action_text[count]), "Examine %.22s",
-                 def->name);
+        snprintf(action_text[count], sizeof(action_text[count]), "Examine");
         actions[count] = action_text[count];
         action_options[count] = VIEWER_CONTEXT_EXAMINE;
         count++;
@@ -4432,8 +4583,9 @@ static void open_npc_context_menu(ViewerState *v, int npc_uid) {
     v->context_npc_uid = npc_uid;
     for (int i = 0; i < count; i++)
         v->context_action_option[i] = action_options[i];
-    runec_ui_open_context(&v->ui, GetMousePosition(), "Choose Option",
-                          actions, count);
+    runec_ui_open_context_targeted(
+        &v->ui, GetMousePosition(), def->name,
+        (Color){255, 255, 0, 255}, actions, count);
 }
 
 static void open_object_context_menu(ViewerState *v,
@@ -4448,12 +4600,11 @@ static void open_object_context_menu(ViewerState *v,
     int count = 0;
 
     for (int i = 0; i < RC_OBJECT_ACTIONS
-            && count < RUNEC_UI_CONTEXT_ACTIONS - 2; i++) {
+            && count < RUNEC_UI_CONTEXT_ACTIONS - 3; i++) {
         const char *label = object_action_label(&object, def, i);
         if (!object_action_option_available(v, &object, i) || !label[0])
             continue;
-        snprintf(action_text[count], sizeof(action_text[count]), "%s %.24s",
-                 label, def->name);
+        snprintf(action_text[count], sizeof(action_text[count]), "%s", label);
         actions[count] = action_text[count];
         action_options[count] = i;
         count++;
@@ -4465,8 +4616,7 @@ static void open_object_context_menu(ViewerState *v,
         count++;
     }
     if (count < RUNEC_UI_CONTEXT_ACTIONS - 1) {
-        snprintf(action_text[count], sizeof(action_text[count]), "Examine %.24s",
-                 def->name);
+        snprintf(action_text[count], sizeof(action_text[count]), "Examine");
         actions[count] = action_text[count];
         action_options[count] = VIEWER_CONTEXT_EXAMINE;
         count++;
@@ -4481,8 +4631,46 @@ static void open_object_context_menu(ViewerState *v,
     v->context_object = object;
     for (int i = 0; i < count; i++)
         v->context_action_option[i] = action_options[i];
-    runec_ui_open_context(&v->ui, GetMousePosition(), "Choose Option",
-                          actions, count);
+    runec_ui_open_context_targeted(
+        &v->ui, GetMousePosition(), def->name,
+        (Color){0, 255, 255, 255}, actions, count);
+}
+
+static void open_ground_item_context_menu(ViewerState *v, int ground_item_idx,
+                                          int tile_x, int tile_y) {
+    if (!v || !v->world || ground_item_idx < 0
+            || ground_item_idx >= v->world->ground_item_count)
+        return;
+    const char *actions[] = {"Take", "Walk here", "Examine", "Cancel"};
+    const int options[] = {
+        VIEWER_CONTEXT_TAKE,
+        VIEWER_CONTEXT_WALK_HERE,
+        VIEWER_CONTEXT_EXAMINE,
+        VIEWER_CONTEXT_CANCEL,
+    };
+    reset_viewer_context(v);
+    v->context_kind = VIEWER_CONTEXT_GROUND_ITEM;
+    v->context_ground_item_idx = ground_item_idx;
+    v->context_tile_x = tile_x;
+    v->context_tile_y = tile_y;
+    for (int i = 0; i < 4; i++)
+        v->context_action_option[i] = options[i];
+    runec_ui_open_context_targeted(
+        &v->ui, GetMousePosition(),
+        viewer_ground_item_name(v, ground_item_idx),
+        (Color){255, 144, 64, 255}, actions, 4);
+}
+
+static void open_tile_context_menu(ViewerState *v, int tile_x, int tile_y) {
+    const char *actions[] = {"Walk here", "Cancel"};
+    reset_viewer_context(v);
+    v->context_kind = VIEWER_CONTEXT_TILE;
+    v->context_tile_x = tile_x;
+    v->context_tile_y = tile_y;
+    v->context_action_option[0] = VIEWER_CONTEXT_WALK_HERE;
+    v->context_action_option[1] = VIEWER_CONTEXT_CANCEL;
+    runec_ui_open_context_targeted(
+        &v->ui, GetMousePosition(), "", WHITE, actions, 2);
 }
 
 static void handle_context_intent(ViewerState *v) {
@@ -4515,6 +4703,20 @@ static void handle_context_intent(ViewerState *v) {
                 v->world, object.obj_id, object.x, object.y, object.plane,
                 object.placement_key);
         }
+    } else if (v->context_kind == VIEWER_CONTEXT_GROUND_ITEM) {
+        int option = v->context_action_option[action_idx];
+        if (option == VIEWER_CONTEXT_TAKE) {
+            rc_player_pickup_item(v->world, v->context_ground_item_idx);
+        } else if (option == VIEWER_CONTEXT_WALK_HERE) {
+            route_player_to(v, v->context_tile_x, v->context_tile_y);
+        } else if (option == VIEWER_CONTEXT_EXAMINE) {
+            rc_player_examine_ground_item(v->world,
+                                          v->context_ground_item_idx);
+        }
+    } else if (v->context_kind == VIEWER_CONTEXT_TILE) {
+        int option = v->context_action_option[action_idx];
+        if (option == VIEWER_CONTEXT_WALK_HERE)
+            route_player_to(v, v->context_tile_x, v->context_tile_y);
     }
     reset_viewer_context(v);
 }
@@ -8594,6 +8796,15 @@ static void handle_input(ViewerState *v, int ui_capture) {
                 open_object_context_menu(v, hover.object);
                 return;
             }
+            if (have_hover && hover.kind == VIEWER_HOVER_GROUND_ITEM) {
+                open_ground_item_context_menu(
+                    v, hover.ground_item_idx, hover.tile_x, hover.tile_y);
+                return;
+            }
+            if (have_hover && hover.kind == VIEWER_HOVER_TILE) {
+                open_tile_context_menu(v, hover.tile_x, hover.tile_y);
+                return;
+            }
             reset_viewer_context(v);
         }
     }
@@ -9019,7 +9230,7 @@ static void draw_health_bar(const RuneCHealthBarState *state,
     }
 }
 
-static void draw_scene(ViewerState *v) {
+static void draw_scene(ViewerState *v, int ui_capture) {
     RcPlayer *p = &v->world->player;
     const RcCombatViewState *combat_view = &v->combat_view;
     int scene_plane = viewer_scene_plane(v);
@@ -9047,6 +9258,11 @@ static void draw_scene(ViewerState *v) {
         v->camera.target.y + v->cam_dist * sinf(v->cam_pitch),
         v->camera.target.z + v->cam_dist * cosf(v->cam_pitch) * cosf(v->cam_yaw)
     };
+
+    int hover_tile_x = -1;
+    int hover_tile_y = -1;
+    int show_hover_tile = !ui_capture && !v->ui.context_open && !held
+        && raycast_tile(v, &hover_tile_x, &hover_tile_y);
 
     BeginMode3D(v->camera);
     rlDisableBackfaceCulling();
@@ -9194,18 +9410,21 @@ static void draw_scene(ViewerState *v) {
 
     draw_combat_projectiles(v);
 
-    rlEnableBackfaceCulling();
-
-    // Route markers (convert world→local for rendering)
-    if (!held && p->plane == scene_plane && p->route_idx < p->route_len) {
-        for (int i = p->route_idx; i < p->route_len; i++) {
-            float rx = (float)LOCAL_X(p->route_x[i]) + 0.5f;
-            float rz = -((float)LOCAL_Y(p->route_y[i]) + 0.5f);
-            float ry = ground_y_plane(v, p->plane, p->route_x[i],
-                                      p->route_y[i]) + 0.05f;
-            DrawCube((Vector3){rx, ry, rz}, 0.3f, 0.05f, 0.3f, YELLOW);
-        }
+    if (!held && v->input_feedback.pending_destination_active
+            && v->route_preview_active
+            && v->route_preview_plane == scene_plane) {
+        draw_route_waypoints(
+            v, scene_plane,
+            v->route_preview_start_x, v->route_preview_start_y,
+            v->route_preview.waypoints_x, v->route_preview.waypoints_y,
+            0, v->route_preview.length);
+    } else if (!held && !v->input_feedback.pending_destination_active) {
+        draw_player_route(v, p, scene_plane);
     }
+    if (show_hover_tile)
+        draw_hovered_tile(v, scene_plane, hover_tile_x, hover_tile_y);
+
+    rlEnableBackfaceCulling();
 
     // Collision overlay (C key) — shows blocked tiles and wall flags
     if (v->show_collision) {
@@ -10060,7 +10279,7 @@ int main(int argc, char **argv) {
 
         BeginDrawing();
         ClearBackground((Color){40, 45, 55, 255});
-        draw_scene(&v);
+        draw_scene(&v, ui_capture);
         runec_ui_sync_status(&v.ui, p->x, p->y, LOCAL_X(p->x), LOCAL_Y(p->y),
                              (uint32_t)v.world->tick, p->running, v.paused);
         sync_ui_items(&v);

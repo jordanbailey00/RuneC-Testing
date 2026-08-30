@@ -10,8 +10,10 @@ typedef struct RuneCUiAssets {
     unsigned char loaded[RUNEC_UI_ASSET_MAX];
     Font font;
     Font small_font;
+    Font bold_font;
     int font_loaded;
     int small_font_loaded;
+    int bold_font_loaded;
     int loaded_count;
     int missing_count;
     int required_count;
@@ -28,6 +30,7 @@ void runec_ui_draw_asset(const RuneCUiAssets *assets, const char *name,
                          Rectangle dst, Color tint);
 Font runec_ui_font(const RuneCUiAssets *assets);
 Font runec_ui_font_for_size(const RuneCUiAssets *assets, float size);
+Font runec_ui_bold_font(const RuneCUiAssets *assets);
 void runec_ui_draw_text_shadow(const RuneCUiAssets *assets, const char *text,
                                float x, float y, float size, Color color);
 

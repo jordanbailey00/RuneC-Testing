@@ -15,7 +15,8 @@
 #define RUNEC_UI_CHAT_LINES 7
 #define RUNEC_UI_CHAT_TAB_COUNT 7
 #define RUNEC_UI_CHAT_INPUT_MAX 128
-#define RUNEC_UI_CONTEXT_ACTIONS 5
+#define RUNEC_UI_CONTEXT_ACTIONS 16
+#define RUNEC_UI_CONTEXT_TEXT_MAX 80
 #define RUNEC_UI_MINIMAP_DOTS 256
 #define RUNEC_UI_ITEM_ICON_CACHE 1024
 #define RUNEC_UI_SKILL_COUNT 24
@@ -240,8 +241,9 @@ typedef struct RuneCUiState {
 
     int context_open;
     Vector2 context_pos;
-    char context_title[48];
-    char context_actions[RUNEC_UI_CONTEXT_ACTIONS][32];
+    char context_title[RUNEC_UI_CONTEXT_TEXT_MAX];
+    char context_actions[RUNEC_UI_CONTEXT_ACTIONS][RUNEC_UI_CONTEXT_TEXT_MAX];
+    Color context_target_color;
     int context_action_op[RUNEC_UI_CONTEXT_ACTIONS];
     int context_action_count;
     RuneCUiContextSourceKind context_source_kind;
@@ -302,6 +304,9 @@ void runec_ui_sync_status(RuneCUiState *ui, int world_x, int world_y,
                           int running, int paused);
 void runec_ui_open_context(RuneCUiState *ui, Vector2 pos, const char *title,
                            const char **actions, int action_count);
+void runec_ui_open_context_targeted(
+    RuneCUiState *ui, Vector2 pos, const char *title, Color target_color,
+    const char **actions, int action_count);
 void runec_ui_clear_selected_target(RuneCUiState *ui);
 void runec_ui_clear_component_overrides(RuneCUiState *ui);
 int runec_ui_set_component_text(RuneCUiState *ui, uint32_t component_id,
