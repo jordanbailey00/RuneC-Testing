@@ -240,6 +240,7 @@ typedef struct RuneCUiState {
     int magic_filter_open;
 
     int context_open;
+    int context_dismissed;
     Vector2 context_pos;
     char context_title[RUNEC_UI_CONTEXT_TEXT_MAX];
     char context_actions[RUNEC_UI_CONTEXT_ACTIONS][RUNEC_UI_CONTEXT_TEXT_MAX];

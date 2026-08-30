@@ -4673,6 +4673,23 @@ static void open_tile_context_menu(ViewerState *v, int tile_x, int tile_y) {
         &v->ui, GetMousePosition(), "", WHITE, actions, 2);
 }
 
+static void open_scene_context_menu(ViewerState *v) {
+    ViewerHoverTarget hover;
+    int have_hover = resolve_scene_hover_target(v, &hover);
+    if (have_hover && hover.kind == VIEWER_HOVER_NPC) {
+        open_npc_context_menu(v, hover.npc_uid);
+    } else if (have_hover && hover.kind == VIEWER_HOVER_OBJECT) {
+        open_object_context_menu(v, hover.object);
+    } else if (have_hover && hover.kind == VIEWER_HOVER_GROUND_ITEM) {
+        open_ground_item_context_menu(
+            v, hover.ground_item_idx, hover.tile_x, hover.tile_y);
+    } else if (have_hover && hover.kind == VIEWER_HOVER_TILE) {
+        open_tile_context_menu(v, hover.tile_x, hover.tile_y);
+    } else {
+        reset_viewer_context(v);
+    }
+}
+
 static void handle_context_intent(ViewerState *v) {
     if (v->ui.last_intent.kind != RUNEC_UI_INTENT_CONTEXT_ACTION)
         return;
@@ -8761,16 +8778,21 @@ static void handle_input(ViewerState *v, int ui_capture) {
         v->scene_right_tracking = 1;
         v->scene_right_dragged = 0;
         v->scene_right_start = GetMousePosition();
+        open_scene_context_menu(v);
     }
 
     // Camera orbit
-    if (v->scene_right_tracking && !ui_capture
-            && IsMouseButtonDown(MOUSE_BUTTON_RIGHT) && !v->ui.context_open) {
+    if (v->scene_right_tracking
+            && IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
         Vector2 mouse = GetMousePosition();
         float total_x = mouse.x - v->scene_right_start.x;
         float total_y = mouse.y - v->scene_right_start.y;
-        if (total_x * total_x + total_y * total_y > 9.0f)
+        if (!v->scene_right_dragged
+                && total_x * total_x + total_y * total_y > 9.0f) {
             v->scene_right_dragged = 1;
+            v->ui.context_open = 0;
+            reset_viewer_context(v);
+        }
         Vector2 d = GetMouseDelta();
         if (v->scene_right_dragged) {
             v->cam_yaw += d.x * 0.005f;
@@ -8781,32 +8803,8 @@ static void handle_input(ViewerState *v, int ui_capture) {
     }
     if (v->scene_right_tracking
             && IsMouseButtonReleased(MOUSE_BUTTON_RIGHT)) {
-        int open_context = !ui_capture && !v->scene_right_dragged
-                         && !v->ui.context_open;
         v->scene_right_tracking = 0;
         v->scene_right_dragged = 0;
-        if (open_context) {
-            ViewerHoverTarget hover;
-            int have_hover = resolve_scene_hover_target(v, &hover);
-            if (have_hover && hover.kind == VIEWER_HOVER_NPC) {
-                open_npc_context_menu(v, hover.npc_uid);
-                return;
-            }
-            if (have_hover && hover.kind == VIEWER_HOVER_OBJECT) {
-                open_object_context_menu(v, hover.object);
-                return;
-            }
-            if (have_hover && hover.kind == VIEWER_HOVER_GROUND_ITEM) {
-                open_ground_item_context_menu(
-                    v, hover.ground_item_idx, hover.tile_x, hover.tile_y);
-                return;
-            }
-            if (have_hover && hover.kind == VIEWER_HOVER_TILE) {
-                open_tile_context_menu(v, hover.tile_x, hover.tile_y);
-                return;
-            }
-            reset_viewer_context(v);
-        }
     }
     float wh = ui_capture ? 0.0f : GetMouseWheelMove();
     if (wh != 0.0f) {
@@ -10232,6 +10230,8 @@ int main(int argc, char **argv) {
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_CONTEXT_ACTION) {
             handle_context_intent(&v);
         }
+        if (v.ui.context_dismissed)
+            reset_viewer_context(&v);
         handle_input(&v, ui_capture);
         viewer_update_movement_prefetch(&v);
 

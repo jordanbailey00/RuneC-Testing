@@ -6,12 +6,23 @@
 #include <string.h>
 
 static void test_osrs_dimensions_and_anchor(void) {
+    assert(RUNEC_CONTEXT_MENU_FONT_SIZE == 16.0f);
+    assert(RUNEC_CONTEXT_MENU_DISMISS_MARGIN == 10);
     RuneCContextMenuLayout layout = runec_context_menu_layout(
         400, 200, 800, 600, 92, 4);
-    assert(layout.width == 100);
-    assert(layout.height == 82);
-    assert(layout.x == 350);
+    assert(layout.width == 104);
+    assert(layout.height == 104);
+    assert(layout.x == 348);
     assert(layout.y == 200);
+}
+
+static void test_osrs_dismiss_margin(void) {
+    RuneCContextMenuLayout layout = runec_context_menu_layout(
+        400, 200, 800, 600, 92, 4);
+    assert(runec_context_menu_contains_margin(&layout, 338, 190, 10));
+    assert(runec_context_menu_contains_margin(&layout, 462, 314, 10));
+    assert(!runec_context_menu_contains_margin(&layout, 337, 200, 10));
+    assert(!runec_context_menu_contains_margin(&layout, 348, 315, 10));
 }
 
 static void test_screen_clamping(void) {
@@ -21,22 +32,22 @@ static void test_screen_clamping(void) {
     assert(top_left.y == 0);
 
     RuneCContextMenuLayout bottom_right = runec_context_menu_layout(
-        198, 95, 200, 100, 92, 4);
-    assert(bottom_right.x == 100);
-    assert(bottom_right.y == 18);
+        198, 135, 200, 140, 92, 4);
+    assert(bottom_right.x == 96);
+    assert(bottom_right.y == 36);
 }
 
 static void test_action_hit_rows(void) {
     RuneCContextMenuLayout layout = runec_context_menu_layout(
         400, 200, 800, 600, 92, 4);
-    assert(runec_context_menu_contains(&layout, 350, 200));
-    assert(!runec_context_menu_contains(&layout, 349, 200));
-    assert(runec_context_menu_action_at(&layout, 4, 360, 218) == -1);
-    assert(runec_context_menu_action_at(&layout, 4, 360, 219) == 0);
-    assert(runec_context_menu_action_at(&layout, 4, 360, 233) == 0);
-    assert(runec_context_menu_action_at(&layout, 4, 360, 234) == 1);
-    assert(runec_context_menu_action_at(&layout, 4, 360, 278) == 3);
-    assert(runec_context_menu_action_at(&layout, 4, 360, 279) == -1);
+    assert(runec_context_menu_contains(&layout, 348, 200));
+    assert(!runec_context_menu_contains(&layout, 347, 200));
+    assert(runec_context_menu_action_at(&layout, 4, 360, 223) == -1);
+    assert(runec_context_menu_action_at(&layout, 4, 360, 224) == 0);
+    assert(runec_context_menu_action_at(&layout, 4, 360, 242) == 0);
+    assert(runec_context_menu_action_at(&layout, 4, 360, 243) == 1);
+    assert(runec_context_menu_action_at(&layout, 4, 360, 299) == 3);
+    assert(runec_context_menu_action_at(&layout, 4, 360, 300) == -1);
 }
 
 static void test_bold_font_matches_loose_and_packed_data(void) {
@@ -63,6 +74,7 @@ static void test_bold_font_matches_loose_and_packed_data(void) {
 
 int main(void) {
     test_osrs_dimensions_and_anchor();
+    test_osrs_dismiss_margin();
     test_screen_clamping();
     test_action_hit_rows();
     test_bold_font_matches_loose_and_packed_data();

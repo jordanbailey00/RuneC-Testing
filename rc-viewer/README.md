@@ -198,12 +198,13 @@ clearance; hitsplats remain centered on the model. Target selection alone does
 not show a bar, and missing health does not leave one visible indefinitely.
 Special encounter/interface bars are separate authored content.
 
-Scene and UI context options use right-click. A stationary right-click opens
-the applicable OSRS-style menu; moving beyond the small drag threshold keeps
-right-drag camera orbit behavior. Menu width follows its bold 12-pixel text,
-the click is its centered horizontal anchor, and the 19-pixel header, 15-pixel
-rows, B237-era colors, hover color, and NPC/object/item target colors match the
-client contract. NPCs, objects, ground items, bare scene tiles, inventory,
+Scene and UI context options use right-click. The applicable OSRS-style menu
+opens on the press frame; moving beyond the small drag threshold closes it and
+continues right-drag camera orbit. The viewer presents the fixed-client menu at
+a readable display scale using crisp 16-pixel bold text, a 24-pixel header, and
+19-pixel rows while retaining the client's proportions, colors, hover behavior,
+and NPC/object/item target colors. Moving beyond the client's 10-pixel margin
+dismisses it. NPCs, objects, ground items, bare scene tiles, inventory,
 equipment, prayers, spells, and decoded widgets share that presentation.
 Examine, selected item/spell actions, distant ground-item Take, and Walk here
 remain submissions to core. Selection clears only after accepted input, and

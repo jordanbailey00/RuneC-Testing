@@ -1,9 +1,12 @@
 #ifndef RUNEC_VIEWER_CONTEXT_MENU_H
 #define RUNEC_VIEWER_CONTEXT_MENU_H
 
-#define RUNEC_CONTEXT_MENU_HEADER_HEIGHT 19
-#define RUNEC_CONTEXT_MENU_ROW_HEIGHT 15
-#define RUNEC_CONTEXT_MENU_PADDING_X 4
+#define RUNEC_CONTEXT_MENU_HEADER_HEIGHT 24
+#define RUNEC_CONTEXT_MENU_ROW_HEIGHT 19
+#define RUNEC_CONTEXT_MENU_PADDING_X 6
+#define RUNEC_CONTEXT_MENU_BOTTOM_PADDING 4
+#define RUNEC_CONTEXT_MENU_FONT_SIZE 16.0f
+#define RUNEC_CONTEXT_MENU_DISMISS_MARGIN 10
 
 typedef struct {
     int x;
@@ -17,6 +20,8 @@ RuneCContextMenuLayout runec_context_menu_layout(
     int content_width, int action_count);
 int runec_context_menu_contains(const RuneCContextMenuLayout *layout,
                                 int x, int y);
+int runec_context_menu_contains_margin(const RuneCContextMenuLayout *layout,
+                                       int x, int y, int margin);
 int runec_context_menu_action_at(const RuneCContextMenuLayout *layout,
                                  int action_count, int x, int y);
 

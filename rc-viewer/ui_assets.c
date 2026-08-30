@@ -1,5 +1,6 @@
 #include "ui_assets.h"
 #include "asset_raylib.h"
+#include "context_menu.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -398,6 +399,30 @@ static const RuneCUiAssetSpec g_ui_asset_specs[] = {
     UI_ASSET("standard_spell_on_79"),
 };
 
+static int runec_make_font_texture_crisp(Font *font) {
+    if (!font || font->texture.id == 0)
+        return 0;
+
+    Image image = LoadImageFromTexture(font->texture);
+    if (!image.data)
+        return 0;
+    ImageFormat(&image, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+    Color *pixels = image.data;
+    int pixel_count = image.width * image.height;
+    for (int i = 0; i < pixel_count; i++)
+        pixels[i].a = pixels[i].a >= 160 ? 255 : 0;
+
+    Texture2D texture = LoadTextureFromImage(image);
+    UnloadImage(image);
+    if (texture.id == 0)
+        return 0;
+
+    UnloadTexture(font->texture);
+    font->texture = texture;
+    SetTextureFilter(font->texture, TEXTURE_FILTER_POINT);
+    return 1;
+}
+
 static int ui_asset_count(void) {
     return (int)(sizeof(g_ui_asset_specs) / sizeof(g_ui_asset_specs[0]));
 }
@@ -493,9 +518,17 @@ void runec_ui_assets_load(RuneCUiAssets *assets) {
         const char *font_path = bold_font_paths[i];
         if (!rc_asset_exists(font_path))
             continue;
-        assets->bold_font = runec_load_font_asset(font_path, 12);
+        assets->bold_font = runec_load_font_asset(
+            font_path, (int)RUNEC_CONTEXT_MENU_FONT_SIZE);
         if (assets->bold_font.texture.id != 0) {
-            SetTextureFilter(assets->bold_font.texture, TEXTURE_FILTER_POINT);
+            if (!runec_make_font_texture_crisp(&assets->bold_font)) {
+                fprintf(stderr,
+                        "ui_assets: failed to sharpen bold font %s\n",
+                        font_path);
+                UnloadFont(assets->bold_font);
+                assets->bold_font = (Font){0};
+                continue;
+            }
             assets->bold_font_loaded = 1;
             fprintf(stderr, "ui_assets: loaded bold font %s\n", font_path);
             break;

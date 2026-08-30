@@ -14,7 +14,8 @@ RuneCContextMenuLayout runec_context_menu_layout(
     layout.width = content_width + RUNEC_CONTEXT_MENU_PADDING_X * 2;
     if (layout.width < 1) layout.width = 1;
     layout.height = RUNEC_CONTEXT_MENU_HEADER_HEIGHT
-                  + action_count * RUNEC_CONTEXT_MENU_ROW_HEIGHT + 3;
+                  + action_count * RUNEC_CONTEXT_MENU_ROW_HEIGHT
+                  + RUNEC_CONTEXT_MENU_BOTTOM_PADDING;
 
     int max_x = screen_width > layout.width
               ? screen_width - layout.width : 0;
@@ -30,6 +31,18 @@ int runec_context_menu_contains(const RuneCContextMenuLayout *layout,
     return layout && x >= layout->x && y >= layout->y
         && x < layout->x + layout->width
         && y < layout->y + layout->height;
+}
+
+int runec_context_menu_contains_margin(const RuneCContextMenuLayout *layout,
+                                       int x, int y, int margin) {
+    if (!layout)
+        return 0;
+    if (margin < 0)
+        margin = 0;
+    return x >= layout->x - margin
+        && x <= layout->x + layout->width + margin
+        && y >= layout->y - margin
+        && y <= layout->y + layout->height + margin;
 }
 
 int runec_context_menu_action_at(const RuneCContextMenuLayout *layout,

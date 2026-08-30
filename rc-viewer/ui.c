@@ -965,6 +965,15 @@ static void clear_intent(RuneCUiState *ui) {
     memset(&ui->last_intent, 0, sizeof(ui->last_intent));
 }
 
+static void close_context(RuneCUiState *ui) {
+    ui->context_open = 0;
+    ui->context_dismissed = 1;
+    ui->context_source_kind = RUNEC_UI_CONTEXT_NONE;
+    ui->context_source_slot = -1;
+    ui->context_source_item_id = 0;
+    ui->context_source_component_id = 0;
+}
+
 static void set_context(RuneCUiState *ui, Vector2 pos, const char *title,
                         const char **actions, int action_count) {
     ui->context_open = 1;
@@ -1033,11 +1042,13 @@ static void context_action_text(const RuneCUiState *ui, int action_index,
 static RuneCContextMenuLayout context_menu_layout_for_ui(
     const RuneCUiState *ui) {
     Font font = runec_ui_bold_font(&ui->assets);
-    float width = MeasureTextEx(font, "Choose Option", 12.0f, 0.0f).x;
+    float width = MeasureTextEx(
+        font, "Choose Option", RUNEC_CONTEXT_MENU_FONT_SIZE, 0.0f).x;
     for (int i = 0; i < ui->context_action_count; i++) {
         char text[RUNEC_UI_CONTEXT_TEXT_MAX * 2 + 2];
         context_action_text(ui, i, text, sizeof(text));
-        float action_width = MeasureTextEx(font, text, 12.0f, 0.0f).x;
+        float action_width = MeasureTextEx(
+            font, text, RUNEC_CONTEXT_MENU_FONT_SIZE, 0.0f).x;
         if (action_width > width) width = action_width;
     }
     return runec_context_menu_layout(
@@ -1694,12 +1705,8 @@ static int handle_context_click(RuneCUiState *ui, Vector2 mouse) {
 
     RuneCContextMenuLayout box = context_menu_layout_for_ui(ui);
     if (!runec_context_menu_contains(&box, (int)mouse.x, (int)mouse.y)) {
-        ui->context_open = 0;
-        ui->context_source_kind = RUNEC_UI_CONTEXT_NONE;
-        ui->context_source_slot = -1;
-        ui->context_source_item_id = 0;
-        ui->context_source_component_id = 0;
-        return 0;
+        close_context(ui);
+        return 1;
     }
 
     int clicked_action = runec_context_menu_action_at(
@@ -1764,11 +1771,7 @@ static int handle_context_click(RuneCUiState *ui, Vector2 mouse) {
                     .mouse = mouse,
                 };
                 if (dispatch_local_listener(ui, &event, NULL)) {
-                    ui->context_open = 0;
-                    ui->context_source_kind = RUNEC_UI_CONTEXT_NONE;
-                    ui->context_source_slot = -1;
-                    ui->context_source_item_id = 0;
-                    ui->context_source_component_id = 0;
+                    close_context(ui);
                     return 1;
                 }
                 ui->last_intent.kind = RUNEC_UI_INTENT_COMPONENT_ACTION;
@@ -1783,11 +1786,7 @@ static int handle_context_click(RuneCUiState *ui, Vector2 mouse) {
             if (!ui->last_intent.text[0])
                 copy_text(ui->last_intent.text, sizeof(ui->last_intent.text),
                           action);
-            ui->context_open = 0;
-            ui->context_source_kind = RUNEC_UI_CONTEXT_NONE;
-            ui->context_source_slot = -1;
-            ui->context_source_item_id = 0;
-            ui->context_source_component_id = 0;
+            close_context(ui);
             return 1;
     }
 
@@ -2812,6 +2811,16 @@ int runec_ui_handle_input(RuneCUiState *ui, int screen_w, int screen_h) {
     Vector2 mouse = GetMousePosition();
     float dt = GetFrameTime();
     clear_intent(ui);
+    ui->context_dismissed = 0;
+
+    if (ui->context_open && !IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        RuneCContextMenuLayout context = context_menu_layout_for_ui(ui);
+        if (!runec_context_menu_contains_margin(
+                &context, (int)mouse.x, (int)mouse.y,
+                RUNEC_CONTEXT_MENU_DISMISS_MARGIN)) {
+            close_context(ui);
+        }
+    }
 
     for (int i = 0; i < RUNEC_UI_TAB_COUNT; i++) {
         if (ui->tab_press_timer[i] <= 0.0f)
@@ -3998,20 +4007,23 @@ static void draw_context(const RuneCUiState *ui) {
     Rectangle box = {(float)layout.x, (float)layout.y,
                      (float)layout.width, (float)layout.height};
     DrawRectangleRec(box, menu_color);
-    DrawRectangle(layout.x + 1, layout.y + 1, layout.width - 2, 16, BLACK);
+    DrawRectangle(layout.x + 1, layout.y + 1, layout.width - 2,
+                  RUNEC_CONTEXT_MENU_HEADER_HEIGHT - 3, BLACK);
     DrawRectangleLinesEx(
-        (Rectangle){(float)layout.x + 1.0f, (float)layout.y + 18.0f,
+        (Rectangle){(float)layout.x + 1.0f,
+                    (float)(layout.y + RUNEC_CONTEXT_MENU_HEADER_HEIGHT - 1),
                     (float)layout.width - 2.0f,
-                    (float)layout.height - 19.0f},
+                    (float)(layout.height
+                        - RUNEC_CONTEXT_MENU_HEADER_HEIGHT)},
         1.0f, BLACK);
 
     Font font = runec_ui_bold_font(&ui->assets);
     DrawTextEx(font, "Choose Option",
-               (Vector2){(float)layout.x + 3.0f, (float)layout.y + 2.0f},
-               12.0f, 0.0f, menu_color);
+               (Vector2){(float)layout.x + 4.0f, (float)layout.y + 2.0f},
+               RUNEC_CONTEXT_MENU_FONT_SIZE, 0.0f, menu_color);
     Vector2 mouse = GetMousePosition();
     for (int i = 0; i < ui->context_action_count; i++) {
-        float x = (float)layout.x + 3.0f;
+        float x = (float)layout.x + 4.0f;
         float y = (float)(layout.y + RUNEC_CONTEXT_MENU_HEADER_HEIGHT
                         + i * RUNEC_CONTEXT_MENU_ROW_HEIGHT + 1);
         int hovered = runec_context_menu_action_at(
@@ -4020,18 +4032,19 @@ static void draw_context(const RuneCUiState *ui) {
         const char *action = ui->context_actions[i];
         Color action_color = hovered ? OSRS_YELLOW : WHITE;
         DrawTextEx(font, action, (Vector2){x + 1.0f, y + 1.0f},
-                   12.0f, 0.0f, BLACK);
-        DrawTextEx(font, action, (Vector2){x, y}, 12.0f, 0.0f,
-                   action_color);
+                   RUNEC_CONTEXT_MENU_FONT_SIZE, 0.0f, BLACK);
+        DrawTextEx(font, action, (Vector2){x, y},
+                   RUNEC_CONTEXT_MENU_FONT_SIZE, 0.0f, action_color);
         if (context_action_has_target(ui, action)) {
             float action_width = MeasureTextEx(
-                font, action, 12.0f, 0.0f).x;
+                font, action, RUNEC_CONTEXT_MENU_FONT_SIZE, 0.0f).x;
             char target[RUNEC_UI_CONTEXT_TEXT_MAX + 2];
             snprintf(target, sizeof(target), " %s", ui->context_title);
             x += action_width;
             DrawTextEx(font, target, (Vector2){x + 1.0f, y + 1.0f},
-                       12.0f, 0.0f, BLACK);
-            DrawTextEx(font, target, (Vector2){x, y}, 12.0f, 0.0f,
+                       RUNEC_CONTEXT_MENU_FONT_SIZE, 0.0f, BLACK);
+            DrawTextEx(font, target, (Vector2){x, y},
+                       RUNEC_CONTEXT_MENU_FONT_SIZE, 0.0f,
                        ui->context_target_color);
         }
     }
