@@ -10,7 +10,6 @@
 #define ODEF_MAGIC 0x4645444Fu
 #define OPLI_MAGIC 0x494C504Fu
 #define OBHV_MAGIC 0x5648424Fu
-#define OTRP_MAGIC 0x5052544Fu
 #define OBJ_VERSION 1u
 #define OPLI_VERSION 1u
 #define ODEF_VERSION_MIN 1u
@@ -50,31 +49,25 @@ struct RcObjectPlacementStore {
 RcObjectDef g_rc_object_defs[RC_MAX_OBJECT_ID];
 RcObjectBehavior g_rc_object_behaviors[RC_MAX_OBJECT_ID];
 RcObjectPlacement *g_rc_object_placements = NULL;
-RcObjectTransport *g_rc_object_transports = NULL;
 RcObjectParam *g_rc_object_params = NULL;
 int32_t *g_rc_object_transforms = NULL;
 int g_rc_object_def_count = 0;
 int g_rc_object_behavior_count = 0;
 int g_rc_object_placement_count = 0;
-int g_rc_object_transport_count = 0;
 int g_rc_object_param_count = 0;
 int g_rc_object_transform_count = 0;
 
 static RcObjectRange g_region_index[RC_MAX_OBJECT_ID];
-static RcObjectRange g_transport_index[RC_MAX_OBJECT_ID];
 static const RcObjectDef *g_active_object_defs = g_rc_object_defs;
 static const RcObjectBehavior *g_active_object_behaviors =
     g_rc_object_behaviors;
 static const RcObjectPlacement *g_active_object_placements = NULL;
-static const RcObjectTransport *g_active_object_transports = NULL;
 static const RcObjectParam *g_active_object_params = NULL;
 static const int32_t *g_active_object_transforms = NULL;
 static const RcObjectRange *g_active_region_index = g_region_index;
-static const RcObjectRange *g_active_transport_index = g_transport_index;
 static int g_active_object_def_count = 0;
 static int g_active_object_behavior_count = 0;
 static int g_active_object_placement_count = 0;
-static int g_active_object_transport_count = 0;
 static int g_active_object_param_count = 0;
 static int g_active_object_transform_count = 0;
 static const RcObjectData *g_active_object_data = NULL;
@@ -155,24 +148,20 @@ void rc_object_data_init(RcObjectData *data) {
     memset(data->behaviors, 0, sizeof(data->behaviors));
     data->placements = NULL;
     data->placement_store = NULL;
-    data->transports = NULL;
     data->params = NULL;
     data->transforms = NULL;
     data->def_count = 0;
     data->behavior_count = 0;
     data->placement_count = 0;
-    data->transport_count = 0;
     data->param_count = 0;
     data->transform_count = 0;
     reset_object_range_index(data->region_index);
-    reset_object_range_index(data->transport_index);
 }
 
 void rc_object_data_free(RcObjectData *data) {
     if (!data) return;
     free(data->placements);
     object_placement_store_free(data->placement_store);
-    free(data->transports);
     free(data->params);
     free(data->transforms);
     rc_object_data_init(data);
@@ -184,15 +173,12 @@ void rc_objects_use_data(const RcObjectData *data) {
         g_active_object_defs = g_rc_object_defs;
         g_active_object_behaviors = g_rc_object_behaviors;
         g_active_object_placements = g_rc_object_placements;
-        g_active_object_transports = g_rc_object_transports;
         g_active_object_params = g_rc_object_params;
         g_active_object_transforms = g_rc_object_transforms;
         g_active_region_index = g_region_index;
-        g_active_transport_index = g_transport_index;
         g_active_object_def_count = g_rc_object_def_count;
         g_active_object_behavior_count = g_rc_object_behavior_count;
         g_active_object_placement_count = g_rc_object_placement_count;
-        g_active_object_transport_count = g_rc_object_transport_count;
         g_active_object_param_count = g_rc_object_param_count;
         g_active_object_transform_count = g_rc_object_transform_count;
         return;
@@ -200,15 +186,12 @@ void rc_objects_use_data(const RcObjectData *data) {
     g_active_object_defs = data->defs;
     g_active_object_behaviors = data->behaviors;
     g_active_object_placements = data->placements;
-    g_active_object_transports = data->transports;
     g_active_object_params = data->params;
     g_active_object_transforms = data->transforms;
     g_active_region_index = data->region_index;
-    g_active_transport_index = data->transport_index;
     g_active_object_def_count = data->def_count;
     g_active_object_behavior_count = data->behavior_count;
     g_active_object_placement_count = data->placement_count;
-    g_active_object_transport_count = data->transport_count;
     g_active_object_param_count = data->param_count;
     g_active_object_transform_count = data->transform_count;
 }
@@ -219,7 +202,6 @@ void rc_objects_reset_data_if_active(const RcObjectData *data) {
             || g_active_object_behaviors == data->behaviors
             || g_active_object_placements == data->placements
             || g_active_object_data == data
-            || g_active_object_transports == data->transports
             || g_active_object_params == data->params
             || g_active_object_transforms == data->transforms) {
         rc_objects_use_data(NULL);
@@ -235,20 +217,6 @@ static int read_pstr(FILE *f, char *out, int cap,
     out[keep] = '\0';
     if (len > (uint16_t)keep &&
             !rc_seek(f, (long)(len - (uint16_t)keep), SEEK_CUR, path, what)) {
-        return 0;
-    }
-    return 1;
-}
-
-static int read_pstr8(FILE *f, char *out, int cap,
-                      const char *path, const char *what) {
-    uint8_t len;
-    if (!rc_read_exact(f, &len, sizeof(len), 1, path, what)) return 0;
-    int keep = len < (uint8_t)(cap - 1) ? (int)len : cap - 1;
-    if (keep && !rc_read_exact(f, out, 1, (size_t)keep, path, what)) return 0;
-    out[keep] = '\0';
-    if (len > (uint8_t)keep &&
-            !rc_seek(f, (long)(len - (uint8_t)keep), SEEK_CUR, path, what)) {
         return 0;
     }
     return 1;
@@ -747,73 +715,6 @@ int rc_load_object_placements_into(const char *path, RcObjectData *data) {
     return data->placement_count;
 }
 
-int rc_load_object_transports_into(const char *path, RcObjectData *data) {
-    if (!path || !data) return -1;
-    FILE *f = rc_asset_fopen(path, "rb");
-    if (!f) return -1;
-    uint32_t count;
-    if (!read_header(f, path, OTRP_MAGIC, &count)) {
-        rc_asset_close(f);
-        return -1;
-    }
-    RcObjectTransport *rows = malloc((size_t)count * sizeof(*rows));
-    if (!rows) {
-        rc_asset_close(f);
-        return -1;
-    }
-    reset_object_range_index(data->transport_index);
-    for (uint32_t i = 0; i < count; i++) {
-        RcObjectTransport *row = &rows[i];
-        uint16_t planes;
-        uint8_t pad0, pad1;
-        if (!rc_read_exact(f, &row->obj_id, sizeof(row->obj_id), 1, path,
-                           "object id")
-                || !rc_read_exact(f, &row->start_x, sizeof(row->start_x), 1,
-                                  path, "start x")
-                || !rc_read_exact(f, &row->start_y, sizeof(row->start_y), 1,
-                                  path, "start y")
-                || !rc_read_exact(f, &row->dest_x, sizeof(row->dest_x), 1,
-                                  path, "dest x")
-                || !rc_read_exact(f, &row->dest_y, sizeof(row->dest_y), 1,
-                                  path, "dest y")
-                || !rc_read_exact(f, &planes, sizeof(planes), 1, path,
-                                  "planes")
-                || !rc_read_exact(f, &row->option, sizeof(row->option), 1,
-                                  path, "option")
-                || !rc_read_exact(f, &row->flags, sizeof(row->flags), 1,
-                                  path, "flags")
-                || !rc_read_exact(f, &pad0, sizeof(pad0), 1, path, "pad0")
-                || !rc_read_exact(f, &pad1, sizeof(pad1), 1, path, "pad1")
-                || !read_pstr8(f, row->action, sizeof(row->action), path,
-                               "action")
-                || !read_pstr8(f, row->target, sizeof(row->target), path,
-                               "target")) {
-            free(rows);
-            rc_asset_close(f);
-            return -1;
-        }
-        row->start_plane = (uint8_t)((planes >> 14) & 0x3);
-        row->dest_plane = (uint8_t)((planes >> 12) & 0x3);
-        if (row->obj_id >= RC_MAX_OBJECT_ID
-                || !rc_world_tile_valid(row->start_x, row->start_y,
-                                        row->start_plane)
-                || !rc_world_tile_valid(row->dest_x, row->dest_y,
-                                        row->dest_plane)) {
-            free(rows);
-            rc_asset_close(f);
-            return -1;
-        }
-        RcObjectRange *idx = &data->transport_index[row->obj_id];
-        if (idx->first == UINT32_MAX) idx->first = i;
-        idx->count++;
-    }
-    rc_asset_close(f);
-    free(data->transports);
-    data->transports = rows;
-    data->transport_count = (int)count;
-    return (int)count;
-}
-
 int rc_object_data_import_globals(RcObjectData *data) {
     if (!data) return 0;
     memcpy(data->defs, g_rc_object_defs, sizeof(data->defs));
@@ -826,10 +727,7 @@ int rc_object_data_import_globals(RcObjectData *data) {
         ? g_rc_object_placement_count
         : g_global_placement_store
             ? (int)g_global_placement_store->total_rows : 0;
-    data->transport_count = g_rc_object_transport_count;
     memcpy(data->region_index, g_region_index, sizeof(data->region_index));
-    memcpy(data->transport_index, g_transport_index,
-           sizeof(data->transport_index));
 
     if (data->param_count > 0) {
         if (!g_rc_object_params) return 0;
@@ -856,14 +754,6 @@ int rc_object_data_import_globals(RcObjectData *data) {
         data->placement_store =
             object_placement_store_clone(g_global_placement_store);
         if (!data->placement_store) return 0;
-    }
-    if (data->transport_count > 0) {
-        if (!g_rc_object_transports) return 0;
-        data->transports =
-            malloc((size_t)data->transport_count * sizeof(*data->transports));
-        if (!data->transports) return 0;
-        memcpy(data->transports, g_rc_object_transports,
-               (size_t)data->transport_count * sizeof(*data->transports));
     }
     return 1;
 }
@@ -945,29 +835,10 @@ static int mirror_object_placements_to_globals(const RcObjectData *data) {
     return 1;
 }
 
-static int mirror_object_transports_to_globals(const RcObjectData *data) {
-    if (!data) return 0;
-    RcObjectTransport *rows = NULL;
-    if (data->transport_count > 0) {
-        if (!data->transports) return 0;
-        rows = malloc((size_t)data->transport_count * sizeof(*rows));
-        if (!rows) return 0;
-        memcpy(rows, data->transports,
-               (size_t)data->transport_count * sizeof(*rows));
-    }
-    free(g_rc_object_transports);
-    g_rc_object_transports = rows;
-    g_rc_object_transport_count = data->transport_count;
-    memcpy(g_transport_index, data->transport_index,
-           sizeof(g_transport_index));
-    return 1;
-}
-
 int rc_objects_mirror_to_globals(const RcObjectData *data) {
     if (!mirror_object_defs_to_globals(data)) return 0;
     if (!mirror_object_behaviors_to_globals(data)) return 0;
     if (!mirror_object_placements_to_globals(data)) return 0;
-    if (!mirror_object_transports_to_globals(data)) return 0;
     return 1;
 }
 
@@ -1006,18 +877,6 @@ int rc_load_object_placements(const char *path) {
     reset_object_range_index(g_region_index);
     rc_objects_use_data(NULL);
     return g_rc_object_placement_count;
-}
-
-int rc_load_object_transports(const char *path) {
-    RcObjectData *data = calloc(1, sizeof(*data));
-    if (!data) return -1;
-    rc_object_data_init(data);
-    int loaded = rc_load_object_transports_into(path, data);
-    if (loaded >= 0 && !mirror_object_transports_to_globals(data)) loaded = -1;
-    rc_object_data_free(data);
-    free(data);
-    if (loaded >= 0) rc_objects_use_data(NULL);
-    return loaded;
 }
 
 const RcObjectDef *rc_object_def_get(int obj_id) {
@@ -1285,30 +1144,4 @@ int rc_object_placement_find_layer(int x, int y, int plane, int layer,
         matches++;
     }
     return matches == 1 ? 1 : matches == 0 ? 0 : -1;
-}
-
-const RcObjectTransport *rc_object_transport_find(int obj_id, int x, int y,
-                                                  int plane, int option) {
-    if (obj_id < 0 || obj_id >= RC_MAX_OBJECT_ID
-            || !rc_world_tile_valid(x, y, plane)
-            || option < -1 || option > UINT8_MAX) {
-        return NULL;
-    }
-    const RcObjectRange *index = g_active_transport_index
-                               ? g_active_transport_index : g_transport_index;
-    const RcObjectTransport *transports = g_active_object_transports
-                                        ? g_active_object_transports
-                                        : g_rc_object_transports;
-    RcObjectRange idx = index[obj_id];
-    if (idx.first == UINT32_MAX || !transports) return NULL;
-    for (uint32_t i = 0; i < idx.count; i++) {
-        const RcObjectTransport *row = &transports[idx.first + i];
-        if (row->obj_id != (uint32_t)obj_id) continue;
-        if ((int)row->start_x == x && (int)row->start_y == y
-                && (int)row->start_plane == plane
-                && (option < 0 || (int)row->option == option)) {
-            return row;
-        }
-    }
-    return NULL;
 }

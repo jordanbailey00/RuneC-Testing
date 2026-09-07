@@ -169,6 +169,9 @@ int  rc_world_object_active_state_by_key(const RcWorld *world,
 int  rc_world_object_option_supported(const RcWorld *world, int obj_id,
                                       int x, int y, int plane,
                                       uint64_t placement_key, int option);
+const char *rc_world_object_option_label(
+    const RcWorld *world, int obj_id, int x, int y, int plane,
+    uint64_t placement_key, int option);
 int  rc_player_open_storage_object(RcWorld *world, int obj_id, int option);
 int  rc_player_open_storage_npc(RcWorld *world, int npc_uid, int option);
 int  rc_player_close_storage(RcWorld *world);
@@ -176,7 +179,6 @@ int  rc_bank_add_item(RcWorld *world, int item_id, int quantity);
 int  rc_bank_add_item_tab(RcWorld *world, int item_id, int quantity, int tab);
 int  rc_bank_deposit_slot(RcWorld *world, int inv_slot, int quantity);
 int  rc_bank_withdraw_slot(RcWorld *world, int bank_slot, int quantity);
-int  rc_player_apply_traversal(RcWorld *world, const RcTraversalEdge *edge);
 int  rc_player_apply_recipe(RcWorld *world, const RcRecipe *recipe);
 RcItemActionResult rc_player_drop_item(RcWorld *world, int inv_slot);
 RcItemActionResult rc_player_pickup_item(RcWorld *world, int ground_item_idx);

@@ -121,7 +121,6 @@ REQUIRED_LOGICAL_PATHS = (
     "defs/object_defs.bin",
     "regions/world.object-placements.indexed.bin",
     "defs/object_behaviors.bin",
-    "defs/object_transports.bin",
     "regions/world.collision-tiles.indexed.bin",
     "defs/area_flags.bin",
     "defs/traversal_edges.bin",

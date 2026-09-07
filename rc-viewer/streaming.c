@@ -333,6 +333,7 @@ int viewer_streaming_predict_prefetch_center(
 
 void viewer_streaming_player_transition_begin(
     ViewerStreamingPlayerTransition *transition,
+    uint64_t traversal_generation,
     int source_x, int source_y, int source_plane,
     int destination_x, int destination_y, int destination_plane) {
     if (!transition)
@@ -345,6 +346,7 @@ void viewer_streaming_player_transition_begin(
     }
     *transition = (ViewerStreamingPlayerTransition){
         .active = 1,
+        .traversal_generation = traversal_generation,
         .source_x = source_x,
         .source_y = source_y,
         .source_plane = source_plane,
@@ -368,13 +370,30 @@ int viewer_streaming_player_transition_source(
     return 1;
 }
 
+int viewer_streaming_player_transition_current(
+    const ViewerStreamingPlayerTransition *transition,
+    uint64_t traversal_generation,
+    int authoritative_x, int authoritative_y, int authoritative_plane) {
+    return transition && transition->active
+        && rc_world_tile_valid(transition->destination_x,
+                               transition->destination_y,
+                               transition->destination_plane)
+        && (transition->traversal_generation == 0
+            || transition->traversal_generation == traversal_generation)
+        && transition->destination_x == authoritative_x
+        && transition->destination_y == authoritative_y
+        && transition->destination_plane == authoritative_plane;
+}
+
 int viewer_streaming_player_transition_commit(
     ViewerStreamingPlayerTransition *transition,
+    uint64_t traversal_generation,
+    int authoritative_x, int authoritative_y, int authoritative_plane,
     int *x, int *y, int *plane) {
-    if (!transition || !transition->active || !x || !y || !plane
-            || !rc_world_tile_valid(transition->destination_x,
-                                    transition->destination_y,
-                                    transition->destination_plane))
+    if (!x || !y || !plane
+            || !viewer_streaming_player_transition_current(
+                transition, traversal_generation, authoritative_x,
+                authoritative_y, authoritative_plane))
         return 0;
     *x = transition->destination_x;
     *y = transition->destination_y;

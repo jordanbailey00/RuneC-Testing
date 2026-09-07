@@ -16,7 +16,6 @@
     RC_TEST_SOURCE_DIR "/data/regions/world.object-placements.indexed.bin"
 #define OBHV_PATH RC_TEST_SOURCE_DIR "/data/defs/object_behaviors.bin"
 #define PRAY_PATH RC_TEST_SOURCE_DIR "/data/defs/prayers.bin"
-#define OTRP_PATH RC_TEST_SOURCE_DIR "/data/defs/object_transports.bin"
 #define GNOD_PATH RC_TEST_SOURCE_DIR "/data/defs/gathering_nodes.bin"
 #define BAD_PATH "/tmp/runec_bad_object.bin"
 
@@ -132,12 +131,10 @@ int main(void) {
     assert(rc_load_object_defs(NULL) == -1);
     assert(rc_load_object_behaviors(NULL) == -1);
     assert(rc_load_object_placements(NULL) == -1);
-    assert(rc_load_object_transports(NULL) == -1);
     assert(rc_load_object_defs("/missing/object_defs.bin") == -1);
     assert(rc_load_object_defs(BAD_PATH) == -1);
     assert(rc_load_object_behaviors(BAD_PATH) == -1);
     assert(rc_load_object_placements(BAD_PATH) == -1);
-    assert(rc_load_object_transports(BAD_PATH) == -1);
     assert(rc_load_object_defs(ODEF_PATH) > 60000);
     assert(g_rc_object_param_count > 1000);
     assert(rc_object_def_param_int((int)g_rc_object_params[0].obj_id,
@@ -152,7 +149,8 @@ int main(void) {
         runec_object_action_visual_find(&object_visuals, 42207);
     assert(ladder_visual && ladder_visual->climb_anim == 828);
     assert(rc_load_object_placements(OPLI_PATH) > 4700000);
-    assert(rc_load_object_transports(OTRP_PATH) > 29000);
+    assert(rc_load_traversal_edges(
+        RC_TEST_SOURCE_DIR "/data/defs/traversal_edges.bin") > 45000);
     assert(rc_object_placements_set_cache_limit(0) == -1);
     assert(rc_object_placements_set_cache_limit(32) == 1);
     RcObjectPlacementLoadStats placement_stats;
@@ -236,20 +234,21 @@ int main(void) {
     assert(has_object_at(1276, 1239, 3672, 0));
     assert(rc_object_placements_at(-1, 3672, 0, NULL, 0) == 0);
 
-    const RcObjectTransport *tr = rc_object_transport_find(16683, 2465, 3495,
-                                                           0, 0);
+    const RcTraversalEdge *tr = rc_traversal_find(
+        RC_TRAVERSAL_OBJECT, 16683, 2465, 3495, 0, 0);
     assert(tr != NULL);
     assert(tr->dest_plane == 1);
     assert(strcmp(tr->action, "Climb-up") == 0);
-    assert(rc_object_transport_find(16683, 2465, 3495, 0, 4) == NULL);
-    assert(rc_object_transport_find(34810, 3185, 3436, 0, 1) == NULL);
+    assert(rc_traversal_find(
+        RC_TRAVERSAL_OBJECT, 16683, 2465, 3495, 0, 4) == NULL);
+    assert(rc_traversal_find(
+        RC_TRAVERSAL_OBJECT, 34810, 3185, 3436, 0, 1) == NULL);
 
     RcWorldConfig cfg = rc_preset_base_only();
     cfg.subsystems = RC_SUB_OBJECTS;
     cfg.object_defs_path = ODEF_PATH;
     cfg.object_placements_path = OPLI_PATH;
     cfg.object_behaviors_path = OBHV_PATH;
-    cfg.object_transports_path = OTRP_PATH;
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world != NULL);
     assert(world->enabled & RC_SUB_OBJECTS);
@@ -556,7 +555,6 @@ int main(void) {
     travel_cfg.object_defs_path = ODEF_PATH;
     travel_cfg.object_placements_path = OPLI_PATH;
     travel_cfg.object_behaviors_path = OBHV_PATH;
-    travel_cfg.object_transports_path = OTRP_PATH;
     travel_cfg.traversal_edges_path = RC_TEST_SOURCE_DIR "/data/defs/traversal_edges.bin";
     RcWorld *travel = rc_world_create_config(&travel_cfg);
     assert(travel != NULL);
@@ -564,10 +562,10 @@ int main(void) {
     place_player_adjacent(travel, 2465, 3495, 0);
     assert(run_object_interaction(travel, 16683, 2465, 3495, 0, 0) == 0);
 
-    const RcObjectTransport *dungeon_source_only =
-        rc_object_transport_find(17384, 3116, 3451, 0, 0);
-    const RcObjectTransport *dungeon_tr =
-        rc_object_transport_find(17384, 3117, 3452, 0, 0);
+    const RcTraversalEdge *dungeon_source_only = rc_traversal_find(
+        RC_TRAVERSAL_OBJECT, 17384, 3116, 3451, 0, 0);
+    const RcTraversalEdge *dungeon_tr = rc_traversal_find(
+        RC_TRAVERSAL_OBJECT, 17384, 3117, 3452, 0, 0);
     assert(dungeon_source_only != NULL);
     assert(dungeon_tr != NULL);
     assert(!has_object_at(17384, 3116, 3451, 0));
@@ -583,10 +581,10 @@ int main(void) {
     assert(travel->player.y == dungeon_tr->dest_y);
     assert(travel->player.plane == dungeon_tr->dest_plane);
 
-    const RcObjectTransport *varrock_rat_pits =
-        rc_object_transport_find(10321, 3268, 3400, 0, 0);
-    const RcObjectTransport *varrock_rat_pits_return =
-        rc_object_transport_find(10309, 2894, 5097, 0, 0);
+    const RcTraversalEdge *varrock_rat_pits = rc_traversal_find(
+        RC_TRAVERSAL_OBJECT, 10321, 3268, 3400, 0, 0);
+    const RcTraversalEdge *varrock_rat_pits_return = rc_traversal_find(
+        RC_TRAVERSAL_OBJECT, 10309, 2894, 5097, 0, 0);
     assert(varrock_rat_pits != NULL);
     assert(varrock_rat_pits_return != NULL);
     assert(has_object_at(10321, 3267, 3400, 0));
@@ -620,8 +618,8 @@ int main(void) {
     assert(travel->player.y == varrock_rat_pits_return->dest_y);
     assert(travel->player.plane == varrock_rat_pits_return->dest_plane);
 
-    const RcObjectTransport *varrock_manhole =
-        rc_object_transport_find(882, 3236, 3458, 0, 0);
+    const RcTraversalEdge *varrock_manhole = rc_traversal_find(
+        RC_TRAVERSAL_OBJECT, 882, 3236, 3458, 0, 0);
     assert(varrock_manhole != NULL);
     assert(has_object_at(881, 3237, 3458, 0));
     place_player_at(travel, 3236, 3458, 0);
@@ -638,20 +636,20 @@ int main(void) {
     assert(manhole_state.active_y == 3458);
     assert(manhole_state.active_rotation == manhole_state.base_rotation);
     rc_world_tick(travel);
+    assert(!rc_world_object_option_supported(
+        travel, 882, manhole_state.active_x, manhole_state.active_y,
+        manhole_state.active_plane, manhole_state.placement_key, 0));
     assert(run_object_interaction(travel, 882, manhole_state.active_x,
-                                        manhole_state.active_y,
-                                        manhole_state.active_plane, 0) == 1);
-    for (int i = 0; i < 6 && travel->player.y != varrock_manhole->dest_y; i++)
-        rc_world_tick(travel);
-    assert(travel->player.x == varrock_manhole->dest_x);
-    assert(travel->player.y == varrock_manhole->dest_y);
-    assert(travel->player.plane == varrock_manhole->dest_plane);
+                                  manhole_state.active_y,
+                                  manhole_state.active_plane, 0) == 0);
+    assert(travel->player.x == 3236 && travel->player.y == 3458);
+    assert(travel->player.plane == 0);
     assert(rc_world_object_active_state(travel, 881, 3237, 3458, 0,
                                         &manhole_state) == 1);
     assert(manhole_state.flags & RC_OBJECT_STATE_OPEN);
 
-    const RcObjectTransport *rat_pits_enter =
-        rc_object_transport_find(24842, 2899, 3469, 0, 0);
+    const RcTraversalEdge *rat_pits_enter = rc_traversal_find(
+        RC_TRAVERSAL_OBJECT, 24842, 2899, 3469, 0, 0);
     assert(rat_pits_enter != NULL);
     assert(has_object_at(24842, 2899, 3469, 0));
     place_player_adjacent(travel, 2899, 3469, 0);
@@ -664,8 +662,8 @@ int main(void) {
     assert(travel->player.y == rat_pits_enter->dest_y);
     assert(travel->player.plane == rat_pits_enter->dest_plane);
 
-    const RcObjectTransport *rat_pits_exit =
-        rc_object_transport_find(24687, 2901, 9867, 0, 0);
+    const RcTraversalEdge *rat_pits_exit = rc_traversal_find(
+        RC_TRAVERSAL_OBJECT, 24687, 2901, 9867, 0, 0);
     const RcTraversalEdge *rat_pits_exit_edge =
         rc_traversal_find(RC_TRAVERSAL_OBJECT, 24687, 2901, 9867, 0, 0);
     assert(rat_pits_exit != NULL);
@@ -681,8 +679,8 @@ int main(void) {
     assert(travel->player.y == rat_pits_exit->dest_y);
     assert(travel->player.plane == rat_pits_exit->dest_plane);
 
-    const RcObjectTransport *far_tr =
-        rc_object_transport_find(398, 3090, 3475, 0, 0);
+    const RcTraversalEdge *far_tr = rc_traversal_find(
+        RC_TRAVERSAL_OBJECT, 398, 3090, 3475, 0, 0);
     assert(far_tr != NULL);
     assert(!has_object_at(398, 3090, 3475, 0));
     assert(has_object_at(398, 3090, 3476, 0));
@@ -697,17 +695,15 @@ int main(void) {
     assert(travel->player.y == far_tr->dest_y);
     assert(travel->player.plane == far_tr->dest_plane);
 
-    const RcObjectTransport *lever_tr =
-        rc_object_transport_find(26761, 3090, 3475, 0, 0);
+    const RcTraversalEdge *lever_tr = rc_traversal_find(
+        RC_TRAVERSAL_OBJECT, 26761, 3090, 3475, 0, 0);
     assert(lever_tr != NULL);
     place_player_adjacent(travel, 3090, 3475, 0);
-    assert(run_object_interaction(travel, 26761, 3090, 3475, 0, 0) == 1);
-    for (int i = 0; i < 4 && travel->player.x != lever_tr->dest_x; i++) {
-        rc_world_tick(travel);
-    }
-    assert(travel->player.x == lever_tr->dest_x);
-    assert(travel->player.y == lever_tr->dest_y);
-    assert(travel->player.plane == lever_tr->dest_plane);
+    assert(!rc_world_object_option_supported(
+        travel, 26761, 3090, 3475, 0, 0, 0));
+    assert(run_object_interaction(travel, 26761, 3090, 3475, 0, 0) == 0);
+    assert(travel->player.x == 3091 && travel->player.y == 3475);
+    assert(travel->player.plane == 0);
 
     const RcTraversalEdge *varrock_ladder =
         rc_traversal_find(RC_TRAVERSAL_OBJECT, 11794, 3214, 3411, 0, 0);
@@ -718,7 +714,7 @@ int main(void) {
            == 1);
     assert(travel->player_action.category == RC_ACTION_CATEGORY_STRONG);
     assert(travel->player_action.ready_tick > travel->tick);
-    assert(travel->player.pending_traversal_active);
+    assert(travel->player.traversal.active);
     for (int i = 0; i < 4 && travel->player.plane != varrock_ladder->dest_plane; i++) {
         rc_world_tick(travel);
     }
@@ -730,33 +726,31 @@ int main(void) {
     assert(has_object_at(11802, 3261, 3459, 1));
     place_player_at(travel, 3261, 3459, 0);
     rc_player_cancel_action(travel, RC_ACTION_CANCEL_RELOCATED);
-    assert(run_object_interaction(travel, 11801, 3261, 3459, 0, 0)
-           == 1);
-    for (int i = 0; i < 6 && travel->player.plane != 1; i++)
-        rc_world_tick(travel);
-    assert(travel->player.x == 3261);
-    assert(travel->player.y == 3459);
-    assert(travel->player.plane == 1);
-    rc_player_cancel_action(travel, RC_ACTION_CANCEL_RELOCATED);
-    assert(run_object_interaction(travel, 11802, 3261, 3459, 1, 0)
-           == 1);
-    for (int i = 0; i < 6 && travel->player.plane != 0; i++)
-        rc_world_tick(travel);
+    assert(!rc_world_object_option_supported(
+        travel, 11801, 3261, 3459, 0, 0, 0));
+    assert(run_object_interaction(travel, 11801, 3261, 3459, 0, 0) == 0);
     assert(travel->player.x == 3261);
     assert(travel->player.y == 3459);
     assert(travel->player.plane == 0);
+    place_player_at(travel, 3261, 3459, 1);
+    rc_player_cancel_action(travel, RC_ACTION_CANCEL_RELOCATED);
+    assert(!rc_world_object_option_supported(
+        travel, 11802, 3261, 3459, 1, 0, 0));
+    assert(run_object_interaction(travel, 11802, 3261, 3459, 1, 0) == 0);
+    assert(travel->player.x == 3261);
+    assert(travel->player.y == 3459);
+    assert(travel->player.plane == 1);
 
     assert(has_object_at(60731, 3217, 3398, 1));
     assert(has_object_at(60732, 3217, 3398, 3));
     place_player_at(travel, 3217, 3398, 1);
     rc_player_cancel_action(travel, RC_ACTION_CANCEL_RELOCATED);
-    assert(run_object_interaction(travel, 60731, 3217, 3398, 1, 0)
-           == 1);
-    for (int i = 0; i < 6 && travel->player.plane != 3; i++)
-        rc_world_tick(travel);
+    assert(!rc_world_object_option_supported(
+        travel, 60731, 3217, 3398, 1, 0, 0));
+    assert(run_object_interaction(travel, 60731, 3217, 3398, 1, 0) == 0);
     assert(travel->player.x == 3217);
     assert(travel->player.y == 3398);
-    assert(travel->player.plane == 3);
+    assert(travel->player.plane == 1);
 
     assert(has_object_at(11797, 3230, 3383, 0));
     place_player_at(travel, 3230, 3386, 0);
@@ -772,13 +766,11 @@ int main(void) {
     assert(has_object_at(56230, 3204, 3207, 0));
     place_player_at(travel, 3206, 3208, 0);
     rc_player_cancel_action(travel, RC_ACTION_CANCEL_RELOCATED);
-    assert(run_object_interaction(travel, 56230, 3204, 3207, 0, 0)
-           == 1);
-    for (int i = 0; i < 6 && travel->player.plane != 1; i++)
-        rc_world_tick(travel);
-    assert((travel->player.x == 3205 && travel->player.y == 3209)
-           || (travel->player.x == 3206 && travel->player.y == 3208));
-    assert(travel->player.plane == 1);
+    assert(!rc_world_object_option_supported(
+        travel, 56230, 3204, 3207, 0, 0, 0));
+    assert(run_object_interaction(travel, 56230, 3204, 3207, 0, 0) == 0);
+    assert(travel->player.x == 3206 && travel->player.y == 3208);
+    assert(travel->player.plane == 0);
 
     assert(has_object_at(24427, 1758, 4959, 0));
     assert(!has_object_at(24427, 1758, 4959, 1));
@@ -797,24 +789,23 @@ int main(void) {
     const int cooking_anchor_y = 3447;
     assert(has_object_at(cooking_stair, cooking_anchor_x, cooking_anchor_y, 1));
     place_player_at(travel, 3144, 3449, 1);
+    assert(!rc_world_object_option_supported(
+        travel, cooking_stair, cooking_anchor_x, cooking_anchor_y, 1, 0, 1));
     assert(run_object_interaction(travel, cooking_stair,
-                                        cooking_anchor_x, cooking_anchor_y,
-                                        1, 1) == 1);
-    for (int i = 0; i < 6 && travel->player.plane != 2; i++)
-        rc_world_tick(travel);
-    assert(travel->player.x == 3144);
-    assert(travel->player.y == 3446);
-    assert(travel->player.plane == 2);
-    place_player_at(travel, 3144, 3449, 1);
-    rc_player_cancel_action(travel, RC_ACTION_CANCEL_RELOCATED);
-    assert(run_object_interaction(travel, cooking_stair,
-                                        cooking_anchor_x, cooking_anchor_y,
-                                        1, 2) == 1);
-    for (int i = 0; i < 6 && travel->player.plane != 0; i++)
-        rc_world_tick(travel);
+                                  cooking_anchor_x, cooking_anchor_y,
+                                  1, 1) == 0);
     assert(travel->player.x == 3144);
     assert(travel->player.y == 3449);
-    assert(travel->player.plane == 0);
+    assert(travel->player.plane == 1);
+    rc_player_cancel_action(travel, RC_ACTION_CANCEL_RELOCATED);
+    assert(!rc_world_object_option_supported(
+        travel, cooking_stair, cooking_anchor_x, cooking_anchor_y, 1, 0, 2));
+    assert(run_object_interaction(travel, cooking_stair,
+                                  cooking_anchor_x, cooking_anchor_y,
+                                  1, 2) == 0);
+    assert(travel->player.x == 3144);
+    assert(travel->player.y == 3449);
+    assert(travel->player.plane == 1);
     rc_world_destroy(travel);
 
     RcWorldConfig shortcut_cfg = rc_preset_base_only();
@@ -823,7 +814,6 @@ int main(void) {
     shortcut_cfg.object_defs_path = ODEF_PATH;
     shortcut_cfg.object_placements_path = OPLI_PATH;
     shortcut_cfg.object_behaviors_path = OBHV_PATH;
-    shortcut_cfg.object_transports_path = OTRP_PATH;
     shortcut_cfg.traversal_edges_path =
         RC_TEST_SOURCE_DIR "/data/defs/traversal_edges.bin";
     RcWorld *shortcut = rc_world_create_config(&shortcut_cfg);
@@ -839,23 +829,11 @@ int main(void) {
     place_player_adjacent(shortcut, rail_x, rail_y, 0);
     shortcut->player.skills.base_level[SKILL_AGILITY] = 0;
     shortcut->player.skills.boosted_level[SKILL_AGILITY] = 0;
-    assert(run_object_interaction(shortcut, rail_obj, rail_x, rail_y,
-                                        0, 0) == 0);
-    assert(!shortcut->player.interaction.active);
-    assert(shortcut->player.pending_traversal_active == 0);
-    assert(shortcut->player.x == rail_x + 1);
-    assert(shortcut->player.y == rail_y);
-    shortcut->player.skills.base_level[SKILL_AGILITY] = 1;
-    shortcut->player.skills.boosted_level[SKILL_AGILITY] = 1;
     int agility_xp = shortcut->player.skills.xp[SKILL_AGILITY];
     assert(run_object_interaction(shortcut, rail_obj, rail_x, rail_y,
                                         0, 0) == 1);
-    assert(shortcut->player.pending_traversal_active);
-    assert(shortcut->player_action.category == RC_ACTION_CATEGORY_STRONG);
-    assert(shortcut->player_action.ready_tick > shortcut->tick);
-    assert(shortcut->player.skills.xp[SKILL_AGILITY] > agility_xp);
-    for (int i = 0; i < 4 && shortcut->player.pending_traversal_active; i++)
-        rc_world_tick(shortcut);
+    assert(!shortcut->player.traversal.active);
+    assert(shortcut->player.skills.xp[SKILL_AGILITY] == agility_xp);
     assert(shortcut->player.x == rail_edge->dest_x);
     assert(shortcut->player.y == rail_edge->dest_y);
     assert(shortcut->player.plane == rail_edge->dest_plane);

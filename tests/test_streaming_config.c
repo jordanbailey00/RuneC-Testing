@@ -52,7 +52,7 @@ int main(void) {
 
     ViewerStreamingPlayerTransition transition = {0};
     viewer_streaming_player_transition_begin(
-        &transition, 3081, 3421, 0, 1859, 5243, 0);
+        &transition, 7, 3081, 3421, 0, 1859, 5243, 0);
     assert(transition.active);
     assert(transition.source_x == 3081 && transition.source_y == 3421);
     assert(transition.source_plane == 0);
@@ -64,21 +64,32 @@ int main(void) {
     assert(transition_x == 3081 && transition_y == 3421);
     assert(transition_plane == 0 && transition.active);
     assert(viewer_streaming_player_transition_commit(
-        &transition, &transition_x, &transition_y, &transition_plane));
+        &transition, 7, 1859, 5243, 0,
+        &transition_x, &transition_y, &transition_plane));
     assert(transition_x == 1859 && transition_y == 5243);
     assert(transition_plane == 0 && !transition.active);
     assert(!viewer_streaming_player_transition_commit(
-        &transition, &transition_x, &transition_y, &transition_plane));
+        &transition, 7, 1859, 5243, 0,
+        &transition_x, &transition_y, &transition_plane));
     viewer_streaming_player_transition_begin(
-        &transition, 3081, 3421, 0, 1859, 5243, 0);
+        &transition, 8, 3081, 3421, 0, 1859, 5243, 0);
     assert(!viewer_streaming_player_transition_commit(
-        &transition, NULL, &transition_y, &transition_plane));
+        &transition, 7, 1859, 5243, 0,
+        &transition_x, &transition_y, &transition_plane));
+    assert(transition.active);
+    assert(!viewer_streaming_player_transition_commit(
+        &transition, 8, 1858, 5243, 0,
+        &transition_x, &transition_y, &transition_plane));
+    assert(transition.active);
+    assert(!viewer_streaming_player_transition_commit(
+        &transition, 8, 1859, 5243, 0,
+        NULL, &transition_y, &transition_plane));
     assert(transition.active);
     assert(!viewer_streaming_player_transition_source(
         &transition, &transition_x, NULL, &transition_plane));
     assert(transition.active);
     viewer_streaming_player_transition_begin(
-        NULL, 3081, 3421, 0, 1859, 5243, 0);
+        NULL, 9, 3081, 3421, 0, 1859, 5243, 0);
     viewer_streaming_config_sanitize(NULL);
 
     viewer.scene_radius_regions = -1;

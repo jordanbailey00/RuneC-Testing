@@ -80,14 +80,6 @@ typedef struct {
 } RcObjectBehavior;
 
 typedef struct {
-    uint32_t obj_id;
-    uint16_t start_x, start_y, dest_x, dest_y;
-    uint8_t start_plane, dest_plane, option, flags;
-    char action[32];
-    char target[48];
-} RcObjectTransport;
-
-typedef struct {
     uint32_t first, count;
 } RcObjectRange;
 
@@ -107,42 +99,35 @@ typedef struct {
     int32_t *transforms;
     RcObjectPlacement *placements;
     RcObjectPlacementStore *placement_store;
-    RcObjectTransport *transports;
     RcObjectParam *params;
     RcObjectRange region_index[RC_MAX_OBJECT_ID];
-    RcObjectRange transport_index[RC_MAX_OBJECT_ID];
     int def_count;
     int transform_count;
     int behavior_count;
     int placement_count;
-    int transport_count;
     int param_count;
 } RcObjectData;
 
 extern RcObjectDef g_rc_object_defs[RC_MAX_OBJECT_ID];
 extern RcObjectBehavior g_rc_object_behaviors[RC_MAX_OBJECT_ID];
 extern RcObjectPlacement *g_rc_object_placements;
-extern RcObjectTransport *g_rc_object_transports;
 extern RcObjectParam *g_rc_object_params;
 extern int32_t *g_rc_object_transforms;
 extern int g_rc_object_def_count;
 extern int g_rc_object_behavior_count;
 extern int g_rc_object_placement_count;
-extern int g_rc_object_transport_count;
 extern int g_rc_object_param_count;
 extern int g_rc_object_transform_count;
 
 int rc_load_object_defs(const char *path);
 int rc_load_object_placements(const char *path);
 int rc_load_object_behaviors(const char *path);
-int rc_load_object_transports(const char *path);
 void rc_object_data_init(RcObjectData *data);
 void rc_object_data_free(RcObjectData *data);
 int rc_object_data_import_globals(RcObjectData *data);
 int rc_load_object_defs_into(const char *path, RcObjectData *data);
 int rc_load_object_placements_into(const char *path, RcObjectData *data);
 int rc_load_object_behaviors_into(const char *path, RcObjectData *data);
-int rc_load_object_transports_into(const char *path, RcObjectData *data);
 int rc_objects_mirror_to_globals(const RcObjectData *data);
 void rc_objects_use_data(const RcObjectData *data);
 void rc_objects_reset_data_if_active(const RcObjectData *data);
@@ -167,7 +152,4 @@ int rc_object_placements_prefetch_rect(int min_x, int min_y,
                                        int max_x, int max_y,
                                        RcObjectPlacementLoadStats *stats);
 int rc_object_placements_set_cache_limit(int max_pages);
-const RcObjectTransport *rc_object_transport_find(int obj_id, int x, int y,
-                                                  int plane, int option);
-
 #endif

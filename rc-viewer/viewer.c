@@ -291,9 +291,6 @@ static const ViewerValidationScene VIEWER_VALIDATION_SCENES[] = {
     {"yanille_railing", 2519, 3163, 0, 1},
 };
 
-static const char *object_action_label(const ViewerPickedObject *object,
-                                       const RcObjectDef *def, int opt);
-
 // Player animation sequence IDs (from FC — xbows_human variants)
 #define ANIM_IDLE 808
 #define ANIM_WALK 819
@@ -429,6 +426,9 @@ typedef struct {
     int context_tile_y;
     int context_action_option[RUNEC_UI_CONTEXT_ACTIONS];
     uint64_t interaction_outcome_seen;
+    uint64_t traversal_event_seen;
+    uint64_t traversal_outcome_seen;
+    uint64_t traversal_generation;
     int scene_right_tracking;
     int scene_right_dragged;
     Vector2 scene_right_start;
@@ -477,6 +477,10 @@ typedef struct {
     char initial_objects_path[1024];
     char active_scene_prefix[1024];
 } ViewerState;
+
+static const char *object_action_label(const ViewerState *v,
+                                       const ViewerPickedObject *object,
+                                       const RcObjectDef *def, int opt);
 
 static int viewer_load_hitsplat_textures(ViewerState *v,
                                          const char *sprite_directory) {
@@ -3470,6 +3474,7 @@ static void viewer_defer_player_scene_transition(ViewerState *v, int old_x,
     RcPlayer *p = &v->world->player;
     viewer_streaming_player_transition_begin(
         &v->mapsquare_load.player_transition,
+        v->traversal_generation,
         old_x, old_y, old_plane, p->x, p->y, p->plane);
     const ViewerStreamingPlayerTransition *transition =
         &v->mapsquare_load.player_transition;
@@ -3487,7 +3492,11 @@ static void viewer_commit_player_scene_transition(ViewerState *v) {
     int y = 0;
     int plane = 0;
     if (!viewer_streaming_player_transition_commit(
-            &v->mapsquare_load.player_transition, &x, &y, &plane)) {
+            &v->mapsquare_load.player_transition, v->traversal_generation,
+            v->world->player.x, v->world->player.y,
+            v->world->player.plane, &x, &y, &plane)) {
+        memset(&v->mapsquare_load.player_transition, 0,
+               sizeof(v->mapsquare_load.player_transition));
         return;
     }
     RcPlayer *p = &v->world->player;
@@ -3573,7 +3582,7 @@ static void viewer_update_movement_prefetch(ViewerState *v) {
     if (load->active
             && load->request_kind
                 == VIEWER_STREAMING_REQUEST_TRANSPORT_PREFETCH) {
-        if (p->interaction.active || p->pending_traversal_active)
+        if (p->interaction.active || p->traversal.active)
             return;
         viewer_cancel_mapsquare_loading(v);
         load = &v->mapsquare_load;
@@ -3817,6 +3826,33 @@ static void viewer_sync_interaction_outcome(ViewerState *v) {
         runec_ui_add_chat_message(&v->ui, outcome->message);
 }
 
+static void viewer_sync_traversal_outcome(ViewerState *v) {
+    if (!v || !v->world) return;
+    const RcTraversalOutcome *outcome =
+        rc_traversal_last_outcome(&v->world->player);
+    if (!outcome || outcome->sequence == 0
+            || outcome->sequence == v->traversal_outcome_seen) {
+        return;
+    }
+    v->traversal_outcome_seen = outcome->sequence;
+    if (v->traversal_generation != 0
+            && outcome->generation != v->traversal_generation) {
+        return;
+    }
+    if (outcome->message[0])
+        runec_ui_add_chat_message(&v->ui, outcome->message);
+    if (outcome->code != RC_TRAVERSAL_RESULT_SUCCESS
+            && outcome->generation == v->traversal_generation) {
+        if (v->mapsquare_load.active
+                && (v->mapsquare_load.request_kind
+                        == VIEWER_STREAMING_REQUEST_TRANSPORT_PREFETCH
+                    || v->mapsquare_load.player_transition.active)) {
+            viewer_cancel_mapsquare_loading(v);
+        }
+        v->traversal_generation = 0;
+    }
+}
+
 static void set_viewer_demo_stats(RcPlayer *p) {
     for (int i = 0; i < SKILL_COUNT; i++) {
         p->skills.base_level[i] = 99;
@@ -4013,11 +4049,12 @@ static void viewer_default_npc_text(const ViewerState *v, int npc_uid,
     snprintf(dst, dst_cap, "%s %.64s", label, name);
 }
 
-static void viewer_default_object_text(const ViewerPickedObject *object,
+static void viewer_default_object_text(const ViewerState *v,
+                                       const ViewerPickedObject *object,
                                        int option, char *dst, size_t dst_cap) {
     const RcObjectDef *def = rc_object_def_get(object ? object->obj_id : -1);
     const char *name = def && def->name[0] ? def->name : "object";
-    const char *label = object_action_label(object, def, option);
+    const char *label = object_action_label(v, object, def, option);
     if (!label || !label[0])
         label = "Walk here";
     snprintf(dst, dst_cap, "%s %.64s", label, name);
@@ -4044,65 +4081,6 @@ static int pick_npc_candidate(ViewerState *v, ViewerHoverTarget *out) {
     return 1;
 }
 
-static const RcTraversalEdge *viewer_object_traversal_edge(
-    int obj_id, int x, int y, int plane, int opt) {
-    if (obj_id < 0 || x < 0 || y < 0 || plane < 0 || opt < 0)
-        return NULL;
-    RcObjectPlacement placement = {0};
-    int have_placement = 0;
-    RcObjectPlacement rows_at_anchor[32];
-    int anchor_count = rc_object_placements_at(x, y, plane, rows_at_anchor,
-                                               32);
-    for (int i = 0; i < anchor_count; i++) {
-        if ((int)rows_at_anchor[i].obj_id != obj_id)
-            continue;
-        placement = rows_at_anchor[i];
-        have_placement = 1;
-        break;
-    }
-    if (rc_object_has_placements() && !have_placement)
-        return NULL;
-    const RcTraversalEdge *exact =
-        rc_traversal_find(RC_TRAVERSAL_OBJECT, obj_id, x, y, plane, opt);
-    if (exact)
-        return exact;
-    if (!have_placement)
-        return NULL;
-
-    int count = 0;
-    const RcTraversalEdge *rows =
-        rc_traversal_edges_for(RC_TRAVERSAL_OBJECT, obj_id, &count);
-    const RcObjectDef *def = rc_object_def_get(obj_id);
-    int w = def && def->width > 0 ? def->width : 1;
-    int l = def && def->length > 0 ? def->length : 1;
-    if (placement.rotation & 1u) {
-        int tmp = w;
-        w = l;
-        l = tmp;
-    }
-    int min_x = placement.x;
-    int min_y = placement.y;
-    int max_x = placement.x + w - 1;
-    int max_y = placement.y + l - 1;
-    for (int i = 0; rows && i < count; i++) {
-        const RcTraversalEdge *row = &rows[i];
-        if (row->kind != RC_TRAVERSAL_OBJECT
-                || row->source_id != (uint32_t)obj_id)
-            continue;
-        if ((int)row->option != opt || (int)row->start_plane != plane)
-            continue;
-        int dx = 0;
-        int dy = 0;
-        if ((int)row->start_x < min_x) dx = min_x - (int)row->start_x;
-        else if ((int)row->start_x > max_x) dx = (int)row->start_x - max_x;
-        if ((int)row->start_y < min_y) dy = min_y - (int)row->start_y;
-        else if ((int)row->start_y > max_y) dy = (int)row->start_y - max_y;
-        if (dx + dy <= 1)
-            return row;
-    }
-    return NULL;
-}
-
 static int object_action_option_available(const ViewerState *v,
                                           const ViewerPickedObject *object,
                                           int opt) {
@@ -4113,13 +4091,14 @@ static int object_action_option_available(const ViewerState *v,
         object->placement_key, opt);
 }
 
-static const char *object_action_label(const ViewerPickedObject *object,
+static const char *object_action_label(const ViewerState *v,
+                                       const ViewerPickedObject *object,
                                        const RcObjectDef *def, int opt) {
     if (def && opt >= 0 && opt < RC_OBJECT_ACTIONS && def->actions[opt][0])
         return def->actions[opt];
-    const RcTraversalEdge *edge = object ? viewer_object_traversal_edge(
-        object->obj_id, object->x, object->y, object->plane, opt) : NULL;
-    return edge && edge->action[0] ? edge->action : "";
+    return v && v->world && object ? rc_world_object_option_label(
+        v->world, object->obj_id, object->x, object->y, object->plane,
+        object->placement_key, opt) : "";
 }
 
 static int object_first_action_option(const ViewerState *v,
@@ -4129,7 +4108,7 @@ static int object_first_action_option(const ViewerState *v,
         return -1;
     for (int i = 0; i < RC_OBJECT_ACTIONS; i++) {
         if (object_action_option_available(v, &object, i)
-                && object_action_label(&object, def, i)[0])
+                && object_action_label(v, &object, def, i)[0])
             return i;
     }
     return -1;
@@ -4176,25 +4155,25 @@ static void viewer_start_object_action_visual(ViewerState *v,
 }
 
 static void viewer_prefetch_traversal_destination(
-    ViewerState *v, const RcTraversalEdge *edge) {
-    if (!v || !v->world || !edge || !viewer_mapsquare_cache_allowed())
+    ViewerState *v, const RcTraversalEvent *event) {
+    if (!v || !v->world || !event || !viewer_mapsquare_cache_allowed())
         return;
-    int plane = clamp_plane(edge->dest_plane);
+    int plane = clamp_plane(event->destination_plane);
     int current_x = v->mapsquare_center_region_x
                   * VIEWER_STREAMING_MAPSQUARE_SIZE;
     int current_y = v->mapsquare_center_region_y
                   * VIEWER_STREAMING_MAPSQUARE_SIZE;
     if (v->mapsquare_streaming_active && viewer_streaming_same_window(
             current_x, current_y, viewer_scene_plane(v),
-            edge->dest_x, edge->dest_y, plane)) {
+            event->destination_x, event->destination_y, plane)) {
         return;
     }
     if (viewer_prepare_mapsquare_window(
-            v, edge->dest_x, edge->dest_y, plane) <= 0) {
+            v, event->destination_x, event->destination_y, plane) <= 0) {
         return;
     }
     viewer_request_mapsquare_window(
-        v, edge->dest_x, edge->dest_y, plane,
+        v, event->destination_x, event->destination_y, plane,
         VIEWER_STREAMING_REQUEST_TRANSPORT_PREFETCH,
         "transport-prefetch");
 }
@@ -4203,16 +4182,47 @@ static int viewer_interact_object(ViewerState *v, ViewerPickedObject object,
                                   int option) {
     if (!v || !v->world || option < 0)
         return 0;
-    const RcTraversalEdge *edge = viewer_object_traversal_edge(
-        object.obj_id, object.x, object.y, object.plane, option);
     if (!rc_player_interact_object_placement(
             v->world, object.obj_id, object.x, object.y, object.plane,
             object.placement_key, option)) {
         return 0;
     }
-    viewer_start_object_action_visual(v, object, option);
-    viewer_prefetch_traversal_destination(v, edge);
     return 1;
+}
+
+static void viewer_sync_traversal_event(ViewerState *v) {
+    if (!v || !v->world) return;
+    const RcTraversalEvent *event =
+        rc_traversal_last_event(&v->world->player);
+    if (!event || event->sequence == 0
+            || event->sequence == v->traversal_event_seen) {
+        return;
+    }
+    v->traversal_event_seen = event->sequence;
+    if (v->traversal_generation != 0
+            && v->traversal_generation != event->generation
+            && v->mapsquare_load.active
+            && (v->mapsquare_load.request_kind
+                    == VIEWER_STREAMING_REQUEST_TRANSPORT_PREFETCH
+                || v->mapsquare_load.player_transition.active)) {
+        viewer_cancel_mapsquare_loading(v);
+    }
+    v->traversal_generation = event->generation;
+    if (event->phase == RC_TRAVERSAL_PHASE_APPROACH
+            || event->phase == RC_TRAVERSAL_PHASE_TAKEOFF) {
+        viewer_prefetch_traversal_destination(v, event);
+    }
+    if (event->phase == RC_TRAVERSAL_PHASE_TAKEOFF
+            && event->presentation == RC_TRAVERSAL_PRESENTATION_CLIMB) {
+        ViewerPickedObject object = {
+            .obj_id = event->source_id,
+            .x = event->source_x,
+            .y = event->source_y,
+            .plane = event->source_plane,
+            .placement_key = event->source_key,
+        };
+        viewer_start_object_action_visual(v, object, event->source_option);
+    }
 }
 
 static int object_footprint_contains(const RcObjectPlacement *placement,
@@ -4435,7 +4445,7 @@ static int pick_object_candidate(ViewerState *v, ViewerHoverTarget *out) {
         viewer_selected_target_text(v, name, out->action_text,
                                     sizeof(out->action_text));
     } else {
-        viewer_default_object_text(&object, out->option, out->action_text,
+        viewer_default_object_text(v, &object, out->option, out->action_text,
                                    sizeof(out->action_text));
     }
     return 1;
@@ -4601,7 +4611,7 @@ static void open_object_context_menu(ViewerState *v,
 
     for (int i = 0; i < RC_OBJECT_ACTIONS
             && count < RUNEC_UI_CONTEXT_ACTIONS - 3; i++) {
-        const char *label = object_action_label(&object, def, i);
+        const char *label = object_action_label(v, &object, def, i);
         if (!object_action_option_available(v, &object, i) || !label[0])
             continue;
         snprintf(action_text[count], sizeof(action_text[count]), "%s", label);
@@ -6639,6 +6649,19 @@ static int viewer_process_mapsquare_loading(ViewerState *v) {
                     load->plane, load->loaded_count, load->plan_count);
         }
         return 0;
+    }
+    if (load->player_transition.active
+            && !viewer_streaming_player_transition_current(
+                &load->player_transition, v->traversal_generation,
+                v->world->player.x, v->world->player.y,
+                v->world->player.plane)) {
+        fprintf(stderr,
+                "viewer scene: discarded stale visual transition "
+                "generation=%llu\n",
+                (unsigned long long)
+                    load->player_transition.traversal_generation);
+        viewer_cancel_mapsquare_loading(v);
+        return -1;
     }
     if (!commit_pending_mapsquare_window(v)) {
         record_mapsquare_main_thread_work(load, main_thread_started_ms);
@@ -9715,8 +9738,6 @@ int main(int argc, char **argv) {
         "data/regions/world.object-placements.indexed.bin");
     cfg.object_behaviors_path = env_path("RUNEC_OBJECT_BEHAVIORS",
         "data/defs/object_behaviors.bin");
-    cfg.object_transports_path = env_path("RUNEC_OBJECT_TRANSPORTS",
-        "data/defs/object_transports.bin");
     cfg.collision_tiles_path = env_path("RUNEC_COLLISION_TILES",
         "data/regions/world.collision-tiles.indexed.bin");
     cfg.spawns_path = env_path("RUNEC_NPC_SPAWNS",
@@ -10251,6 +10272,8 @@ int main(int argc, char **argv) {
                 int old_plane = v.world->player.plane;
                 viewer_apply_god_mode(&v);
                 rc_world_tick(v.world);
+                viewer_sync_traversal_event(&v);
+                viewer_sync_traversal_outcome(&v);
                 runec_input_feedback_reconcile_tick(
                     &v.input_feedback, v.world->tick);
                 viewer_tick_combat_projectiles(&v);
@@ -10273,6 +10296,8 @@ int main(int argc, char **argv) {
                 &v.tick_pacing, 1.0 / TPS);
         }
         viewer_sync_interaction_outcome(&v);
+        viewer_sync_traversal_event(&v);
+        viewer_sync_traversal_outcome(&v);
         float presentation_dt = v.paused ? 0.0f : GetFrameTime();
         update_npc_render_motion(&v, presentation_dt);
         viewer_update_combat_overlays(&v, presentation_dt);

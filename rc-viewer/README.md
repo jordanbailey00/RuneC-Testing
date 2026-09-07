@@ -242,18 +242,19 @@ evicts entries outside the new plan. A destination commits only after its full
 visible window, NPC models, and backend area succeed; cancellation or failure
 keeps the prior scene active.
 
-Core-scheduled object traversals use the same transaction. When a traversal
-crosses the current visual window, the viewer records its resolved destination,
-keeps presenting a source position/plane snapshot while loading, and reveals
-the authoritative destination in the same frame that the complete visual and
-backend scene commits. Normal loading does not repeatedly write the source
-back to the player; failure still restores the safe source once. Later route
-ticks cannot supersede or restart the owned request.
+Core-scheduled object traversals use the same transaction. The viewer consumes
+the core traversal generation, selected destination, phase, and presentation
+class; it does not resolve traversal rows independently. It prefetches during
+approach/takeoff, starts supported climb presentation when the admitted action
+begins, keeps presenting a source position/plane snapshot while a late visual
+load finishes, and reveals the authoritative destination only with a complete
+scene. Stale generations are discarded, and visual failure never moves or
+rolls back the core player.
 
 PR 11 hides this latency in the viewer without changing `rc-core`. The existing
 async request now has a cache-only prefetch purpose: route and movement
-lookahead warm one mapsquare center ahead, while an accepted object traversal
-warms its known destination during routing/action presentation. A matching
+lookahead warm one mapsquare center ahead, while an admitted object traversal
+warms its core-selected destination during routing/action presentation. A matching
 boundary or transport promotes that work instead of restarting it. Normal
 movement does not show progress UI or block input. Active-scene culling keeps
 overlapping cached chunks from drawing, and stale chunks retire incrementally

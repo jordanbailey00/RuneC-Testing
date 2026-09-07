@@ -91,7 +91,6 @@ LEGACY_EXTERNAL_SOURCE_FILES = {
     "tools/export_npc_models_full.py",
     "tools/export_object_behaviors.py",
     "tools/export_object_defs.py",
-    "tools/export_object_transports.py",
     "tools/export_quests.py",
     "tools/export_regular_npc_mechanics.py",
     "tools/export_spawn_sources.py",

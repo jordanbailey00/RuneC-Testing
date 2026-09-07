@@ -162,7 +162,6 @@ static char *rc_game_data_identity(const RcWorldConfig *cfg) {
     RC_ID_PATH(object_defs_path);
     RC_ID_PATH(object_placements_path);
     RC_ID_PATH(object_behaviors_path);
-    RC_ID_PATH(object_transports_path);
     RC_ID_PATH(collision_tiles_path);
     RC_ID_PATH(area_flags_path);
     RC_ID_PATH(traversal_edges_path);
@@ -964,8 +963,6 @@ static RcGameDataStats rc_collect_game_data_stats(const RcWorldConfig *cfg,
                                ? data->object_data.behavior_count : 0,
         .object_placement_count = needs_objects && data
                                 ? data->object_data.placement_count : 0,
-        .object_transport_count = needs_objects && data
-                                ? data->object_data.transport_count : 0,
         .object_param_count = needs_objects && data
                           ? data->object_data.param_count : 0,
         .collision_region_count = needs_regions
@@ -1411,15 +1408,6 @@ RcGameData *rc_game_data_load(const RcWorldConfig *cfg,
             snprintf(report->message, sizeof(report->message),
                      "failed to load object placements from %.384s",
                      cfg->object_placements_path);
-            rc_game_data_release(data);
-            return NULL;
-        }
-        if (cfg->object_transports_path
-                && rc_load_object_transports_into(cfg->object_transports_path,
-                                                  &data->object_data) < 0) {
-            snprintf(report->message, sizeof(report->message),
-                     "failed to load object transports from %.384s",
-                     cfg->object_transports_path);
             rc_game_data_release(data);
             return NULL;
         }

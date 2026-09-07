@@ -85,8 +85,10 @@ subsystems**.
 - **objects** — object definitions, placed-object lookup, typed object
   behavior tags, complete varbit/varp transforms, exact layer-aware dynamic
   loc mutation, altar restore, doors, and gathering-node depletion/respawn
-- **traversal** — unified object/item/spell traversal-edge lookup and
-  player relocation helper
+- **traversal** - indexed traversal facts, explicit destination-policy
+  resolution, generation-owned traversal phases/outcomes, and checked player
+  relocation. Only a source-owning object/item/spell/activity handler may
+  admit executable travel; installed graph rows alone do not grant an action.
 - **regions** — source-backed collision shared by movement/action
   systems; provisional area-flag lookup for wilderness, wilderness
   level, multicombat, singles-plus, and safe-zone checks
@@ -327,6 +329,14 @@ commands replace through `rc_player_cancel_action`, and an unexpired strong
 action rejects non-soft replacement. Central cancellation clears commands,
 routes, interactions, combat, manual casts, traversals, skills, and storage.
 Only `rc_world_tick` advances the complete world schedule.
+
+Traversal admission snapshots exact source and approach identity, resolves one
+destination through an explicit policy, and hands the interaction to a strong
+generation-owned action. Core publishes approach, takeoff, transit, relocate,
+and landing events plus exactly one success/failure/cancellation outcome.
+Unsupported item/spell/instance rows and ambiguous imported object rows fail
+openly until their owning content provides requirements and destination
+policy. The viewer can observe these events but cannot resolve or apply travel.
 
 Generic interactions have the same single-owner rule. An accepted target gets
 a monotonic generation and a stable source/target snapshot. Late execution
@@ -733,7 +743,7 @@ static library that depends on `rc-core`).
 | Activity-local spawn/anchor lookup | `rc-core/activity_spawns.c` | Exact activity-local points, dynamic pools, wave-filtered NPC materialization, wave-region resolution, object anchors, and explicit unresolved source blockers. |
 | Provisional area-flag lookup | `rc-core/area_flags.c` | Sparse mapsquare-indexed flags for wilderness, wilderness level, multicombat, singles-plus, and safe-zone behavior. Rows are provisional until authoritative OSRS geometry is sourced. |
 | Normalization and canonical form lookup | `rc-core/normalization.c` | Shared item form, NPC alias, and source-name join support; exact IDs stay available. |
-| Coordinate-explicit object transport consumption | `rc-core/tick.c` + `rc-core/traversal.c` | Generic object action dispatch can consume source-backed traversal edges when callers provide exact object tiles. |
+| Owned traversal execution | `rc-core/tick.c` + `rc-core/traversal.c` | Exact object admission can create one generation-owned traversal with explicit destination policy, phase timing, checked relocation, and a terminal outcome. Ambiguous or unsupported graph rows are not executable actions. |
 | Generic object consumers | `rc-core/tick.c` + `rc-core/skills.c` | Prayer altars restore prayer from object behavior data; doors record per-world open state; resource objects start, deplete, and respawn source-backed gathering nodes. |
 | Slayer task loading, assignment filters, amount selection, and kill-credit routing | `rc-core/slayer.c` | Generic task owner; exact quest/location/boss-task edge rules come from data/content. |
 | Boss-specific scripts (`scurrius_heal_at_food_pile`, `kq_shed_exoskeleton`) | `rc-content/encounters/<boss>.c` | Content — one boss only. |

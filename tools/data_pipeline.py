@@ -434,13 +434,12 @@ DEF_REBUILD_SPECS = (
         authority="tracked RuneC-owned reviewed runtime snapshot plus content/regular_npc_special_mechanics.toml source",
     ),
     RuntimeOutputSpec(
-        dataset="object_behaviors_transports_traversal_gathering",
-        logical_paths=("defs/object_behaviors.bin", "defs/object_transports.bin", "defs/traversal_edges.bin", "defs/gathering_nodes.bin"),
+        dataset="object_behaviors_traversal_gathering",
+        logical_paths=("defs/object_behaviors.bin", "defs/traversal_edges.bin", "defs/gathering_nodes.bin"),
         rebuild_inputs=(),
         commands=(
             snapshot_cmd(
                 "data/defs/object_behaviors.bin",
-                "data/defs/object_transports.bin",
                 "data/defs/traversal_edges.bin",
                 "data/defs/gathering_nodes.bin",
             ),

@@ -209,11 +209,9 @@ int main(void) {
     assert(objects->def_count == stats->object_def_count);
     assert(objects->behavior_count == stats->object_behavior_count);
     assert(objects->placement_count == stats->object_placement_count);
-    assert(objects->transport_count == stats->object_transport_count);
     assert(objects->param_count == stats->object_param_count);
     assert(objects->placements == NULL);
     assert(objects->placement_store != NULL);
-    assert(objects->transports != NULL);
     assert(objects->params != NULL);
     const RcObjectDef *tree = rc_object_def_get(1276);
     assert(tree == &objects->defs[1276]);
@@ -223,12 +221,6 @@ int main(void) {
     const RcObjectPlacement *placements =
         rc_object_region_placements(4921, &placement_count);
     assert(placements != NULL && placement_count > 0);
-    const RcObjectTransport *transport =
-        rc_object_transport_find(16683, 2465, 3495, 0, 0);
-    assert(transport != NULL);
-    assert(transport >= objects->transports
-           && transport < objects->transports + objects->transport_count);
-
     const RcCollisionData *collision = rc_game_data_collision_data(full_data);
     assert(collision != NULL);
     assert(collision->region_count == stats->collision_region_count);
@@ -263,6 +255,11 @@ int main(void) {
     assert(item_edges != NULL && traversal_count > 300);
     assert(item_edges >= traversal->edges
            && item_edges < traversal->edges + traversal->edge_count);
+    const RcTraversalEdge *object_edge = rc_traversal_find(
+        RC_TRAVERSAL_OBJECT, 16683, 2465, 3495, 0, 0);
+    assert(object_edge != NULL);
+    assert(object_edge >= traversal->edges
+           && object_edge < traversal->edges + traversal->edge_count);
 
     const RcActivitySchemaData *schemas =
         rc_game_data_activity_schema_data(full_data);

@@ -356,11 +356,15 @@ static void test_command_admission_preserves_or_replaces(void) {
     world->player.storage_option = 0;
     int start_x = world->player.x;
     int start_y = world->player.y;
-    world->player.pending_traversal_active = 1;
-    world->player.pending_traversal_tick = world->tick;
-    world->player.pending_traversal_x = start_x + 10;
-    world->player.pending_traversal_y = start_y + 10;
-    world->player.pending_traversal_plane = world->player.plane;
+    world->player.traversal = (RcTraversalState){
+        .active = true,
+        .generation = 1,
+        .phase = RC_TRAVERSAL_PHASE_TAKEOFF,
+        .destination_x = start_x + 10,
+        .destination_y = start_y + 10,
+        .destination_plane = world->player.plane,
+        .ready_tick = world->tick,
+    };
     world->player_action.active = true;
     world->player_action.owner = RC_ACTION_OWNER_TRAVERSAL;
     world->player_action.category = RC_ACTION_CATEGORY_STRONG;
@@ -372,7 +376,7 @@ static void test_command_admission_preserves_or_replaces(void) {
     assert(world->player.interaction.target.component_id == 41);
     assert(world->player.skill_action == 0);
     assert(world->player.storage_kind == RC_STORAGE_NONE);
-    assert(!world->player.pending_traversal_active);
+    assert(!world->player.traversal.active);
     assert(world->player.x == start_x);
     assert(world->player.y == start_y);
     assert(world->player_commands.last_result

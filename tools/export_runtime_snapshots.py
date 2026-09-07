@@ -35,7 +35,6 @@ REPORT_BY_PATH = {
     "data/defs/slayer.bin": ("slayer.txt", "slayer assignments"),
     "data/defs/regular_npc_mechanics.bin": ("regular_npc_mechanics.txt", "regular NPC mechanics"),
     "data/defs/object_behaviors.bin": ("object_behaviors.txt", "object behaviors"),
-    "data/defs/object_transports.bin": ("object_transports.txt", "object transports"),
     "data/defs/traversal_edges.bin": ("traversal_edges.txt", "traversal edges"),
     "data/defs/gathering_nodes.bin": ("gathering_nodes.txt", "gathering nodes"),
     "data/defs/spells.bin": ("spells.txt", "spells"),

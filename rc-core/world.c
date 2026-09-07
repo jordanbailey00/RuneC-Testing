@@ -74,9 +74,7 @@ static void init_player_defaults(RcPlayer *p) {
     p->storage_option = -1;
     p->skill_target_x = -1;
     p->skill_target_y = -1;
-    p->pending_traversal_x = -1;
-    p->pending_traversal_y = -1;
-    p->pending_traversal_plane = -1;
+    rc_traversal_clear(p);
     rc_interaction_clear(p);
     p->combat_style = COMBAT_MELEE_CRUSH;
     p->attack_style_idx = 0;

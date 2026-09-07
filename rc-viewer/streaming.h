@@ -41,6 +41,7 @@ typedef struct {
 
 typedef struct {
     int active;
+    uint64_t traversal_generation;
     int source_x, source_y, source_plane;
     int destination_x, destination_y, destination_plane;
 } ViewerStreamingPlayerTransition;
@@ -129,13 +130,20 @@ int viewer_streaming_predict_prefetch_center(
     int edge_distance, int *center_x, int *center_y);
 void viewer_streaming_player_transition_begin(
     ViewerStreamingPlayerTransition *transition,
+    uint64_t traversal_generation,
     int source_x, int source_y, int source_plane,
     int destination_x, int destination_y, int destination_plane);
 int viewer_streaming_player_transition_source(
     const ViewerStreamingPlayerTransition *transition,
     int *x, int *y, int *plane);
+int viewer_streaming_player_transition_current(
+    const ViewerStreamingPlayerTransition *transition,
+    uint64_t traversal_generation,
+    int authoritative_x, int authoritative_y, int authoritative_plane);
 int viewer_streaming_player_transition_commit(
     ViewerStreamingPlayerTransition *transition,
+    uint64_t traversal_generation,
+    int authoritative_x, int authoritative_y, int authoritative_plane,
     int *x, int *y, int *plane);
 
 #endif

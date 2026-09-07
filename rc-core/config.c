@@ -39,7 +39,6 @@
 #define DEFAULT_OBJ_DEFS    "data/defs/object_defs.bin"
 #define DEFAULT_OBJ_PLACES  "data/regions/world.object-placements.indexed.bin"
 #define DEFAULT_OBJ_BEH     "data/defs/object_behaviors.bin"
-#define DEFAULT_OBJ_TRANS   "data/defs/object_transports.bin"
 #define DEFAULT_COLLISION   "data/regions/world.collision-tiles.indexed.bin"
 #define DEFAULT_AREA_FLAGS  "data/defs/area_flags.bin"
 #define DEFAULT_TRAVERSAL   "data/defs/traversal_edges.bin"
@@ -180,7 +179,6 @@ RcWorldConfig rc_preset_full_game(void) {
         .object_defs_path = DEFAULT_OBJ_DEFS,
         .object_placements_path = DEFAULT_OBJ_PLACES,
         .object_behaviors_path = DEFAULT_OBJ_BEH,
-        .object_transports_path = DEFAULT_OBJ_TRANS,
         .collision_tiles_path = DEFAULT_COLLISION,
         .area_flags_path = DEFAULT_AREA_FLAGS,
         .traversal_edges_path = DEFAULT_TRAVERSAL,
@@ -239,7 +237,6 @@ RcWorldConfig rc_preset_skilling_only(void) {
         .object_defs_path = DEFAULT_OBJ_DEFS,
         .object_placements_path = DEFAULT_OBJ_PLACES,
         .object_behaviors_path = DEFAULT_OBJ_BEH,
-        .object_transports_path = DEFAULT_OBJ_TRANS,
         .collision_tiles_path = DEFAULT_COLLISION,
         .area_flags_path = DEFAULT_AREA_FLAGS,
         .traversal_edges_path = DEFAULT_TRAVERSAL,

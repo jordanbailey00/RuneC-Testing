@@ -41,7 +41,6 @@ REQUIRED_REPORTS = (
     "object_behaviors.txt",
     "object_defs.txt",
     "object_placements.txt",
-    "object_transports.txt",
     "player_actions.txt",
     "prayers.txt",
     "quest_steps.txt",

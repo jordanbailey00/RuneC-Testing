@@ -129,15 +129,56 @@ static void test_queued_command_cancellation(void) {
 static void test_same_cycle_strong_command_blocks_replacement(void) {
     RcWorld *world = make_world(10);
     world->enabled |= RC_SUB_TRAVERSAL;
+    RcInteractionTarget target = {
+        .kind = RC_INTERACTION_OBJECT,
+        .entity_uid = -1,
+        .definition_id = 900,
+        .placement_key = 44,
+        .content_group = -1,
+        .tile_x = world->player.x,
+        .tile_y = world->player.y,
+        .plane = world->player.plane,
+        .footprint_width = 1,
+        .footprint_height = 1,
+        .inventory_slot = -1,
+        .equipment_slot = -1,
+        .widget_id = -1,
+        .component_id = -1,
+        .ground_item_instance = -1,
+    };
+    assert(rc_interaction_begin(&world->player, 0, RC_INTERACTION_OP1,
+                                "Travel", &target, 1));
+    uint64_t interaction_generation = world->player.interaction.generation;
     RcTraversalEdge edge = {
+        .kind = RC_TRAVERSAL_OBJECT,
+        .option = 0,
+        .source_semantics = RC_TRAVERSAL_SOURCE_PLAYER_TILE,
+        .source_id = 900,
+        .start_x = 3200,
+        .start_y = 3392,
         .dest_x = 3210,
         .dest_y = 3400,
         .dest_plane = 0,
     };
-    assert(rc_player_apply_traversal(world, &edge));
-    rc_player_walk_to(world, 3202, 3392);
-    assert(rc_player_pending_command_count(world) == 2);
+    RcTraversalDestinationSpec destination = {
+        .policy = RC_TRAVERSAL_POLICY_EXACT,
+        .destination = {3210, 3400, 0},
+    };
+    RcTraversalMotionSpec motion = {
+        .presentation = RC_TRAVERSAL_PRESENTATION_TELEPORT,
+        .takeoff_ticks = 1,
+    };
+    assert(rc_traversal_plan_object(
+        world, &edge, 44, interaction_generation, &destination, &motion));
+    assert(rc_traversal_start(world, interaction_generation));
+    assert(rc_interaction_apply_result(
+        &world->player, interaction_generation,
+        rc_interaction_result_handoff()));
+    assert(!rc_player_walk_to(world, 3202, 3392));
+    assert(rc_player_pending_command_count(world) == 0);
 
+    rc_world_tick(world);
+    assert(world->player.x == 3200 && world->player.y == 3392);
     rc_world_tick(world);
 
     assert(world->player.x == 3210 && world->player.y == 3400);

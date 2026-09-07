@@ -158,6 +158,13 @@ RcInteractionHandlerResult rc_interaction_result_failure(
     return result;
 }
 
+RcInteractionHandlerResult rc_interaction_result_handoff(void) {
+    RcInteractionHandlerResult result;
+    memset(&result, 0, sizeof(result));
+    result.code = RC_INTERACTION_HANDLER_HANDOFF;
+    return result;
+}
+
 static void copy_option_text(char dst[RC_INTERACTION_OPTION_TEXT_LEN],
                              const char *src) {
     dst[0] = '\0';
@@ -325,7 +332,8 @@ int rc_interaction_apply_result(RcPlayer *player, uint64_t generation,
     if (result.code != RC_INTERACTION_HANDLER_COMPLETE
             && result.code != RC_INTERACTION_HANDLER_CANCEL
             && result.code != RC_INTERACTION_HANDLER_MESSAGE
-            && result.code != RC_INTERACTION_HANDLER_FAILURE) {
+            && result.code != RC_INTERACTION_HANDLER_FAILURE
+            && result.code != RC_INTERACTION_HANDLER_HANDOFF) {
         result = rc_interaction_result_failure(
             RC_INTERACTION_FAIL_INVALID_TARGET,
             "Invalid interaction result");

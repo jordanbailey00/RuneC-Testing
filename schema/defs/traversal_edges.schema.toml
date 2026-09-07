@@ -9,7 +9,7 @@ endianness = "little"
 header = ["u32 magic", "u32 version", "u32 count"]
 producer = "tools/export_traversal_edges.py"
 consumers = ["rc-core/traversal.c"]
-source_dataset = "RuneC-owned traversal facts and object transport rows"
+source_dataset = "RuneC-owned traversal facts; execution requires owner admission and explicit destination policy"
 row_fields = [
   "u8 kind",
   "u8 option",
@@ -24,4 +24,4 @@ row_fields = [
   "pstr8 action",
   "pstr8 target",
 ]
-compatibility = "Loader accepts exactly current_version."
+compatibility = "Loader accepts exactly current_version. Source sentinel fields are decoded as no-source, ordinary player-source, or instance-template semantics; ambiguous and unsupported rows are not executable by themselves."

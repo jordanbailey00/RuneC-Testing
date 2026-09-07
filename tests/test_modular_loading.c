@@ -49,7 +49,6 @@ static void reset_loader_counts(void) {
     g_rc_object_def_count = 0;
     g_rc_object_behavior_count = 0;
     g_rc_object_placement_count = 0;
-    g_rc_object_transport_count = 0;
     g_rc_collision_region_count = 0;
     g_rc_area_flag_count = 0;
     g_rc_traversal_edge_count = 0;
@@ -82,7 +81,6 @@ static void assert_common_off(void) {
     assert(g_rc_object_def_count == 0);
     assert(g_rc_object_behavior_count == 0);
     assert(g_rc_object_placement_count == 0);
-    assert(g_rc_object_transport_count == 0);
     assert(g_rc_collision_region_count == 0);
     assert(g_rc_area_flag_count == 0);
     assert(g_rc_traversal_edge_count == 0);
@@ -169,7 +167,6 @@ static void check_skilling_only(void) {
     assert(g_rc_object_def_count > 60000);
     assert(g_rc_object_behavior_count > 8000);
     assert(g_rc_object_placement_count > 4700000);
-    assert(g_rc_object_transport_count > 29000);
     assert(g_rc_collision_region_count > 2000);
     assert(g_rc_area_flag_count == 1419);
     assert(g_rc_traversal_edge_count > 45000);

@@ -17,7 +17,6 @@
 #define OPLI_PATH \
     RC_TEST_SOURCE_DIR "/data/regions/world.object-placements.indexed.bin"
 #define OBHV_PATH RC_TEST_SOURCE_DIR "/data/defs/object_behaviors.bin"
-#define OTRP_PATH RC_TEST_SOURCE_DIR "/data/defs/object_transports.bin"
 #define TRAV_PATH RC_TEST_SOURCE_DIR "/data/defs/traversal_edges.bin"
 #define CTPI_PATH \
     RC_TEST_SOURCE_DIR "/data/regions/world.collision-tiles.indexed.bin"
@@ -63,7 +62,6 @@ static RcWorld *make_world(uint32_t seed) {
     cfg.object_defs_path = ODEF_PATH;
     cfg.object_placements_path = OPLI_PATH;
     cfg.object_behaviors_path = OBHV_PATH;
-    cfg.object_transports_path = OTRP_PATH;
     cfg.traversal_edges_path = TRAV_PATH;
     cfg.collision_tiles_path = CTPI_PATH;
     cfg.items_path = ITEM_PATH;

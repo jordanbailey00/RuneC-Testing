@@ -18,6 +18,7 @@ RcInteractionHandlerResult rc_interaction_result_continue_approach(
 RcInteractionHandlerResult rc_interaction_result_message(const char *message);
 RcInteractionHandlerResult rc_interaction_result_failure(
     RcInteractionFailure reason, const char *message);
+RcInteractionHandlerResult rc_interaction_result_handoff(void);
 int  rc_interaction_begin(RcPlayer *player, int source_actor_uid,
                           RcInteractionOp op, const char *option_text,
                           const RcInteractionTarget *target,

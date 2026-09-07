@@ -68,7 +68,6 @@ typedef enum {
     RC_PLAYER_COMMAND_CLOSE_STORAGE,
     RC_PLAYER_COMMAND_BANK_DEPOSIT,
     RC_PLAYER_COMMAND_BANK_WITHDRAW,
-    RC_PLAYER_COMMAND_APPLY_TRAVERSAL,
     RC_PLAYER_COMMAND_APPLY_RECIPE,
     RC_PLAYER_COMMAND_DROP_ITEM,
     RC_PLAYER_COMMAND_PICKUP_ITEM,
@@ -285,6 +284,93 @@ typedef struct {
     RcInteractionFailure failure;
     char message[RC_INTERACTION_RESULT_MESSAGE_LEN];
 } RcInteractionOutcome;
+
+typedef enum {
+    RC_TRAVERSAL_POLICY_EXACT = 1,
+    RC_TRAVERSAL_POLICY_RELATIVE,
+    RC_TRAVERSAL_POLICY_RANDOM_AREA,
+    RC_TRAVERSAL_POLICY_CHOICE,
+    RC_TRAVERSAL_POLICY_CONTEXTUAL_RETURN,
+    RC_TRAVERSAL_POLICY_INSTANCE_MAPPED,
+} RcTraversalDestinationPolicy;
+
+typedef enum {
+    RC_TRAVERSAL_PRESENTATION_INSTANT = 0,
+    RC_TRAVERSAL_PRESENTATION_CLIMB,
+    RC_TRAVERSAL_PRESENTATION_TELEPORT,
+    RC_TRAVERSAL_PRESENTATION_EXACT_MOVE,
+} RcTraversalPresentation;
+
+typedef enum {
+    RC_TRAVERSAL_PHASE_NONE = 0,
+    RC_TRAVERSAL_PHASE_APPROACH,
+    RC_TRAVERSAL_PHASE_TAKEOFF,
+    RC_TRAVERSAL_PHASE_TRANSIT,
+    RC_TRAVERSAL_PHASE_RELOCATE,
+    RC_TRAVERSAL_PHASE_LANDING,
+} RcTraversalPhase;
+
+typedef enum {
+    RC_TRAVERSAL_RESULT_NONE = 0,
+    RC_TRAVERSAL_RESULT_SUCCESS,
+    RC_TRAVERSAL_RESULT_CANCELLED,
+    RC_TRAVERSAL_RESULT_INVALID_SOURCE,
+    RC_TRAVERSAL_RESULT_INVALID_DESTINATION,
+    RC_TRAVERSAL_RESULT_DESTINATION_UNAVAILABLE,
+    RC_TRAVERSAL_RESULT_UNSUPPORTED,
+} RcTraversalResultCode;
+
+typedef struct {
+    bool active;
+    uint64_t generation;
+    uint64_t interaction_generation;
+    int source_kind;
+    int source_id;
+    int source_option;
+    uint32_t source_flags;
+    uint64_t source_key;
+    int source_x, source_y, source_plane;
+    int approach_x, approach_y, approach_plane;
+    RcTraversalDestinationPolicy policy;
+    RcTraversalPresentation presentation;
+    RcTraversalPhase phase;
+    int destination_x, destination_y, destination_plane;
+    int facing_x, facing_y;
+    bool has_facing;
+    RcTick ready_tick;
+    int takeoff_ticks;
+    int transit_ticks;
+    int landing_ticks;
+} RcTraversalState;
+
+typedef struct {
+    uint64_t sequence;
+    uint64_t generation;
+    uint64_t interaction_generation;
+    RcTraversalPhase phase;
+    RcTraversalPresentation presentation;
+    int source_kind;
+    int source_id;
+    int source_option;
+    uint64_t source_key;
+    int source_x, source_y, source_plane;
+    int approach_x, approach_y, approach_plane;
+    int destination_x, destination_y, destination_plane;
+    int facing_x, facing_y;
+    bool has_facing;
+    int takeoff_ticks, transit_ticks, landing_ticks;
+} RcTraversalEvent;
+
+typedef struct {
+    uint64_t sequence;
+    uint64_t generation;
+    RcTraversalResultCode code;
+    RcPlayerActionCancelReason cancel_reason;
+    int source_kind;
+    int source_id;
+    int destination_x, destination_y, destination_plane;
+    char message[RC_INTERACTION_RESULT_MESSAGE_LEN];
+} RcTraversalOutcome;
 
 // Equipment slots
 typedef enum {
@@ -681,9 +767,12 @@ typedef struct {
     int potion_timer;
     int combo_timer;
     int ward_of_arceuus_timer;
-    int pending_traversal_active;
-    RcTick pending_traversal_tick;
-    int pending_traversal_x, pending_traversal_y, pending_traversal_plane;
+    RcTraversalState traversal;
+    uint64_t next_traversal_generation;
+    uint64_t next_traversal_event_sequence;
+    uint64_t next_traversal_outcome_sequence;
+    RcTraversalEvent traversal_event;
+    RcTraversalOutcome traversal_outcome;
 
     // Stats & items
     RcSkills skills;
@@ -768,6 +857,7 @@ typedef enum {
     RC_INTERACTION_HANDLER_CONTINUE_APPROACH,
     RC_INTERACTION_HANDLER_MESSAGE,
     RC_INTERACTION_HANDLER_FAILURE,
+    RC_INTERACTION_HANDLER_HANDOFF,
 } RcInteractionHandlerCode;
 
 typedef struct {

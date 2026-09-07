@@ -65,7 +65,6 @@ typedef struct {
     int object_def_count;
     int object_behavior_count;
     int object_placement_count;
-    int object_transport_count;
     int object_param_count;
     int collision_region_count;
     int area_flag_count;

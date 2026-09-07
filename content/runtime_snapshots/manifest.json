@@ -48,11 +48,6 @@
       "sha256": "52471f1d12668f8c3a6816c844ad1b7a879e54252f200ff9a3e62131bfcccb97"
     },
     {
-      "bytes": 1017182,
-      "path": "data/defs/object_transports.bin",
-      "sha256": "076c3c812affcd472fc4429153402ca67e69b2c32f9bd36af6c271c64b462529"
-    },
-    {
       "bytes": 5451,
       "path": "data/defs/quests.bin",
       "sha256": "6a9ec22e6cfdc8c7d14d7b5a397adfd66aab04406b2609acf2b5cc5269499528"

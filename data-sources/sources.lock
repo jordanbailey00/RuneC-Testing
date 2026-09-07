@@ -1,14 +1,14 @@
 version = 1
 phase = "data_cleanup_phase_4"
-generated_on = "2026-06-26"
+generated_on = "2026-09-06"
 
 [[source]]
 id = "content_tree"
 status = "required"
 kind = "tracked_tree"
 path = "content"
-sha256 = "a236b96456a437e7ffea6103ec7195afd95be0c6eca6b5c63b0ff5529da5f3a3"
-file_count = 880
+sha256 = "6aec45c9719fabb870029e34985deca59484274ac3af09f0afa5f83b464952bb"
+file_count = 882
 description = "RuneC-owned authored content tables, migrated curated data, and reviewed runtime snapshots."
 
 [[source]]
@@ -56,7 +56,7 @@ id = "schemas"
 status = "required"
 kind = "tracked_tree"
 path = "schema"
-sha256 = "f5bbf1d2690a00be6e79f2706d7f7b8641b1063434fe1bc28cd0761b1cb5b33f"
+sha256 = "2f22c740d8c333a050607d43d2605efc9a70f294edc511c27a388951804eaba8"
 file_count = 35
 description = "Tracked Runtime binary schemas and pack format documentation."
 

@@ -88,11 +88,7 @@ static void cancel_player_activity(RcWorld *world,
     rc_interaction_cancel(player, RC_INTERACTION_FAIL_CANCELLED);
     stop_player_combat(world);
     player->manual_spell_cast = -1;
-    player->pending_traversal_active = 0;
-    player->pending_traversal_tick = 0;
-    player->pending_traversal_x = -1;
-    player->pending_traversal_y = -1;
-    player->pending_traversal_plane = -1;
+    rc_traversal_cancel(world, reason);
     player->skill_action = 0;
     player->skill_ready_tick = 0;
     player->storage_kind = RC_STORAGE_NONE;
@@ -195,10 +191,11 @@ void rc_player_action_refresh(RcWorld *world) {
     RcPlayer *player = &world->player;
     RcPlayerActionState *action = &world->player_action;
     RcPlayerActionCancelReason last_reason = action->last_cancel_reason;
-    if (player->pending_traversal_active) {
+    if (player->traversal.active
+            && player->traversal.phase != RC_TRAVERSAL_PHASE_APPROACH) {
         set_action(world, RC_ACTION_OWNER_TRAVERSAL,
                    RC_ACTION_CATEGORY_STRONG,
-                   player->pending_traversal_tick + 1);
+                   player->traversal.ready_tick + 1);
         return;
     }
     if (action->active && action->category == RC_ACTION_CATEGORY_STRONG
@@ -351,25 +348,6 @@ static int execute_command(RcWorld *world, const RcPlayerCommand *command) {
             return reject_stale_item_command(world, a[0], 0);
         }
         return rc_bank_withdraw_slot(world, a[0], a[1]) >= 0;
-    case RC_PLAYER_COMMAND_APPLY_TRAVERSAL: {
-        if (!(world->enabled & RC_SUB_TRAVERSAL)
-                || !rc_world_tile_valid(a[0], a[1], a[2])) {
-            return 0;
-        }
-        RcPlayer *player = &world->player;
-        player->pending_traversal_active = 1;
-        player->pending_traversal_tick = world->tick;
-        player->pending_traversal_x = a[0];
-        player->pending_traversal_y = a[1];
-        player->pending_traversal_plane = a[2];
-        rc_player_route_clear(player, RC_MOVEMENT_NONE);
-        world->player_action.active = true;
-        world->player_action.owner = RC_ACTION_OWNER_TRAVERSAL;
-        world->player_action.category = RC_ACTION_CATEGORY_STRONG;
-        world->player_action.started_tick = world->tick;
-        world->player_action.ready_tick = world->tick + 1;
-        return 1;
-    }
     case RC_PLAYER_COMMAND_APPLY_RECIPE: {
         const RcRecipe *recipe = rc_recipe_get(a[0]);
         return recipe && rc_player_apply_recipe(world, recipe);

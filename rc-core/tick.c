@@ -71,44 +71,21 @@ static int tile_reaches_object_target(const RcWorld *world,
 static int rotate_block_access_flags(int flags, int angle);
 static const RcTraversalEdge *object_traversal_edge(
     const RcWorld *world, int obj_id, int x, int y, int plane, int opt,
-    uint64_t placement_key);
-static const RcTraversalEdge *object_effective_traversal_edge(
-    const RcWorld *world, int obj_id, int x, int y, int plane, int opt,
-    uint64_t placement_key, RcTraversalEdge *inferred);
-static int infer_vertical_climb_edge(int obj_id, int x, int y, int plane,
-                                    int opt, RcTraversalEdge *out);
+    uint64_t placement_key, int *has_candidate);
 static int object_option_available(const RcWorld *world, int obj_id,
                                    int x, int y, int plane,
                                    uint64_t placement_key,
                                    const RcObjectDef *def,
                                    const RcObjectBehavior *behavior,
                                    const RcTraversalEdge *edge, int opt);
-static int string_has_ci(const char *s, const char *needle);
 static void start_player_action_lock(RcWorld *world, int lock_ticks);
-static void schedule_player_traversal(RcWorld *world,
-                                      const RcTraversalEdge *edge,
-                                      int delay_ticks);
 
 static void process_player_route(RcWorld *world) {
     process_player_interaction(world, 0);
 }
 
 static void process_player_action_timers(RcWorld *world) {
-    if (!world) return;
-    RcPlayer *p = &world->player;
-    if (p->pending_traversal_active
-            && world->tick >= p->pending_traversal_tick) {
-        int destination_x = p->pending_traversal_x;
-        int destination_y = p->pending_traversal_y;
-        int destination_plane = p->pending_traversal_plane;
-        (void)rc_world_relocate_player(
-            world, destination_x, destination_y, destination_plane);
-        rc_player_route_clear(p, RC_MOVEMENT_NONE);
-        p->pending_traversal_active = 0;
-        p->pending_traversal_x = -1;
-        p->pending_traversal_y = -1;
-        p->pending_traversal_plane = -1;
-    }
+    rc_traversal_tick(world);
 }
 
 static int player_agility_level(const RcPlayer *player) {
@@ -365,22 +342,40 @@ static void face_player_to_target(RcPlayer *p,
     p->facing_y = ty;
 }
 
+static const RcTraversalState *planned_object_traversal(
+    const RcPlayer *player, const RcInteractionTarget *target) {
+    if (!player || !target || !player->traversal.active
+            || player->traversal.phase != RC_TRAVERSAL_PHASE_APPROACH
+            || player->traversal.interaction_generation
+                != player->interaction.generation
+            || target->kind != RC_INTERACTION_OBJECT
+            || player->traversal.source_kind != RC_TRAVERSAL_OBJECT
+            || player->traversal.source_id != target->definition_id
+            || player->traversal.source_x != target->tile_x
+            || player->traversal.source_y != target->tile_y
+            || player->traversal.source_plane != target->plane
+            || (target->placement_key != 0
+                && player->traversal.source_key != target->placement_key)) {
+        return NULL;
+    }
+    return &player->traversal;
+}
+
 static int route_player_toward_interaction_target(RcWorld *world, RcPlayer *p,
                                                   const RcInteractionTarget *t,
                                                   int range) {
     if (!world || !p || !t || p->plane != t->plane) return 0;
     if (range < 0) range = 0;
     if (t->kind == RC_INTERACTION_OBJECT) {
-        int opt = api_option_from_interaction_op(p->interaction.op);
-        const RcTraversalEdge *edge = object_traversal_edge(
-            world, t->definition_id, t->tile_x, t->tile_y, t->plane, opt,
-            t->placement_key);
-        if (edge && edge->start_plane == p->plane
-                && edge->start_x != 0xFFFFu && edge->start_y != 0xFFFFu) {
-            if (p->x == (int)edge->start_x && p->y == (int)edge->start_y)
+        const RcTraversalState *traversal =
+            planned_object_traversal(p, t);
+        if (traversal && traversal->approach_plane == p->plane) {
+            if (p->x == traversal->approach_x
+                    && p->y == traversal->approach_y) {
                 return 1;
+            }
             RcRouteTarget target = rc_route_target_point(
-                edge->start_x, edge->start_y);
+                traversal->approach_x, traversal->approach_y);
             if (!api_route_player(world, &target, 1, 1, false)) return 0;
             p->interaction.flags |= RC_INTERACTION_MOVED;
             return 1;
@@ -707,23 +702,19 @@ static void process_player_interaction(RcWorld *world, int dispatch_ready) {
                       ? p->interaction.approach_range : 1;
             int in_range =
                 player_distance_to_target(p, &p->interaction.target) <= range;
-            int opt = api_option_from_interaction_op(p->interaction.op);
-            const RcTraversalEdge *edge = object_traversal_edge(
-                world, p->interaction.target.definition_id,
-                p->interaction.target.tile_x, p->interaction.target.tile_y,
-                p->interaction.target.plane, opt,
-                p->interaction.target.placement_key);
-            if (edge && edge->start_plane == p->plane
-                    && edge->start_x != 0xFFFFu && edge->start_y != 0xFFFFu) {
-                in_range = p->x == (int)edge->start_x
-                        && p->y == (int)edge->start_y;
+            const RcTraversalState *traversal = planned_object_traversal(
+                p, &p->interaction.target);
+            if (traversal && traversal->approach_plane == p->plane) {
+                in_range = p->x == traversal->approach_x
+                        && p->y == traversal->approach_y;
             }
             if (in_range) {
                 in_range = tile_reaches_object_target(
                     world, &p->interaction.target, p->x, p->y);
-                if (!in_range && edge && edge->start_plane == p->plane
-                        && p->x == (int)edge->start_x
-                        && p->y == (int)edge->start_y) {
+                if (!in_range && traversal
+                        && traversal->approach_plane == p->plane
+                        && p->x == traversal->approach_x
+                        && p->y == traversal->approach_y) {
                     in_range = 1;
                 }
             }
@@ -999,6 +990,7 @@ void rc_world_tick(RcWorld *world) {
     process_player_action_timers(world);
     process_player_movement(world);
     process_player_interaction(world, 1);
+    process_player_action_timers(world);
     if (on & RC_SUB_COMBAT)   process_player_combat(world);
     if (on & RC_SUB_SKILLS)   process_player_skilling(world);
 
@@ -1250,11 +1242,7 @@ static void api_commit_interaction_admission(RcWorld *world) {
     RcPlayer *player = &world->player;
     int replacing_storage = player->storage_kind != RC_STORAGE_NONE;
     rc_player_route_clear(player, RC_MOVEMENT_NONE);
-    player->pending_traversal_active = 0;
-    player->pending_traversal_tick = 0;
-    player->pending_traversal_x = -1;
-    player->pending_traversal_y = -1;
-    player->pending_traversal_plane = -1;
+    rc_traversal_cancel(world, RC_ACTION_CANCEL_REPLACED);
     player->skill_action = 0;
     player->skill_ready_tick = 0;
     player->storage_kind = RC_STORAGE_NONE;
@@ -1472,24 +1460,6 @@ static void start_player_action_lock(RcWorld *world, int lock_ticks) {
         action->started_tick = world->tick;
         action->ready_tick = ready_tick;
     }
-}
-
-static void schedule_player_traversal(RcWorld *world,
-                                      const RcTraversalEdge *edge,
-                                      int delay_ticks) {
-    if (!world || !edge) return;
-    if (delay_ticks <= 0) {
-        rc_player_apply_traversal(world, edge);
-        return;
-    }
-    RcPlayer *p = &world->player;
-    p->pending_traversal_active = 1;
-    p->pending_traversal_tick = world->tick + delay_ticks;
-    p->pending_traversal_x = edge->dest_x;
-    p->pending_traversal_y = edge->dest_y;
-    p->pending_traversal_plane = edge->dest_plane;
-    rc_player_route_clear(p, RC_MOVEMENT_NONE);
-    start_player_action_lock(world, delay_ticks);
 }
 
 int rc_player_walk_to(RcWorld *world, int x, int y) {
@@ -1872,37 +1842,50 @@ static int source_tile_matches_placement(const RcObjectPlacement *placement,
     return tile_distance_to_placement(placement, def, source_x, source_y) <= 1;
 }
 
-static int traversal_direction_score(const RcTraversalEdge *row) {
-    if (!row) return 0;
-    int delta = (int)row->dest_plane - (int)row->start_plane;
-    if (string_has_ci(row->action, "down")
-            || string_has_ci(row->action, "descend")) {
-        if (delta < 0) return 2;
-        if (delta > 0) return -2;
-    } else if (string_has_ci(row->action, "up")
-            || string_has_ci(row->action, "ascend")) {
-        if (delta > 0) return 2;
-        if (delta < 0) return -2;
-    }
-    return 0;
-}
-
 static int traversal_edge_better(const RcTraversalEdge *candidate,
                                  int candidate_dist,
                                  const RcTraversalEdge *best,
                                  int best_dist) {
     if (!candidate) return 0;
     if (!best) return 1;
-    int candidate_score = traversal_direction_score(candidate);
-    int best_score = traversal_direction_score(best);
-    if (candidate_score != best_score)
-        return candidate_score > best_score;
-    return candidate_dist < best_dist;
+    if (candidate_dist != best_dist) return candidate_dist < best_dist;
+    if (candidate->start_x != best->start_x)
+        return candidate->start_x < best->start_x;
+    if (candidate->start_y != best->start_y)
+        return candidate->start_y < best->start_y;
+    if (candidate->dest_plane != best->dest_plane)
+        return candidate->dest_plane < best->dest_plane;
+    if (candidate->dest_x != best->dest_x)
+        return candidate->dest_x < best->dest_x;
+    return candidate->dest_y < best->dest_y;
+}
+
+static int traversal_source_has_one_destination(
+    const RcTraversalEdge *rows, int count, const RcTraversalEdge *candidate) {
+    if (!rows || !candidate) return 0;
+    for (int i = 0; i < count; i++) {
+        const RcTraversalEdge *row = &rows[i];
+        if (row->kind != candidate->kind
+                || row->source_id != candidate->source_id
+                || row->option != candidate->option
+                || row->start_x != candidate->start_x
+                || row->start_y != candidate->start_y
+                || row->start_plane != candidate->start_plane) {
+            continue;
+        }
+        if (row->dest_x != candidate->dest_x
+                || row->dest_y != candidate->dest_y
+                || row->dest_plane != candidate->dest_plane) {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 static const RcTraversalEdge *object_traversal_edge(
     const RcWorld *world, int obj_id, int x, int y, int plane, int opt,
-    uint64_t placement_key) {
+    uint64_t placement_key, int *has_candidate) {
+    if (has_candidate) *has_candidate = 0;
     if (!world || !(world->enabled & RC_SUB_TRAVERSAL)
             || x < 0 || y < 0 || plane < 0 || opt < 0) {
         return NULL;
@@ -1913,47 +1896,49 @@ static const RcTraversalEdge *object_traversal_edge(
     if (rc_object_has_placements() && !have_placement) {
         return NULL;
     }
-    const RcTraversalEdge *exact =
-        rc_traversal_find(RC_TRAVERSAL_OBJECT, obj_id, x, y, plane, opt);
-    if (!have_placement) return exact;
+    if (!have_placement) return NULL;
 
     int count = 0;
     const RcTraversalEdge *rows =
         rc_traversal_edges_for(RC_TRAVERSAL_OBJECT, obj_id, &count);
     const RcObjectDef *def = rc_object_def_get(obj_id);
     const RcTraversalEdge *player_source = NULL;
-    int player_source_dist = INT_MAX;
-    const RcTraversalEdge *placement_source = NULL;
-    int placement_source_dist = INT_MAX;
     const RcTraversalEdge *nearest = NULL;
+    int player_source_seen = 0;
+    int player_source_blocked = 0;
     int nearest_dist = INT_MAX;
     for (int i = 0; rows && i < count; i++) {
         const RcTraversalEdge *row = &rows[i];
         if (row->kind != RC_TRAVERSAL_OBJECT
                 || row->source_id != (uint32_t)obj_id)
             continue;
-        if ((int)row->option != opt || (int)row->start_plane != plane)
+        if ((int)row->option != opt || (int)row->start_plane != plane) {
             continue;
+        }
         if (source_tile_matches_placement(&placement, def, row->start_x,
                                           row->start_y)) {
+            if (has_candidate) *has_candidate = 1;
+            int at_player_source = (int)row->start_x == world->player.x
+                && (int)row->start_y == world->player.y
+                && (int)row->start_plane == world->player.plane;
+            if (at_player_source) player_source_seen = 1;
+            if (row->flags != 0
+                    || row->source_semantics
+                        != RC_TRAVERSAL_SOURCE_PLAYER_TILE
+                    || !traversal_source_has_one_destination(
+                        rows, count, row)) {
+                if (at_player_source) player_source_blocked = 1;
+                continue;
+            }
             int dx = (int)row->start_x - world->player.x;
             int dy = (int)row->start_y - world->player.y;
             if (dx < 0) dx = -dx;
             if (dy < 0) dy = -dy;
             int dist = dx > dy ? dx : dy;
-            if ((int)row->start_x == world->player.x
-                    && (int)row->start_y == world->player.y
-                    && (int)row->start_plane == world->player.plane
-                    && traversal_edge_better(row, dist, player_source,
-                                             player_source_dist)) {
+            if (at_player_source
+                    && traversal_edge_better(
+                        row, dist, player_source, 0)) {
                 player_source = row;
-                player_source_dist = dist;
-            }
-            if ((int)row->start_x == x && (int)row->start_y == y
-                    && traversal_edge_better(row, dist, placement_source,
-                                             placement_source_dist)) {
-                placement_source = row;
-                placement_source_dist = dist;
             }
             if (traversal_edge_better(row, dist, nearest, nearest_dist)) {
                 nearest = row;
@@ -1961,21 +1946,9 @@ static const RcTraversalEdge *object_traversal_edge(
             }
         }
     }
-    if (player_source) return player_source;
-    if (placement_source) return placement_source;
-    return nearest ? nearest : exact;
-}
-
-static const RcTraversalEdge *object_effective_traversal_edge(
-    const RcWorld *world, int obj_id, int x, int y, int plane, int opt,
-    uint64_t placement_key, RcTraversalEdge *inferred) {
-    const RcTraversalEdge *edge = object_traversal_edge(
-        world, obj_id, x, y, plane, opt, placement_key);
-    if (!edge && inferred
-            && infer_vertical_climb_edge(obj_id, x, y, plane, opt, inferred)) {
-        edge = inferred;
-    }
-    return edge;
+    if (player_source_seen)
+        return player_source_blocked ? NULL : player_source;
+    return nearest;
 }
 
 static int object_option_available(const RcWorld *world, int obj_id,
@@ -1988,7 +1961,7 @@ static int object_option_available(const RcWorld *world, int obj_id,
     (void)placement_key;
     if (opt < 0 || opt >= RC_OBJECT_ACTIONS)
         return 0;
-    if (edge) return 1;
+    if (edge) return edge->flags == 0;
     RcInteractionDispatchKey key = rc_interaction_dispatch_key_any();
     key.kind = RC_INTERACTION_OBJECT;
     key.op = rc_interaction_op_from_option(opt);
@@ -2051,11 +2024,24 @@ int rc_world_object_option_supported(const RcWorld *world, int obj_id,
             rc_object_behavior_get(state->base_obj_id);
         if (base_behavior) behavior = base_behavior;
     }
-    RcTraversalEdge inferred;
-    const RcTraversalEdge *edge = object_effective_traversal_edge(
-        world, obj_id, x, y, plane, option, placement_key, &inferred);
+    int has_traversal_candidate = 0;
+    const RcTraversalEdge *edge = object_traversal_edge(
+        world, obj_id, x, y, plane, option, placement_key,
+        &has_traversal_candidate);
+    if (!edge && has_traversal_candidate) return 0;
     return object_option_available(world, obj_id, x, y, plane, placement_key,
                                    def, behavior, edge, option);
+}
+
+const char *rc_world_object_option_label(
+    const RcWorld *world, int obj_id, int x, int y, int plane,
+    uint64_t placement_key, int option) {
+    if (!world || option < 0 || option >= RC_OBJECT_ACTIONS) return "";
+    const RcObjectDef *def = rc_object_def_get(obj_id);
+    if (def && def->actions[option][0]) return def->actions[option];
+    const RcTraversalEdge *edge = object_traversal_edge(
+        world, obj_id, x, y, plane, option, placement_key, NULL);
+    return edge && edge->action[0] ? edge->action : "";
 }
 
 static void door_translate_open(int shape, int rotation, int *x, int *y) {
@@ -2074,24 +2060,6 @@ static void door_translate_open(int shape, int rotation, int *x, int *y) {
     }
 }
 
-static int string_has_ci(const char *s, const char *needle) {
-    if (!s || !needle || !needle[0]) return 0;
-    size_t n = strlen(needle);
-    for (; *s; s++) {
-        size_t i = 0;
-        while (i < n && s[i]) {
-            char a = s[i];
-            char b = needle[i];
-            if (a >= 'A' && a <= 'Z') a = (char)(a - 'A' + 'a');
-            if (b >= 'A' && b <= 'Z') b = (char)(b - 'A' + 'a');
-            if (a != b) break;
-            i++;
-        }
-        if (i == n) return 1;
-    }
-    return 0;
-}
-
 static void gate_right_translate_open(int rotation, int *x, int *y) {
     if (!x || !y) return;
     int r = rotation & 3;
@@ -2108,163 +2076,6 @@ static void gate_right_translate_open(int rotation, int *x, int *y) {
         *x += 1;
         *y -= 2;
     }
-}
-
-static int traversal_edge_uses_shortcut_motion(const RcTraversalEdge *edge) {
-    return edge && edge->action[0] &&
-        (string_has_ci(edge->action, "cross")
-         || string_has_ci(edge->action, "squeeze")
-         || string_has_ci(edge->action, "jump")
-         || string_has_ci(edge->action, "climb")
-         || string_has_ci(edge->action, "balance"));
-}
-
-static int traversal_edge_is_agility_like(const RcTraversalEdge *edge) {
-    if (!edge) return 0;
-    return string_has_ci(edge->action, "squeeze")
-        || string_has_ci(edge->action, "jump")
-        || string_has_ci(edge->action, "balance")
-        || string_has_ci(edge->target, "gap")
-        || string_has_ci(edge->target, "railing");
-}
-
-static int player_can_use_agility_like_shortcut(const RcWorld *world) {
-    if (!world || !(world->enabled & RC_SUB_SKILLS))
-        return 1;
-    return world->player.skills.base_level[SKILL_AGILITY] > 0
-        && world->player.skills.boosted_level[SKILL_AGILITY] > 0;
-}
-
-static int action_climb_dir(const char *action, int *out_up) {
-    if (!string_has_ci(action, "climb")) return 0;
-    if (string_has_ci(action, "up")) {
-        if (out_up) *out_up = 1;
-        return 1;
-    }
-    if (string_has_ci(action, "down")) {
-        if (out_up) *out_up = 0;
-        return 1;
-    }
-    return 0;
-}
-
-static int object_action_climb_dir(const RcObjectDef *def, int opt,
-                                   int *out_up) {
-    if (!def || opt < 0 || opt >= RC_OBJECT_ACTIONS) return 0;
-    return action_climb_dir(def->actions[opt], out_up);
-}
-
-static int object_def_has_climb_dir(const RcObjectDef *def, int up) {
-    for (int i = 0; def && i < RC_OBJECT_ACTIONS; i++) {
-        int action_up = 0;
-        if (object_action_climb_dir(def, i, &action_up)
-                && action_up == up) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
-static void set_inferred_climb_edge(RcTraversalEdge *out,
-                                    const RcObjectDef *def, int obj_id,
-                                    int x, int y, int plane, int opt,
-                                    int dest_x, int dest_y, int dest_plane) {
-    memset(out, 0, sizeof(*out));
-    out->kind = RC_TRAVERSAL_OBJECT;
-    out->option = (uint8_t)opt;
-    out->source_id = (uint32_t)obj_id;
-    out->start_x = (uint16_t)x;
-    out->start_y = (uint16_t)y;
-    out->start_plane = (uint8_t)plane;
-    out->dest_x = (uint16_t)dest_x;
-    out->dest_y = (uint16_t)dest_y;
-    out->dest_plane = (uint8_t)dest_plane;
-    strncpy(out->action, def->actions[opt], sizeof(out->action) - 1);
-    strncpy(out->target, def->name, sizeof(out->target) - 1);
-}
-
-static int infer_vertical_climb_edge(int obj_id, int x, int y, int plane,
-                                     int opt, RcTraversalEdge *out) {
-    if (!out || obj_id < 0 || x < 0 || y < 0 || plane < 0)
-        return 0;
-    const RcObjectDef *def = rc_object_def_get(obj_id);
-    int up = 0;
-    if (!object_action_climb_dir(def, opt, &up))
-        return 0;
-
-    RcObjectPlacement placement;
-    if (object_exact_placement(obj_id, x, y, plane, &placement)) {
-        int best_score = INT_MAX;
-        int inferred_plane = -1;
-        int inferred_x = -1;
-        int inferred_y = -1;
-        int edge_count = 0;
-        const RcTraversalEdge *edges = rc_traversal_edges_all(&edge_count);
-        for (int i = 0; edges && i < edge_count; i++) {
-            const RcTraversalEdge *row = &edges[i];
-            if (row->kind != RC_TRAVERSAL_OBJECT)
-                continue;
-            int row_up = 0;
-            if (!action_climb_dir(row->action, &row_up) || row_up == up)
-                continue;
-            if ((int)row->dest_plane != plane)
-                continue;
-            if (up) {
-                if ((int)row->start_plane <= plane)
-                    continue;
-            } else if ((int)row->start_plane >= plane) {
-                continue;
-            }
-            int dist = tile_distance_to_placement(&placement, def,
-                                                  row->dest_x, row->dest_y);
-            int anchor_dist = abs((int)row->dest_x - x)
-                            + abs((int)row->dest_y - y);
-            int score = dist * 64
-                      + abs((int)row->start_plane - plane) * 8
-                      + anchor_dist;
-            if (dist > 1 || score >= best_score)
-                continue;
-            best_score = score;
-            inferred_x = row->start_x;
-            inferred_y = row->start_y;
-            inferred_plane = row->start_plane;
-        }
-        if (inferred_plane >= 0) {
-            set_inferred_climb_edge(out, def, obj_id, x, y, plane, opt,
-                                    inferred_x, inferred_y, inferred_plane);
-            return 1;
-        }
-    }
-
-    int best_plane = -1;
-    for (int p = 0; p < RC_MAX_PLANES; p++) {
-        if (p == plane) continue;
-        if (up && p < plane) continue;
-        if (!up && p > plane) continue;
-        RcObjectPlacement rows[32];
-        int n = rc_object_placements_at(x, y, p, rows, 32);
-        for (int i = 0; i < n; i++) {
-            const RcObjectDef *other = rc_object_def_get((int)rows[i].obj_id);
-            if (!object_def_has_climb_dir(other, !up))
-                continue;
-            if (best_plane < 0
-                    || (up && p < best_plane)
-                    || (!up && p > best_plane)) {
-                best_plane = p;
-            }
-        }
-    }
-    if (best_plane < 0)
-        return 0;
-    set_inferred_climb_edge(out, def, obj_id, x, y, plane, opt,
-                            x, y, best_plane);
-    return 1;
-}
-
-static void award_agility_like_shortcut_xp(RcWorld *world) {
-    if (!world || !(world->enabled & RC_SUB_SKILLS))
-        return;
-    rc_add_xp(&world->player.skills, SKILL_AGILITY, 1);
 }
 
 static int dynamic_open_rotation(const RcObjectBehavior *behavior,
@@ -2475,22 +2286,27 @@ static int api_apply_object_interaction(RcWorld *world, const RcObjectDef *def,
         if (base_behavior)
             effective_behavior = base_behavior;
     }
-    RcTraversalEdge inferred_edge;
-    const RcTraversalEdge *edge = object_effective_traversal_edge(
-        world, obj_id, x, y, plane, opt, placement_key, &inferred_edge);
-    if (!object_option_available(world, obj_id, x, y, plane, placement_key,
-                                 def, effective_behavior, edge, opt)) {
+    RcTraversalState *traversal = &world->player.traversal;
+    int planned_traversal = traversal->active
+        && traversal->phase == RC_TRAVERSAL_PHASE_APPROACH
+        && traversal->interaction_generation
+            == world->player.interaction.generation
+        && traversal->source_kind == RC_TRAVERSAL_OBJECT
+        && traversal->source_id == obj_id
+        && traversal->source_option == opt
+        && (!placement_key || traversal->source_key == placement_key);
+    if (!planned_traversal
+            && !object_option_available(
+                world, obj_id, x, y, plane, placement_key,
+                def, effective_behavior, NULL, opt)) {
         return 0;
     }
-    int agility_like_shortcut = traversal_edge_is_agility_like(edge);
-    if (agility_like_shortcut && !player_can_use_agility_like_shortcut(world))
-        return 0;
     int applied = 0;
     if (effective_behavior && rc_player_open_storage_object(world, obj_id, opt))
         applied = 1;
     if (effective_behavior
             && (effective_behavior->flags & RC_OBJ_BEHAVIOR_DOOR)
-            && !edge && !applied) {
+            && !planned_traversal && !applied) {
         if (!apply_door_state(world, obj_id, x, y, plane, placement_key,
                               effective_behavior)) {
             return 0;
@@ -2500,14 +2316,14 @@ static int api_apply_object_interaction(RcWorld *world, const RcObjectDef *def,
     }
     if (effective_behavior && (effective_behavior->flags & RC_OBJ_BEHAVIOR_ALTAR)
             && effective_behavior->skill == RC_OBJ_SKILL_PRAYER
-            && !edge && !applied) {
+            && !planned_traversal && !applied) {
         apply_altar_effect(world, def, obj_id, opt);
         applied = 1;
     }
     if (x >= 0 && y >= 0 && plane >= 0
             && effective_behavior
             && (effective_behavior->flags & RC_OBJ_BEHAVIOR_RESOURCE)
-            && (world->enabled & RC_SUB_SKILLS) && !edge) {
+            && (world->enabled & RC_SUB_SKILLS) && !planned_traversal) {
         const RcGatheringNode *node = rc_gathering_node_find(
             obj_id, x, y, plane);
         if (node && (node->action_mask & (1u << opt))) {
@@ -2518,22 +2334,10 @@ static int api_apply_object_interaction(RcWorld *world, const RcObjectDef *def,
             applied = 1;
         }
     }
-    if (edge && !applied) {
-        int climb = effective_behavior
-            && (effective_behavior->flags & (RC_OBJ_BEHAVIOR_LADDER |
-                                             RC_OBJ_BEHAVIOR_STAIR));
-        int shortcut = !climb && traversal_edge_uses_shortcut_motion(edge);
-        if (climb) {
-            start_player_action_lock(world, 2);
-            schedule_player_traversal(world, edge, 1);
-        } else if (shortcut) {
-            if (agility_like_shortcut)
-                award_agility_like_shortcut_xp(world);
-            start_player_action_lock(world, 1);
-            schedule_player_traversal(world, edge, 1);
-        } else {
-            rc_player_apply_traversal(world, edge);
-            world->player_action.ready_tick = world->tick;
+    if (planned_traversal && !applied) {
+        if (!rc_traversal_start(
+                world, world->player.interaction.generation)) {
+            return 0;
         }
         applied = 1;
     }
@@ -2558,6 +2362,7 @@ static RcInteractionHandlerResult api_default_object_handler(
     const RcObjectDef *def = rc_object_def_get(pending->target.definition_id);
     const RcObjectBehavior *behavior =
         rc_object_behavior_get(pending->target.definition_id);
+    uint64_t generation = pending->generation;
     if (!api_apply_object_interaction(world, def, behavior,
                                       pending->target.definition_id,
                                       pending->target.tile_x,
@@ -2567,6 +2372,12 @@ static RcInteractionHandlerResult api_default_object_handler(
         return rc_interaction_result_failure(
             RC_INTERACTION_FAIL_NO_HANDLER,
             "No object interaction handler");
+    }
+    if (world->player.traversal.active
+            && world->player.traversal.interaction_generation == generation
+            && world->player.traversal.phase
+                != RC_TRAVERSAL_PHASE_APPROACH) {
+        return rc_interaction_result_handoff();
     }
     return rc_interaction_result_complete();
 }
@@ -2712,13 +2523,8 @@ int rc_player_interact_object_placement(RcWorld *world, int obj_id, int x,
         return 0;
     }
     const RcObjectBehavior *behavior = rc_object_behavior_get(obj_id);
-    RcTraversalEdge inferred_edge;
-    const RcTraversalEdge *edge = object_effective_traversal_edge(
-        world, obj_id, x, y, plane, opt, placement_key, &inferred_edge);
-    if (traversal_edge_is_agility_like(edge)
-            && !player_can_use_agility_like_shortcut(world)) {
-        return 0;
-    }
+    const RcTraversalEdge *edge = object_traversal_edge(
+        world, obj_id, x, y, plane, opt, placement_key, NULL);
     RcObjectState *state = rc_world_object_state_find(world, obj_id, x, y, plane);
     if (state && (state->flags & RC_OBJECT_STATE_DEPLETED)) return 0;
     if (x >= 0 && y >= 0 && plane >= 0) {
@@ -2734,7 +2540,38 @@ int rc_player_interact_object_placement(RcWorld *world, int obj_id, int x,
             return 0;
         }
         api_commit_interaction_admission(world);
-        return api_prepare_spatial_interaction(world);
+        if (edge) {
+            int climb = behavior
+                && (behavior->flags & (RC_OBJ_BEHAVIOR_LADDER |
+                                       RC_OBJ_BEHAVIOR_STAIR));
+            RcTraversalPresentation presentation = climb
+                ? RC_TRAVERSAL_PRESENTATION_CLIMB
+                : RC_TRAVERSAL_PRESENTATION_INSTANT;
+            RcTraversalDestinationSpec destination = {
+                .policy = RC_TRAVERSAL_POLICY_EXACT,
+                .destination = {
+                    .x = edge->dest_x,
+                    .y = edge->dest_y,
+                    .plane = edge->dest_plane,
+                },
+            };
+            RcTraversalMotionSpec motion = {
+                .presentation = presentation,
+                .takeoff_ticks = climb ? 1 : 0,
+            };
+            if (!rc_traversal_plan_object(
+                    world, edge, placement_key,
+                    world->player.interaction.generation, &destination,
+                    &motion)) {
+                rc_interaction_cancel(&world->player,
+                                      RC_INTERACTION_FAIL_INVALID_SOURCE);
+                return 0;
+            }
+        }
+        int prepared = api_prepare_spatial_interaction(world);
+        if (!prepared)
+            rc_traversal_cancel(world, RC_ACTION_CANCEL_REPLACED);
+        return prepared;
     }
     int applied = api_apply_object_interaction(world, def, behavior, obj_id,
                                                x, y, plane, 0, opt);
