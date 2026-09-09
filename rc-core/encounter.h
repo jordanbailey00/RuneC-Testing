@@ -855,21 +855,22 @@ int rc_encounter_set_phase(struct RcWorld *world, int active_idx,
 // `npc_id`, or -1 if no match.
 int rc_encounter_find_spec(const struct RcWorld *world,
                            uint32_t npc_id);
-int rc_encounter_select_npc_attack(struct RcWorld *world, uint16_t npc_uid,
+int rc_encounter_select_npc_attack(struct RcWorld *world, RcNpcId npc_uid,
                                    int distance, uint8_t *style,
                                    uint16_t *min_hit, uint16_t *max_hit,
                                    uint32_t *flags);
 int rc_encounter_player_protection_scale_pct(const struct RcWorld *world,
                                              int source_uid, int style,
                                              uint32_t prayer_snapshot);
+void rc_encounter_player_attack_committed(struct RcWorld *world, RcNpcId npc_uid);
 int rc_encounter_scale_player_damage(struct RcWorld *world,
-                                     uint16_t npc_uid, uint8_t style,
+                                     RcNpcId npc_uid, uint8_t style,
                                      int damage);
 int rc_encounter_scale_incoming_damage(struct RcWorld *world,
                                        int source_uid, uint8_t style,
                                        int damage);
 bool rc_encounter_player_can_target_npc(const struct RcWorld *world,
-                                        uint16_t npc_uid);
+                                        RcNpcId npc_uid);
 int rc_encounter_reveal_hidden_npcs(struct RcWorld *world,
                                     const char *npc_name,
                                     int max_count);

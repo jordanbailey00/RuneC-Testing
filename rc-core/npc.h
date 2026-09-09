@@ -177,6 +177,7 @@ void rc_npc_clear_references(RcWorld *world, RcNpcId uid);
 RcNpcLifePhase rc_npc_life_phase(const RcNpc *npc);
 void rc_npc_reset_life(RcWorld *world, RcNpc *npc);
 
+// Ordinary movement uses direct steps; only explicit scripted routes use BFS.
 bool rc_npc_route_request(RcWorld *world, RcNpc *npc,
                           const RcRouteTarget *target, RcNpcRouteMode mode,
                           bool allow_alternative);

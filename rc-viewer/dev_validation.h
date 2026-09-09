@@ -31,6 +31,8 @@ enum {
 };
 
 int runec_dev_validation_enabled(void);
+int runec_dev_validation_set_spellbook(RcWorld *world, int book);
+int runec_dev_validation_set_god_mode(RcWorld *world, bool enabled);
 const RuneCDevTransport *runec_dev_validation_transports(int *count);
 const RuneCDevTransport *runec_dev_validation_find_transport(const char *key);
 const RuneCDevEncounterNpc *runec_dev_validation_encounter_npcs(

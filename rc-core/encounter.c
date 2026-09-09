@@ -1009,7 +1009,7 @@ int rc_encounter_find_spec(const RcWorld *world, uint32_t npc_id) {
     return -1;
 }
 
-int rc_encounter_select_npc_attack(RcWorld *world, uint16_t npc_uid,
+int rc_encounter_select_npc_attack(RcWorld *world, RcNpcId npc_uid,
                                    int distance, uint8_t *style,
                                    uint16_t *min_hit, uint16_t *max_hit,
                                    uint32_t *flags) {
@@ -1103,7 +1103,7 @@ int rc_encounter_player_protection_scale_pct(const RcWorld *world,
 }
 
 int rc_encounter_scale_player_damage(RcWorld *world,
-                                     uint16_t npc_uid, uint8_t style,
+                                     RcNpcId npc_uid, uint8_t style,
                                      int damage) {
     if (!world || damage <= 0) return damage;
     const RcEncounterState *s = &world->encounter;
@@ -1119,10 +1119,6 @@ int rc_encounter_scale_player_damage(RcWorld *world,
         if (m->primitive_id == RC_PRIM_HEAL_BOSS_ON_PLAYER_ATTACK_MISS) {
             const RcPrimParamsHealOnAttack *p =
                 (const RcPrimParamsHealOnAttack *)m->param_block;
-            RcNpc *boss = find_npc_by_uid(world, active->boss_id);
-            if (boss && p->heal_per_attack) {
-                heal_npc_to_def_cap(world, boss, p->heal_per_attack);
-            }
             if (p->cancel_player_attack) return 0;
         }
     }
@@ -1144,6 +1140,24 @@ int rc_encounter_scale_player_damage(RcWorld *world,
     }
     out = (out * active_environment_damage_pct(active, spec)) / 100;
     return out;
+}
+
+void rc_encounter_player_attack_committed(RcWorld *world, RcNpcId npc_uid) {
+    const RcEncounterState *s = &world->encounter;
+    if (!s->registry_count) return;
+    int index = find_active_by_npc(s, npc_uid);
+    if (index < 0) return;
+    const RcActiveEncounter *active = &s->active[index];
+    if (active->spec_idx >= s->registry_count) return;
+    const RcEncounterSpec *spec = &s->registry[active->spec_idx];
+    if (active->active_mechanic_idx >= spec->mechanic_count
+            || active_spawn_blocker_alive(world, active, spec)) return;
+    const RcEncounterMechanic *m = &spec->mechanics[active->active_mechanic_idx];
+    if (m->primitive_id != RC_PRIM_HEAL_BOSS_ON_PLAYER_ATTACK_MISS) return;
+    const RcPrimParamsHealOnAttack *p = (const RcPrimParamsHealOnAttack *)m->param_block;
+    RcNpc *boss = find_npc_by_uid(world, active->boss_id);
+    if (boss && p->heal_per_attack)
+        heal_npc_to_def_cap(world, boss, p->heal_per_attack);
 }
 
 int rc_encounter_scale_incoming_damage(RcWorld *world,
@@ -1169,7 +1183,7 @@ int rc_encounter_scale_incoming_damage(RcWorld *world,
 }
 
 bool rc_encounter_player_can_target_npc(const RcWorld *world,
-                                        uint16_t npc_uid) {
+                                        RcNpcId npc_uid) {
     if (!world) return true;
     const RcEncounterState *s = &world->encounter;
     int active_idx = find_active_by_npc(s, (RcNpcId)npc_uid);
@@ -1490,7 +1504,7 @@ void rc_encounter_on_player_damaged(RcWorld *world, int evt,
     (void)evt;
     RcEncounterState *s = (RcEncounterState *)ctx;
     const RcPayloadPlayerDamaged *p = (const RcPayloadPlayerDamaged *)payload;
-    if (!p) return;
+    if (!p || (p->flags & (RC_HIT_SUPPRESS_ENCOUNTER_EFFECTS | RC_HIT_SOURCE_EXPIRED))) return;
     if (p->source_npc_id == UINT32_MAX) return;   // non-NPC source
 
     int slot = find_active_by_npc(s, p->source_npc_id);

@@ -78,6 +78,22 @@ rc-content/
 
 ## 2.1 Key files
 
+- `combat/magic.c`
+  - owns spell/staff compatibility, elemental scaling, native powered attacks,
+    charge capacities/depletion and basic landed magic effects
+  - charged magic weapons use remaining charges in the existing item-state
+    scalar; the validation bank seeds charged/empty versions, while recharge
+    interfaces and several weapon passives/specials remain DSA-031
+  - `content/combat/spell_effects.tsv` supplies reviewed combat values to both
+    spell export and snapshot-based rebuilds without changing spell indices,
+    rune costs or unrelated definitions
+- `combat/ralos.c`
+  - owns Tonalztics charge actions, independent hits and B237-era Division
+  - for this item family, the existing stack `state_id` encodes remaining
+    charges (1..20,000 for charged 28922, zero for uncharged 28919); it is not
+    a shared handle table or a new per-player charge field
+  - transfers and depletion use core item transactions; the core hit batch
+    reserves capacity, commits payment and publishes attacks atomically
 - `content.h`
   - shared declarations for per-module register functions
 - `content.c`

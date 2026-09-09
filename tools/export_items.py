@@ -20,6 +20,7 @@ import os
 import re
 import struct
 import sys
+import tomllib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -27,6 +28,15 @@ from cache_item_defs import load_cache_item_defs
 from database_sources import OsrsreboxedDB, OSRSREBOXED
 from source_paths import CACHE_DIR, require_cache_dir
 from wiki_item_bonuses import load_wiki_bonus_overrides
+from content_paths import content_read_path
+
+WEAPON_METADATA_PATH = content_read_path("items/weapon_metadata.toml")
+with WEAPON_METADATA_PATH.open("rb") as source:
+    WEAPON_METADATA = {
+        item_id: dict(row, name=name)
+        for row in tomllib.load(source)["weapon"]
+        for item_id, name in zip(row["ids"], row["names"], strict=True)
+    }
 
 IDEF_MAGIC = 0x49444546  # "IDEF"
 IDEF_VERSION = 3
@@ -574,6 +584,13 @@ def build_record(rec: dict, model_links: dict[int, list[int]]) -> bytes | None:
         return None
 
     item_id = int(rec["id"])
+    if item_id in WEAPON_METADATA:
+        reviewed = WEAPON_METADATA[item_id]
+        if rec.get("name") != reviewed["name"] or rec.get("noted") or rec.get("placeholder"):
+            raise ValueError(f"item {item_id}: reviewed weapon identity does not match B237")
+        rec = dict(rec, equipment=reviewed["equipment"], weapon=reviewed,
+                   equipable_by_player=True, equipable_weapon=True)
+        rec.pop("_cache_equipment_fallback", None)
     models = model_links.get(item_id, [0xFFFFFFFF] * 7)
     has_wear_model = any(m != 0xFFFFFFFF for m in models[1:])
     eq = rec.get("equipment")
@@ -663,9 +680,47 @@ def build_record(rec: dict, model_links: dict[int, list[int]]) -> bytes | None:
     return bytes(buf)
 
 
+def update_installed_weapon_metadata(path: Path, cache_dir: Path) -> None:
+    data = path.read_bytes()
+    magic, version, count = struct.unpack_from("<III", data)
+    if (magic, version) != (IDEF_MAGIC, IDEF_VERSION):
+        raise ValueError("weapon metadata update requires installed IDEF v3")
+    cache_items = load_cache_item_defs(require_cache_dir(cache_dir))
+    models = cache_model_links(cache_items)
+    notes, placeholders = cache_form_links(cache_items)
+    output = bytearray(data[:12])
+    seen = set()
+    offset = 12
+    for _ in range(count):
+        size, = struct.unpack_from("<I", data, offset)
+        offset += 4
+        record = data[offset:offset + size]
+        if len(record) != size or size < 8:
+            raise ValueError("truncated installed item record")
+        item_id, = struct.unpack_from("<I", record)
+        if item_id in WEAPON_METADATA:
+            if item_id in seen:
+                raise ValueError(f"duplicate reviewed item {item_id}")
+            cache = cache_items[item_id]
+            rec = overlay_cache(cache_item_record(cache), cache, notes,
+                                placeholders, cache_items)
+            record = build_record(rec, models)
+            seen.add(item_id)
+        output += struct.pack("<I", len(record)) + record
+        offset += size
+    if offset != len(data) or seen != WEAPON_METADATA.keys():
+        raise ValueError("installed item file has trailing data or lacks reviewed weapons")
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_bytes(output)
+    temporary.replace(path)
+    print(f"Updated {len(seen)} reviewed weapons; all other item records unchanged: {path}")
+
+
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--update-weapon-metadata", type=Path,
+                   help="update only reviewed weapon rows in an existing IDEF v3 install")
+    p.add_argument("--output", type=Path)
     p.add_argument("--report", type=Path, default=Path("tools/reports/items_full.txt"))
     p.add_argument("--triage-report", type=Path,
                    default=Path("tools/reports/items_incomplete_triage.txt"))
@@ -681,6 +736,11 @@ def main():
                    help="fail instead of emitting cache-only non-equipment item defs")
     p.add_argument("--limit", type=int, default=0, help="debug: cap records")
     args = p.parse_args()
+    if args.update_weapon_metadata:
+        update_installed_weapon_metadata(args.update_weapon_metadata, args.cache_dir)
+        return
+    if args.output is None:
+        p.error("--output is required for a full item export")
 
     db = open_optional_item_db(args.osrsreboxed_root)
     if args.require_osrsreboxed and not getattr(db, "available", False):

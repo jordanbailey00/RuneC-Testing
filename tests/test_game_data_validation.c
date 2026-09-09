@@ -54,6 +54,9 @@ int main(void) {
     assert(report.manifest_present == 1);
     assert(report.required_path_count > 0);
 
+    // Synthetic fixtures use loose files except the explicit missing-pack case.
+    assert(unsetenv("RUNEC_ASSET_BACKEND") == 0);
+
     char missing_root[128];
     make_fixture_root(missing_root, sizeof(missing_root));
     char missing_manifest[256];

@@ -51,7 +51,8 @@ static void test_start_and_stop_mirror_legacy_fields(void) {
     assert(rc_combat_start_player_vs_npc(world, 0, npc->uid));
     assert(world->player.attack_target == npc->uid);
     assert(world->player.attack_target_def_id == 910100);
-    assert(npc->target_uid == 0);
+    assert(npc->target_uid == -1);
+    assert(!rc_combat_actor_has_target(&npc->combat));
 
     assert(rc_combat_actor_has_target(&world->player.combat));
     assert(world->player.combat.target.kind == RC_COMBAT_ACTOR_NPC);
@@ -61,6 +62,7 @@ static void test_start_and_stop_mirror_legacy_fields(void) {
     assert(world->player.combat.target.footprint_width == 2);
     assert(world->player.combat.flags & RC_COMBAT_STATE_ACTIVE);
 
+    assert(rc_combat_start_npc_vs_player(world, npc->uid, 0));
     assert(rc_combat_actor_has_target(&npc->combat));
     assert(npc->combat.target.kind == RC_COMBAT_ACTOR_PLAYER);
     assert(npc->combat.target.uid == 0);
@@ -120,7 +122,7 @@ static void test_style_and_toggle_state(void) {
     assert(world->player.combat.stance == world->player.attack_stance);
     assert(world->player.combat.xp_mask == world->player.combat_xp_mask);
 
-    rc_combat_toggle_auto_retaliate(world);
+    assert(rc_combat_set_auto_retaliate(world, !world->player.auto_retaliate));
     rc_world_tick(world);
     assert(!world->player.auto_retaliate);
     assert(!world->player.combat.auto_retaliate);

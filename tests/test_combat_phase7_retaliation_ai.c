@@ -83,6 +83,8 @@ static void test_player_hit_causes_npc_retaliation_and_threat_tracking(void) {
     assert(rc_combat_actor_attacker_count(&npc->combat) == 1);
     assert(npc->combat.primary_attacker.kind == RC_COMBAT_ACTOR_PLAYER);
     assert(npc->combat.primary_attacker.uid == 0);
+    assert(!rc_combat_actor_is_under_attack(&world->player.combat));
+    rc_world_tick(world);
     assert(rc_combat_actor_is_under_attack(&world->player.combat));
     assert(world->player.combat.primary_attacker.kind == RC_COMBAT_ACTOR_NPC);
     assert(world->player.combat.primary_attacker.uid == npc->uid);
@@ -108,6 +110,7 @@ static void test_single_combat_blocks_second_npc_until_multi_enabled(void) {
 
     assert(!rc_combat_is_multi_combat(world));
     assert(rc_combat_start_npc_vs_player(world, a->uid, 0));
+    rc_combat_tick_npc(world, a);
     assert(!rc_combat_start_npc_vs_player(world, b->uid, 0));
     assert(a->target_uid == 0);
     assert(b->target_uid == -1);
@@ -117,6 +120,7 @@ static void test_single_combat_blocks_second_npc_until_multi_enabled(void) {
     assert(rc_combat_is_multi_combat(world));
     assert(rc_combat_start_npc_vs_player(world, b->uid, 0));
     assert(b->target_uid == 0);
+    rc_combat_tick_npc(world, b);
     assert(rc_combat_actor_attacker_count(&world->player.combat) == 2);
 
     rc_world_destroy(world);

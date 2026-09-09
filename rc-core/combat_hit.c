@@ -1,6 +1,7 @@
 #include "combat_hit.h"
 
 #include "prayer.h"
+#include <stdio.h>
 #include <string.h>
 
 int rc_combat_hit_delay_for_style(RcCombatStyle style) {
@@ -22,13 +23,17 @@ int rc_queue_hit_meta(RcPendingHit *hits, int *count, int damage, int delay,
                       int style, int source_idx, uint32_t prayer_snapshot,
                       RcTick world_tick, uint8_t flags, int max_hit) {
     if (!hits || !count || *count < 0 || *count >= RC_MAX_PENDING_HITS) {
+        fprintf(stderr, "combat: hit rejected: invalid or full pending-hit queue (source=%d)\n",
+                source_idx);
         return 0;
     }
     if (delay < 0) delay = 0;
     RcPendingHit *h = &hits[*count];
+    memset(h, 0, sizeof(*h));
     h->active = 1;
     h->damage = damage;
     h->max_hit = max_hit;
+    h->accurate = damage > 0;
     h->apply_tick = world_tick + (RcTick)delay;
     h->attack_style = style;
     h->source_idx = source_idx;

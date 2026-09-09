@@ -2,6 +2,23 @@
 
 #include <math.h>
 
+int runec_actor_advance_tile(float *x, float *y, float target_x,
+                              float target_y, float *remaining_distance) {
+    float dx = target_x - *x, dy = target_y - *y;
+    float distance = fmaxf(fabsf(dx), fabsf(dy));
+    if (distance <= *remaining_distance) {
+        *x = target_x;
+        *y = target_y;
+        *remaining_distance -= distance;
+        return 1;
+    }
+    float scale = *remaining_distance / distance;
+    *x += dx * scale;
+    *y += dy * scale;
+    *remaining_distance = 0.0f;
+    return 0;
+}
+
 float runec_actor_model_midpoint(float min_y, float max_y, float scale) {
     if (max_y < min_y) {
         float swap = min_y;

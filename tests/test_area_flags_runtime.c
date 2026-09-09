@@ -5,6 +5,7 @@
 #include "api.h"
 #include "area_flags.h"
 #include "config.h"
+#include "combat.h"
 
 #define AFLG_PATH RC_TEST_SOURCE_DIR "/data/defs/area_flags.bin"
 #define BAD_PATH "/tmp/runec_bad_area_flags.bin"
@@ -76,6 +77,14 @@ int main(void) {
     assert(world != NULL);
     assert(world->enabled & RC_SUB_REGIONS);
     assert(g_rc_area_flag_count == 1419);
+    world->player.x = 2950;
+    world->player.y = 3400;
+    assert(rc_combat_is_multi_combat(world));
+    world->player.x = 2964;
+    world->player.y = 3332;
+    assert(!rc_combat_is_multi_combat(world));
+    rc_combat_set_multi_combat(world, true);
+    assert(rc_combat_is_multi_combat(world));
     rc_world_destroy(world);
 
     return 0;

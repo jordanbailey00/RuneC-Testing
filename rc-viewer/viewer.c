@@ -23,6 +23,7 @@
 #include "anims.h"
 #include "ui.h"
 #include "equipment_render.h"
+#include "equipment_slots.h"
 #include "item_render_defs.h"
 #include "npc_render_defs.h"
 #include "object_action_visuals.h"
@@ -61,7 +62,6 @@
 #define WINDOW_H 720
 #define TPS 1.667f
 #define NPC_RENDER_QUEUE_MAX 8
-#define NPC_RENDER_MAX_DT 0.05f
 #define NPC_MODEL_SCALE 1.0f
 #define VIEWER_MAX_COMBAT_PROJECTILES 64
 #define VIEWER_PROJECTILE_MODEL_FILTER_MAX 256
@@ -331,10 +331,8 @@ typedef struct {
     ViewerActorOverlayState *npc_overlays;
     ItemStackVariant item_stack_variants[RUNEC_ITEM_STACK_VARIANT_MAX];
     int item_stack_variant_count;
-    AnimCache *anims;           // player animations
+    AnimCache *anims;           // shared actor and effect sequences
     AnimCache *object_anim_cache;
-    AnimCache *npc_anims;       // NPC animations (separate cache; IDs don't overlap)
-    AnimCache *npc_fallback_anims;
     AnimModelState *anim_state; // player
     AnimModelState **item_anim_states;
     int item_anim_state_count;
@@ -360,7 +358,7 @@ typedef struct {
         int initialized;
         int uid;
         int server_x, server_y, server_plane;
-        int last_seen_tick;
+        RcTick last_seen_tick;
         float render_x, render_y;
         float waypoint_x[NPC_RENDER_QUEUE_MAX];
         float waypoint_y[NPC_RENDER_QUEUE_MAX];
@@ -388,7 +386,6 @@ typedef struct {
     int anim_frame_idx;
     float anim_frame_timer;
     int player_one_shot_finished;
-    int player_attack_timer_seen;
     int player_attack_anim_suppressed;
     int player_attack_anim_timer;
     int player_attack_anim_id;
@@ -408,6 +405,7 @@ typedef struct {
     int route_preview_start_y;
     int route_preview_plane;
     RcCombatViewState combat_view;
+    const char *reported_combat_failure;
     ViewerCombatProjectile combat_projectiles[VIEWER_MAX_COMBAT_PROJECTILES];
     int combat_projectile_count;
     uint32_t projectile_model_request_ids[VIEWER_PROJECTILE_MODEL_FILTER_MAX];
@@ -2019,7 +2017,7 @@ static void free_npc_anim_states(ViewerState *v) {
 }
 
 static void create_npc_anim_states(ViewerState *v) {
-    if (!v || (!v->npc_anims && !v->npc_fallback_anims)
+    if (!v || !v->anims
             || !v->npc_models || !v->npc_models->loaded) {
         return;
     }
@@ -2767,7 +2765,7 @@ static int activate_core_area_for_scene_bounds(ViewerState *v) {
     int activated = activate_core_area_bounds(
         v, g_world_origin_x, g_world_origin_y, g_world_w, g_world_h);
     if (activated
-            && (v->npc_models || v->npc_anims || v->npc_fallback_anims)) {
+            && (v->npc_models || v->anims)) {
         reload_npc_models_for_scene(v);
     }
     return activated;
@@ -3201,6 +3199,7 @@ static void ensure_active_scene_plane(ViewerState *v, int plane) {
 }
 
 static void viewer_sync_dev_transport_labels(RuneCUiState *ui) {
+    ui->dev_spellbooks_enabled = runec_dev_validation_enabled();
     const char *labels[RUNEC_UI_DEV_TRANSPORT_MAX] = {0};
     int count = 0;
     const RuneCDevTransport *transports =
@@ -3620,16 +3619,6 @@ static void viewer_update_movement_prefetch(ViewerState *v) {
         "movement-prefetch");
 }
 
-static int ui_equip_slot_to_core(int ui_slot) {
-    static const int map[RUNEC_UI_EQUIP_SLOT_COUNT] = {
-        EQUIP_HEAD, EQUIP_CAPE, EQUIP_AMULET, EQUIP_WEAPON,
-        EQUIP_BODY, EQUIP_SHIELD, EQUIP_AMMO, EQUIP_LEGS,
-        -1, EQUIP_GLOVES, EQUIP_BOOTS, -1, EQUIP_RING, EQUIP_AMMO,
-    };
-    return ui_slot >= 0 && ui_slot < RUNEC_UI_EQUIP_SLOT_COUNT
-         ? map[ui_slot] : -1;
-}
-
 static int ui_component_group(uint32_t component_id) {
     return (int)((component_id >> 16) & 0xffffu);
 }
@@ -3641,15 +3630,9 @@ static int ui_component_child(uint32_t component_id) {
 static int selected_spell_id_for_viewer(const ViewerState *v) {
     if (!v || !v->world)
         return -1;
+    if (v->ui.selected_target.kind == RUNEC_UI_SELECTED_SPELL)
+        return runec_ui_spell_runtime_id(&v->ui, v->ui.selected_target.source_slot);
     return v->world->player.selected_spell;
-}
-
-static int core_equip_slot_to_ui(int core_slot) {
-    static const int map[RC_EQUIP_COUNT] = {
-        0, 1, 2, 3, 4, 5, 7, 9, 10, 12, 6,
-    };
-    return core_slot >= 0 && core_slot < RC_EQUIP_COUNT
-         ? map[core_slot] : -1;
 }
 
 static int item_display_id_for_quantity(const ViewerState *v, int item_id, int quantity);
@@ -3761,6 +3744,15 @@ static void sync_ui_items(ViewerState *v) {
 
 static void sync_ui_player_status(ViewerState *v) {
     const RcPlayer *p = &v->world->player;
+    if (!runec_ui_sync_spellbook(&v->ui, v->world)) {
+        fprintf(stderr, "spellbook: invalid book or icon catalog capacity exceeded\n");
+        exit(EXIT_FAILURE);
+    }
+    if (p->combat.failure_reason != v->reported_combat_failure) {
+        if (p->combat.failure_reason)
+            runec_ui_add_chat_message(&v->ui, p->combat.failure_reason);
+        v->reported_combat_failure = p->combat.failure_reason;
+    }
     RcCombatViewState combat_view;
     memset(&combat_view, 0, sizeof(combat_view));
     rc_combat_get_player_view(v->world, &combat_view);
@@ -3862,17 +3854,6 @@ static void set_viewer_demo_stats(RcPlayer *p) {
     p->current_hp = 990;
     p->max_hp = 990;
     p->current_prayer_points = 990;
-}
-
-static void viewer_apply_god_mode(ViewerState *v) {
-    if (!v || !v->god_mode) return;
-    RcPlayer *p = &v->world->player;
-    if (p->current_hp < 10)
-        p->current_hp = 10;
-    if (p->combat.hp_current < p->current_hp)
-        p->combat.hp_current = p->current_hp;
-    if (p->combat.hp_max < p->max_hp)
-        p->combat.hp_max = p->max_hp;
 }
 
 static int ground_item_at_tile_plane(const ViewerState *v, int x, int y,
@@ -4896,111 +4877,15 @@ static Texture2D load_item_icon_texture_from_file(int icon_item_id) {
     return tex;
 }
 
-static Texture2D render_item_icon_texture(ModelEntry *entry) {
-    Texture2D empty = {0};
-    if (!entry || !entry->loaded)
-        return empty;
-
-    const int icon_size = 40;
-    RenderTexture2D target = LoadRenderTexture(icon_size, icon_size);
-    if (target.id == 0)
-        return empty;
-
-    BoundingBox bb = GetModelBoundingBox(entry->model);
-    Vector3 center = {
-        (bb.min.x + bb.max.x) * 0.5f,
-        (bb.min.y + bb.max.y) * 0.5f,
-        (bb.min.z + bb.max.z) * 0.5f
-    };
-    float extent_x = bb.max.x - bb.min.x;
-    float extent_y = bb.max.y - bb.min.y;
-    float extent_z = bb.max.z - bb.min.z;
-    float max_extent = fmaxf(extent_x, fmaxf(extent_y, extent_z));
-    if (max_extent < 0.01f)
-        max_extent = 1.0f;
-
-    Camera3D cam = {0};
-    cam.target = center;
-    cam.position = (Vector3){
-        center.x + max_extent * 1.5f,
-        center.y + max_extent * 1.0f,
-        center.z + max_extent * 2.2f
-    };
-    cam.up = (Vector3){0, 1, 0};
-    cam.projection = CAMERA_ORTHOGRAPHIC;
-    cam.fovy = max_extent * 1.85f;
-
-    BeginTextureMode(target);
-    ClearBackground(BLANK);
-    BeginMode3D(cam);
-    DrawModel(entry->model, (Vector3){0, 0, 0}, 1.0f, WHITE);
-    EndMode3D();
-    EndTextureMode();
-
-    Image img = LoadImageFromTexture(target.texture);
-    Texture2D tex = {0};
-    if (img.data) {
-        ImageFlipVertical(&img);
-        tex = LoadTextureFromImage(img);
-        if (tex.id != 0)
-            SetTextureFilter(tex, TEXTURE_FILTER_BILINEAR);
-        UnloadImage(img);
-    }
-    UnloadRenderTexture(target);
-    return tex;
-}
-
 static void build_ui_icon_for_item(ViewerState *v, int item_id, int quantity) {
     int icon_item_id = item_display_id_for_quantity(v, item_id, quantity);
     if (icon_item_id <= 0 || ui_item_icon_cached(&v->ui, (uint32_t)icon_item_id))
         return;
-
     Texture2D icon = load_item_icon_texture_from_file(icon_item_id);
-    if (icon.id != 0) {
-        runec_ui_set_item_icon(&v->ui, (uint32_t)icon_item_id, icon);
-        return;
-    }
-
-    const char *model_icon_env = getenv("RUNEC_UI_MODEL_ITEM_ICONS");
-    int allow_model_fallback = !model_icon_env || !model_icon_env[0]
-        || strcmp(model_icon_env, "0") != 0;
-    if (!allow_model_fallback)
-        return;
-
-    if (!v->item_models || !v->item_models->loaded || !v->item_render_map.loaded)
-        return;
-
-    uint32_t render_item_id = (uint32_t)icon_item_id;
-
-    const RuneCItemRenderRecord *rec =
-        runec_item_render_find(&v->item_render_map, render_item_id);
-    if (!rec)
-        rec = runec_item_render_find(&v->item_render_map, (uint32_t)item_id);
-
-    uint32_t model_id = RUNEC_RENDER_MODEL_MISSING;
-    if (rec && rec->ground_model_id != RUNEC_RENDER_MODEL_MISSING) {
-        model_id = rec->ground_model_id;
-    } else {
-        const RuneCItemDefRenderRecord *def_render =
-            runec_item_def_render_find(&v->item_def_render_map, render_item_id);
-        if (!def_render)
-            def_render =
-                runec_item_def_render_find(&v->item_def_render_map, item_id);
-        if (def_render &&
-                def_render->ground_model_id != RUNEC_RENDER_MODEL_MISSING) {
-            model_id = def_render->ground_model_id;
-        }
-    }
-    if (model_id == RUNEC_RENDER_MODEL_MISSING)
-        return;
-
-    ModelEntry *entry = model_find(v->item_models, model_id);
-    if (!entry || !entry->loaded)
-        return;
-
-    Texture2D tex = render_item_icon_texture(entry);
-    if (tex.id != 0)
-        runec_ui_set_item_icon(&v->ui, (uint32_t)icon_item_id, tex);
+    if (!icon.id)
+        fprintf(stderr, "ui_icons: missing item_%d.png; rebuild item sprites\n", icon_item_id);
+    // Cache failed loads too: report once, not file I/O on every frame.
+    runec_ui_set_item_icon(&v->ui, (uint32_t)icon_item_id, icon);
 }
 
 static void build_ui_item_icons(ViewerState *v) {
@@ -7217,14 +7102,6 @@ static int viewer_visual_has_projectile(const RcCombatVisualDef *visual) {
                        visual->impact_spotanim_id >= 0));
 }
 
-static int viewer_visual_has_travel_projectile(
-    const RcCombatVisualDef *visual
-) {
-    return visual && (visual->travel_spotanim_id >= 0 ||
-                      visual->projectile_model_id >= 0 ||
-                      visual->projectile_anim_id >= 0);
-}
-
 static int viewer_visual_is_fixed_tile_impact(
     const RcCombatVisualDef *visual
 ) {
@@ -7263,17 +7140,6 @@ static int viewer_visual_projectile_end_time(
     return visual->projectile_delay +
            visual->projectile_length_adjustment +
            visual->projectile_step_multiplier * distance;
-}
-
-static const RcCombatVisualDef *viewer_projectile_timing_visual(
-    const RcCombatVisualDef *projectile,
-    const RcCombatVisualDef *weapon
-) {
-    if (viewer_visual_has_projectile_profile(projectile))
-        return projectile;
-    if (viewer_visual_has_projectile_profile(weapon))
-        return weapon;
-    return projectile ? projectile : weapon;
 }
 
 static int viewer_projectile_count(const RcCombatVisualDef *visual) {
@@ -7376,6 +7242,13 @@ static void viewer_start_player_attack_anim(
     v->player_attack_anim_timer = 2;
     v->player_attack_anim_id =
         visual && visual->attack_anim_id >= 0 ? visual->attack_anim_id : -1;
+    AnimSequence *seq = v->player_attack_anim_id >= 0
+        ? anim_get_sequence(v->anims, (uint16_t)v->player_attack_anim_id) : NULL;
+    if (seq) v->player_attack_anim_timer = anim_sequence_game_ticks(seq);
+    v->player_attack_anim_suppressed = 0;
+    v->player_one_shot_finished = 0;
+    v->anim_frame_idx = 0;
+    v->anim_frame_timer = 0;
 }
 
 static void viewer_start_npc_attack_anim(
@@ -7643,6 +7516,11 @@ static void viewer_spawn_projectile_instance(
     }
     proj->impact_spotanim_height = viewer_projectile_impact_height(
         proj, visual, (RcCombatStyle)event->style);
+    if (event->source_kind == RC_COMBAT_ACTOR_PLAYER &&
+            event->style == COMBAT_MAGIC && !event->accurate) {
+        proj->impact_spotanim_id = 85;
+        proj->impact_spotanim_height = 124;
+    }
     proj->impact_spotanim_delay =
         visual ? visual->impact_spotanim_delay : -1;
     proj->impact_spotanim_rotation =
@@ -7666,6 +7544,8 @@ static void viewer_spawn_player_attack_projectiles(
         return;
     }
     int count = viewer_projectile_count(event_visual);
+    if (event->hit_count > 0 && count > event->hit_count)
+        count = event->hit_count;
     for (int i = 0; i < count; i++) {
         int show_impact = viewer_should_show_impact_for_index(
             event_visual, i, count);
@@ -7727,38 +7607,10 @@ static void viewer_handle_player_attack_event(
     const RcCombatAttackEvent *event
 ) {
     if (!v || !event) return;
-    const RcCombatVisualDef *weapon_visual =
-        rc_combat_visual_for_item_stance(event->weapon_item_id,
-                                         (RcCombatStyle)event->style,
-                                         event->stance_idx);
-    const RcCombatVisualDef *special_visual =
-        event->action_kind == RC_COMBAT_ACTION_SPECIAL
-        ? rc_combat_visual_for_special_item(event->weapon_item_id,
-                                            (RcCombatStyle)event->style)
-        : NULL;
-    if (special_visual)
-        weapon_visual = special_visual;
-    const RcCombatVisualDef *projectile_visual = NULL;
-    if (event->style == COMBAT_MAGIC) {
-        projectile_visual = rc_combat_visual_for_spell_id(
-            event->spell_idx, event->action_key_name,
-            (RcCombatStyle)event->style);
-    } else if (event->style == COMBAT_RANGED) {
-        projectile_visual = rc_combat_visual_for_item(
-            event->ammo_item_id, (RcCombatStyle)event->style);
-        if (!projectile_visual)
-            projectile_visual = weapon_visual;
-    }
-    if (special_visual && viewer_visual_has_travel_projectile(special_visual))
-        projectile_visual = special_visual;
-    const RcCombatVisualDef *anim_visual = special_visual ? special_visual
-                                      : (weapon_visual ? weapon_visual
-                                                       : projectile_visual);
-    viewer_start_player_attack_anim(v, anim_visual);
-    const RcCombatVisualDef *timing_visual =
-        viewer_projectile_timing_visual(projectile_visual, weapon_visual);
+    RcPlayerAttackVisuals visuals = rc_combat_visual_resolve_player(event);
+    viewer_start_player_attack_anim(v, visuals.animation);
     viewer_spawn_player_attack_projectiles(
-        v, event, projectile_visual, special_visual, timing_visual);
+        v, event, visuals.projectile, visuals.effect, visuals.timing);
 }
 
 static void viewer_capture_combat_attack_events(ViewerState *v) {
@@ -8152,10 +8004,8 @@ static Vector3 combat_projectile_position(ViewerState *v,
     float start_h = proj->projectile_start_height >= 0
                   ? (float)proj->projectile_start_height / 128.0f
                   : 1.45f;
-    float end_h = proj->impact_spotanim_height >= 0
-                ? (float)proj->impact_spotanim_height / 128.0f
-                : (proj->projectile_end_height >= 0
-                   ? (float)proj->projectile_end_height / 128.0f : 1.05f);
+    float end_h = proj->projectile_end_height >= 0
+                ? (float)proj->projectile_end_height / 128.0f : 1.05f;
     float sy = ground_y_plane(v, scene_plane, proj->source_x,
                               proj->source_y) + start_h;
     float ty = target_ground + end_h;
@@ -8233,8 +8083,8 @@ static int combat_projectile_impact_position(ViewerState *v,
                                  &target_ground, NULL, NULL)) {
         return 0;
     }
-    float end_h = proj->projectile_end_height >= 0
-                ? (float)proj->projectile_end_height / 128.0f
+    float end_h = proj->impact_spotanim_height >= 0
+                ? (float)proj->impact_spotanim_height / 128.0f
                 : 1.05f;
     *out_pos = (Vector3){tx, target_ground + end_h, tz};
     return 1;
@@ -8551,9 +8401,9 @@ static int npc_render_push_waypoint(ViewerState *v, int idx, float x, float y) {
         return 1;
     }
     if (count >= NPC_RENDER_QUEUE_MAX) {
-        v->npc_render[idx].waypoint_x[NPC_RENDER_QUEUE_MAX - 1] = x;
-        v->npc_render[idx].waypoint_y[NPC_RENDER_QUEUE_MAX - 1] = y;
-        return 1;
+        fprintf(stderr, "npc movement: presentation queue full for uid=%d\n",
+                v->npc_render[idx].uid);
+        return 0;
     }
     v->npc_render[idx].waypoint_x[count] = x;
     v->npc_render[idx].waypoint_y[count] = y;
@@ -8593,8 +8443,6 @@ static int enqueue_npc_server_step(ViewerState *v, int idx, const RcNpc *npc) {
         }
     }
 
-    v->npc_render[idx].last_dx = sx;
-    v->npc_render[idx].last_dy = sy;
     v->npc_render[idx].move_anim_timer = 1.0f / TPS;
     return 1;
 }
@@ -8603,7 +8451,6 @@ static void update_npc_render_motion(ViewerState *v, float dt) {
     if (!v || !v->world) return;
     float step = dt;
     if (step < 0.0f) step = 0.0f;
-    if (step > NPC_RENDER_MAX_DT) step = NPC_RENDER_MAX_DT;
     float max_axis_delta = step * TPS;
     for (int i = 0; i < v->world->npc_count; i++) {
         const RcNpc *npc = &v->world->npcs[i];
@@ -8646,23 +8493,23 @@ static void update_npc_render_motion(ViewerState *v, float dt) {
 
         int moved_this_frame = 0;
         v->npc_render[i].moving = v->npc_render[i].waypoint_count > 0;
-        if (v->npc_render[i].waypoint_count > 0 && max_axis_delta > 0.0f) {
+        float remaining = max_axis_delta;
+        while (v->npc_render[i].waypoint_count > 0 && remaining > 0.0f) {
             float target_x = v->npc_render[i].waypoint_x[0];
             float target_y = v->npc_render[i].waypoint_y[0];
             float dx = target_x - v->npc_render[i].render_x;
             float dy = target_y - v->npc_render[i].render_y;
-            float axis = fmaxf(fabsf(dx), fabsf(dy));
-            if (axis <= max_axis_delta || axis < 0.001f) {
-                v->npc_render[i].render_x = target_x;
-                v->npc_render[i].render_y = target_y;
+            if (fabsf(dx) > 0.001f || fabsf(dy) > 0.001f) {
+                v->npc_render[i].last_dx = (dx > 0.001f) - (dx < -0.001f);
+                v->npc_render[i].last_dy = (dy > 0.001f) - (dy < -0.001f);
+            }
+            if (runec_actor_advance_tile(&v->npc_render[i].render_x,
+                    &v->npc_render[i].render_y, target_x, target_y, &remaining)) {
                 npc_render_pop_waypoint(v, i);
                 v->npc_render[i].moving =
                     v->npc_render[i].waypoint_count > 0;
                 moved_this_frame = 1;
             } else {
-                float scale = max_axis_delta / axis;
-                v->npc_render[i].render_x += dx * scale;
-                v->npc_render[i].render_y += dy * scale;
                 v->npc_render[i].moving = 1;
                 moved_this_frame = 1;
             }
@@ -8841,8 +8688,10 @@ static void handle_input(ViewerState *v, int ui_capture) {
         if (IsKeyPressed(KEY_FIVE)) { v->cam_yaw = 0; v->cam_pitch = 0.6f; v->cam_dist = 50; }
         if (IsKeyPressed(KEY_L)) v->camera_locked = !v->camera_locked;
         if (IsKeyPressed(KEY_G)) {
-            v->god_mode = !v->god_mode;
-            viewer_apply_god_mode(v);
+            if (runec_dev_validation_set_god_mode(v->world, !v->god_mode))
+                v->god_mode = !v->god_mode;
+            else
+                fprintf(stderr, "viewer god mode: unable to change damage protection\n");
             fprintf(stderr, "viewer god mode: %s\n",
                     v->god_mode ? "on" : "off");
         }
@@ -8878,8 +8727,6 @@ static void handle_input(ViewerState *v, int ui_capture) {
                         hover.npc_uid);
                 } else {
                     int spell_id = selected_spell_id_for_viewer(v);
-                    if (spell_id < 0)
-                        spell_id = rc_spell_find(v->ui.selected_target.label);
                     if (spell_id >= 0)
                         accepted = rc_player_cast_spell_on_npc(
                             v->world, spell_id, hover.npc_uid);
@@ -8900,8 +8747,6 @@ static void handle_input(ViewerState *v, int ui_capture) {
                         hover.object.plane, hover.object.placement_key);
                 } else {
                     int spell_id = selected_spell_id_for_viewer(v);
-                    if (spell_id < 0)
-                        spell_id = rc_spell_find(v->ui.selected_target.label);
                     if (spell_id >= 0) {
                         accepted = rc_player_cast_spell_on_object_placement(
                             v->world, spell_id, hover.object.obj_id,
@@ -8924,8 +8769,6 @@ static void handle_input(ViewerState *v, int ui_capture) {
                         hover.ground_item_idx);
                 } else {
                     int spell_id = selected_spell_id_for_viewer(v);
-                    if (spell_id < 0)
-                        spell_id = rc_spell_find(v->ui.selected_target.label);
                     if (spell_id >= 0) {
                         accepted = rc_player_cast_spell_on_ground_item(
                             v->world, spell_id, hover.ground_item_idx);
@@ -8998,9 +8841,6 @@ static void update_player_anim(ViewerState *v) {
 
     int attack_timer = v->player_attack_anim_timer;
     if (attack_timer <= 0) {
-        v->player_attack_timer_seen = 0;
-        v->player_attack_anim_suppressed = 0;
-    } else if (attack_timer > v->player_attack_timer_seen) {
         v->player_attack_anim_suppressed = 0;
     }
 
@@ -9045,8 +8885,6 @@ static void update_player_anim(ViewerState *v) {
         sf = &seq->frames[v->anim_frame_idx];
         delay = (float)(sf->delay > 0 ? sf->delay : 1);
     }
-    if (attack_timer > 0)
-        v->player_attack_timer_seen = attack_timer;
 
     // Apply frame transforms
     AnimFrameBase *fb = anim_get_framebase(v->anims, sf->frame.framebase_id);
@@ -9079,7 +8917,7 @@ static void update_player_anim(ViewerState *v) {
 // Returns 1 if the mesh was updated (so caller knows it should draw), 0 if the
 // NPC has no animation data and the caller should draw the rest pose.
 static int update_npc_anim(ViewerState *v, int npc_idx, ModelEntry *me) {
-    if ((!v->npc_anims && !v->npc_fallback_anims) || !me || !me->loaded)
+    if (!v->anims || !me || !me->loaded)
         return 0;
     const RcNpc *n = &v->world->npcs[npc_idx];
     const RcNpcDef *def = rc_npc_def_for_npc(v->world, n);
@@ -9103,7 +8941,8 @@ static int update_npc_anim(ViewerState *v, int npc_idx, ModelEntry *me) {
     if (n->is_dead && render_def->death_anim >= 0) {
         target = render_def->death_anim;
     }
-    else if (v->npc_render[npc_idx].attack_anim_timer > 0) {
+    else if (v->npc_render[npc_idx].attack_anim_timer > 0
+            && !v->npc_render[npc_idx].moving) {
         attack_anim_active = 1;
         if (v->npc_render[npc_idx].attack_anim_id > 0)
             target = v->npc_render[npc_idx].attack_anim_id;
@@ -9123,12 +8962,8 @@ static int update_npc_anim(ViewerState *v, int npc_idx, ModelEntry *me) {
         v->npc_render[npc_idx].frame_timer = 0.0f;
     }
 
-    AnimCache *cache = v->npc_anims;
+    AnimCache *cache = v->anims;
     AnimSequence *seq = anim_get_sequence(cache, (uint16_t)target);
-    if (!seq && v->npc_fallback_anims) {
-        cache = v->npc_fallback_anims;
-        seq = anim_get_sequence(cache, (uint16_t)target);
-    }
     if (!seq || seq->frame_count == 0) return 0;
 
     // Advance frame timer (20ms per client tick = GetFrameTime() * 50).
@@ -9381,19 +9216,19 @@ static void draw_scene(ViewerState *v, int ui_capture) {
         }
 
         if (ne && ne->loaded) {
-            // Target-facing wins during interactions; otherwise movement
-            // direction becomes the idle-facing direction.
+            // Forward walking follows the displayed step; stopped actors face
+            // their interaction target. Do not use a later queued step's angle.
             float face_angle = 0.0f;
             int dx = n->x - n->prev_x;
             int dy = n->y - n->prev_y;
-            if (n->facing_entity >= 0) {
-                face_angle = npc_core_facing_angle(n, size, face_angle);
-            } else if (v->npc_render[i].moving
+            if (v->npc_render[i].moving
                     && (v->npc_render[i].last_dx || v->npc_render[i].last_dy)) {
                 face_angle = face_angle_between_tiles(0, 0,
                                                       v->npc_render[i].last_dx,
                                                       v->npc_render[i].last_dy,
                                                       face_angle);
+            } else if (n->facing_entity >= 0) {
+                face_angle = npc_core_facing_angle(n, size, face_angle);
             } else if (dx || dy) {
                 face_angle = face_angle_between_tiles(n->prev_x, n->prev_y,
                                                       n->x, n->y, face_angle);
@@ -9963,16 +9798,12 @@ int main(int argc, char **argv) {
         free(npc_model_ids);
     }
 
-    // NPC animations (separate cache — player.anims has combat/player anims,
-    // npcs.anims has the subset referenced by our loaded NPC defs). Each
-    // unique NPC def gets its own AnimModelState built from its base model's
-    // per-vertex skin labels.
-    v.npc_anims = anim_cache_load(env_path("RUNEC_NPC_ANIMS",
-        "data/anims/npcs.anims"));
-    v.npc_fallback_anims = anim_cache_load(env_path("RUNEC_NPC_FALLBACK_ANIMS",
-        "data/anims/all.anims"));
-    if ((v.npc_anims || v.npc_fallback_anims) &&
-            v.npc_models && v.npc_models->loaded) {
+    v.anims = anim_cache_load(env_path("RUNEC_ANIMS", "data/anims/all.anims"));
+    if (!v.anims) {
+        fprintf(stderr, "viewer: shared animation cache is missing or invalid\n");
+        return 1;
+    }
+    if (v.npc_models && v.npc_models->loaded) {
         int created = 0;
         int npc_def_count = 0;
         const RcNpcDef *npc_defs = rc_npc_defs_all(&npc_def_count);
@@ -10013,12 +9844,6 @@ int main(int argc, char **argv) {
         "data/sprites/items/item_stack_variants.tsv"));
     create_item_anim_states(&v);
     build_ui_item_icons(&v);
-    v.anims = anim_cache_load(env_path("RUNEC_PLAYER_ANIMS",
-        "data/anims/player.anims"));
-    if (!v.anims) {
-        v.anims = anim_cache_load(env_path("RUNEC_FALLBACK_ANIMS",
-            "data/anims/all.anims"));
-    }
     {
         const char *object_anim_path = env_path("RUNEC_OBJECT_ANIMS",
             "data/anims/object.anims");
@@ -10131,6 +9956,11 @@ int main(int argc, char **argv) {
                 runec_dev_validation_transports(&count);
             if (transports && idx >= 0 && idx < count)
                 viewer_dev_transport_to(&v, &transports[idx]);
+        } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_DEV_SPELLBOOK) {
+            if (runec_dev_validation_set_spellbook(v.world, v.ui.last_intent.primary))
+                runec_ui_set_active_tab(&v.ui, RUNEC_UI_TAB_SPELLBOOK);
+            else
+                runec_ui_add_chat_message(&v.ui, "Spellbook switch rejected: testing disabled or player busy.");
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_MINIMAP_CLICK) {
             int tile_x = 0;
             int tile_y = 0;
@@ -10189,10 +10019,13 @@ int main(int argc, char **argv) {
                 rc_player_examine_equipment_item(v.world, core_slot);
             }
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_COMBAT_STYLE) {
+            if (p->autocast_spell >= 0) rc_player_set_autocast_spell(v.world, -1, 0);
             rc_combat_set_player_style(v.world, v.ui.last_intent.primary);
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_AUTO_RETALIATE) {
-            if ((p->auto_retaliate ? 1 : 0) != v.ui.last_intent.primary)
-                rc_combat_toggle_auto_retaliate(v.world);
+            if (!rc_combat_set_auto_retaliate(v.world,
+                                              v.ui.last_intent.primary != 0))
+                fprintf(stderr, "auto-retaliate: command rejected (%d)\n",
+                        v.world->player_commands.last_result);
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_SPECIAL_ATTACK) {
             if ((p->combat.special_pending ? 1 : 0) != v.ui.last_intent.primary)
                 rc_combat_toggle_special(v.world);
@@ -10204,14 +10037,19 @@ int main(int argc, char **argv) {
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_QUICK_PRAYER_TOGGLE) {
             fprintf(stderr, "ui quick-prayer toggle hook\n");
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_SELECTED_SPELL) {
-            int spell_idx = rc_spell_find(v.ui.last_intent.text);
+            int spell_idx = runec_ui_spell_runtime_id(&v.ui, v.ui.last_intent.primary);
             if (spell_idx >= 0)
                 rc_player_select_spell(v.world, spell_idx);
+            else {
+                runec_ui_clear_selected_target(&v.ui);
+                runec_ui_add_chat_message(&v.ui, "This spell is not supported by the current casting system.");
+            }
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_AUTOCAST_SPELL) {
-            int spell_idx = rc_spell_find(v.ui.last_intent.text);
-            if (spell_idx >= 0)
-                rc_player_set_autocast_spell(v.world, spell_idx, 0);
-            fprintf(stderr, "ui autocast hook: %s\n", v.ui.last_intent.text);
+            int spell_idx = runec_ui_spell_runtime_id(&v.ui, v.ui.last_intent.primary);
+            if (spell_idx >= 0 || v.ui.last_intent.primary == -1)
+                rc_player_set_autocast_spell(v.world, spell_idx, v.ui.last_intent.secondary);
+            else
+                runec_ui_add_chat_message(&v.ui, "This spell is not supported by the current casting system.");
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_SELECTED_ITEM_ON_ITEM) {
             if (rc_player_use_inventory_item_on_inventory_item(
                     v.world, v.ui.last_intent.primary,
@@ -10270,8 +10108,9 @@ int main(int argc, char **argv) {
                 int old_x = v.world->player.x;
                 int old_y = v.world->player.y;
                 int old_plane = v.world->player.plane;
-                viewer_apply_god_mode(&v);
                 rc_world_tick(v.world);
+                // Capture every authoritative step, including catch-up ticks.
+                update_npc_render_motion(&v, 0.0f);
                 viewer_sync_traversal_event(&v);
                 viewer_sync_traversal_outcome(&v);
                 runec_input_feedback_reconcile_tick(
@@ -10280,7 +10119,6 @@ int main(int argc, char **argv) {
                 viewer_tick_attack_anims(&v);
                 viewer_capture_combat_attack_events(&v);
                 debug_log_combat_attack_events(&v);
-                viewer_apply_god_mode(&v);
                 v.player_moving = old_x != v.world->player.x ||
                                   old_y != v.world->player.y;
                 if (v.player_moving) {
@@ -10362,8 +10200,6 @@ cleanup:
         anim_model_state_free(v.npc_anim_state[i]);
     anim_cache_free(v.anims);
     anim_cache_free(v.object_anim_cache);
-    anim_cache_free(v.npc_anims);
-    anim_cache_free(v.npc_fallback_anims);
     rc_world_destroy(v.world);
     free(v.npc_overlays);
     viewer_unload_hitsplat_textures(&v);

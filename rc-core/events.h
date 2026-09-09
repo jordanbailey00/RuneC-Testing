@@ -91,6 +91,8 @@ typedef struct {
     uint16_t current_hp;
     uint16_t max_hp;
     uint8_t style;             // RcCombatStyle
+    uint8_t flags;
+    int damage_tenths;         // actual HP removed; damage remains whole hitpoints
 } RcPayloadPlayerDamaged;      // RC_EVT_PLAYER_DAMAGED
 
 typedef struct {

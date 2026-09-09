@@ -19,6 +19,7 @@ except ImportError as exc:  # pragma: no cover
     raise SystemExit("Pillow is required to export PNG sprites") from exc
 
 from rc_cache import RcCacheStore, decode_sprite_group
+from export_spell_icons import read_catalog
 
 try:
     from modern_cache_reader import ModernCacheReader, decompress_container
@@ -76,6 +77,8 @@ def add_graphic_symbol_aliases(
 
 def build_sprite_map(graphic_symbols: Path | None = None) -> dict[int, list[str]]:
     sprites: dict[int, list[str]] = {}
+    for _book, _name, sprite_id in read_catalog():
+        _add(sprites, sprite_id, str(sprite_id))
 
     _add(sprites, 897, "tradebacking_dark")
     _add(sprites, 1017, "chatbox_bg")
@@ -402,7 +405,7 @@ def main(argv: list[str]) -> int:
             print(f"{sprite_id}: failed: {exc}", file=sys.stderr)
 
     print(f"exported {ok} sprite groups to {args.output} ({failed} failed)")
-    return 1 if ok == 0 else 0
+    return 1 if failed or ok == 0 else 0
 
 
 if __name__ == "__main__":

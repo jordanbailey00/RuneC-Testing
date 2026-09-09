@@ -6,6 +6,14 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 enable_testing()
 find_package(ZLIB REQUIRED)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME test_weapon_metadata
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_weapon_metadata.py)
+add_test(NAME test_magic_assets
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_magic_assets.py)
+add_test(NAME test_spell_icon_assets
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_spell_icon_assets.py)
+add_test(NAME test_item_sprite_assets
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_item_sprite_assets.py)
 
 # rc-core: generic game backend library (no render deps, no OSRS-specific
 # content). See rc-core/README.md for the engine/content split.
@@ -149,6 +157,9 @@ if(TARGET test_combat_visuals_projectiles)
         rc-viewer
     )
 endif()
+if(TARGET test_ralos_runtime)
+    target_sources(test_ralos_runtime PRIVATE rc-viewer/combat_visuals.c)
+endif()
 
 if(TARGET test_items_bin)
     target_sources(test_items_bin PRIVATE
@@ -283,3 +294,21 @@ if(TARGET rc-viewer AND TARGET test_streaming_cpu_assets)
 endif()
 
 include(${CMAKE_SOURCE_DIR}/tests/tier1_suites.cmake)
+
+if(TARGET rc-viewer)
+    add_executable(test_dev_spellbooks tests/frontend/test_dev_spellbooks.c
+        rc-viewer/dev_validation.c rc-viewer/ui_assets.c rc-viewer/ui_spellbook.c
+        rc-viewer/ui_interfaces.c rc-viewer/context_menu.c)
+    target_include_directories(test_dev_spellbooks PRIVATE lib/raylib/include)
+    target_link_directories(test_dev_spellbooks PRIVATE lib/raylib/lib)
+    target_link_libraries(test_dev_spellbooks rc-core rc-content-link raylib m dl pthread)
+    if(GL_LIB)
+        target_link_libraries(test_dev_spellbooks ${GL_LIB})
+    endif()
+    target_compile_definitions(test_dev_spellbooks PRIVATE RC_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(test_dev_spellbooks PRIVATE -UNDEBUG)
+    endif()
+    add_test(NAME test_dev_spellbooks COMMAND test_dev_spellbooks)
+    set_tests_properties(test_dev_spellbooks PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+endif()

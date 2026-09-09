@@ -145,13 +145,14 @@ static void test_npc_hit_pipeline_records_damage_hp_xp_death_and_loot(void) {
     assert(npc->combat.hp_current == 0);
     assert(npc->combat.hp_max == 10);
     assert(npc->combat.recent_hit_count == 1);
-    assert(npc->combat.recent_hits[0].damage == 15);
+    assert(npc->combat.recent_hits[0].damage == 10);
     assert(npc->combat.recent_hits[0].max_hit == 15);
-    assert(npc->combat.recent_hits[0].hit_type == RC_HIT_TYPE_MAX);
+    assert(npc->combat.recent_hits[0].hit_type == RC_HIT_TYPE_NORMAL);
     assert(events.npc_damaged == 1);
     assert(events.npc_died == 1);
-    assert(events.last_npc_damage == 15);
-    assert(world->player.skills.xp[SKILL_ATTACK] > xp_before);
+    assert(events.last_npc_damage == 10);
+    // Injecting damage is not an XP-awarding player attack launch.
+    assert(world->player.skills.xp[SKILL_ATTACK] == xp_before);
     assert(world->ground_item_count > 0);
     assert(world->ground_items[0].active);
     assert(world->ground_items[0].item_id == 995);

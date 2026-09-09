@@ -82,7 +82,7 @@ typedef struct {
 } AnimFrameData;
 
 typedef struct {
-    uint16_t delay;             /* game ticks (600ms each) */
+    uint16_t delay;             /* client ticks (20ms each) */
     AnimFrameData frame;
 } AnimSequenceFrame;
 
@@ -95,10 +95,17 @@ typedef struct {
     AnimSequenceFrame* frames;
 } AnimSequence;
 
+static int anim_sequence_game_ticks(const AnimSequence *seq) {
+    uint64_t ticks = 0;
+    if (!seq) return 0;
+    for (int i = 0; i < seq->frame_count; i++)
+        ticks += seq->frames[i].delay ? seq->frames[i].delay : 1;
+    return (int)((ticks + 29) / 30);
+}
+
 typedef struct {
     AnimFrameBase* bases;
     int            base_count;
-    uint16_t*      base_ids;    /* for lookup by id */
 
     AnimSequence*  sequences;
     int            seq_count;
@@ -124,6 +131,14 @@ typedef struct {
 
 static void anim_cache_free(AnimCache* cache);
 static void anim_model_state_free(AnimModelState* state);
+
+static int anim_compare_sequence(const void *a, const void *b) {
+    return (int)((const AnimSequence *)a)->seq_id - ((const AnimSequence *)b)->seq_id;
+}
+
+static int anim_compare_framebase(const void *a, const void *b) {
+    return (int)((const AnimFrameBase *)a)->base_id - ((const AnimFrameBase *)b)->base_id;
+}
 
 /* ======================================================================== */
 /* loading                                                                    */
@@ -256,8 +271,7 @@ static AnimCache* anim_cache_load(const char* path) {
 
     /* load framebases */
     cache->bases = (AnimFrameBase*)calloc(cache->base_count, sizeof(AnimFrameBase));
-    cache->base_ids = (uint16_t*)malloc(cache->base_count * sizeof(uint16_t));
-    if ((cache->base_count > 0 && (!cache->bases || !cache->base_ids))) {
+    if (cache->base_count > 0 && !cache->bases) {
         anim_cache_free(cache);
         free(buf);
         return NULL;
@@ -266,7 +280,6 @@ static AnimCache* anim_cache_load(const char* path) {
     for (int i = 0; i < cache->base_count; i++) {
         AnimFrameBase* fb = &cache->bases[i];
         fb->base_id = anim_read_u16(&r);
-        cache->base_ids[i] = fb->base_id;
         fb->slot_count = anim_read_u8(&r);
 
         fb->types = (uint8_t*)malloc(fb->slot_count);
@@ -369,6 +382,11 @@ static AnimCache* anim_cache_load(const char* path) {
     }
 
     free(buf);
+    // Shared actor/effect caches need bounded lookups during animation playback.
+    if (cache->seq_count > 0)
+        qsort(cache->sequences, cache->seq_count, sizeof(AnimSequence), anim_compare_sequence);
+    if (cache->base_count > 0)
+        qsort(cache->bases, cache->base_count, sizeof(AnimFrameBase), anim_compare_framebase);
     anim_init_trig();
 
     fprintf(stderr,
@@ -384,23 +402,17 @@ static AnimCache* anim_cache_load(const char* path) {
 /* ======================================================================== */
 
 static AnimSequence* anim_get_sequence(AnimCache* cache, uint16_t seq_id) {
-    if (!cache) return NULL;
-    for (int i = 0; i < cache->seq_count; i++) {
-        if (cache->sequences[i].seq_id == seq_id) {
-            return &cache->sequences[i];
-        }
-    }
-    return NULL;
+    if (!cache || !cache->seq_count) return NULL;
+    AnimSequence key = {.seq_id = seq_id};
+    return bsearch(&key, cache->sequences, cache->seq_count,
+                   sizeof(AnimSequence), anim_compare_sequence);
 }
 
 static AnimFrameBase* anim_get_framebase(AnimCache* cache, uint16_t base_id) {
-    if (!cache) return NULL;
-    for (int i = 0; i < cache->base_count; i++) {
-        if (cache->bases[i].base_id == base_id) {
-            return &cache->bases[i];
-        }
-    }
-    return NULL;
+    if (!cache || !cache->base_count) return NULL;
+    AnimFrameBase key = {.base_id = base_id};
+    return bsearch(&key, cache->bases, cache->base_count,
+                   sizeof(AnimFrameBase), anim_compare_framebase);
 }
 
 /* ======================================================================== */
@@ -952,7 +964,6 @@ static void anim_cache_free(AnimCache* cache) {
         }
     }
     free(cache->bases);
-    free(cache->base_ids);
 
     if (cache->sequences) {
         for (int i = 0; i < cache->seq_count; i++) {

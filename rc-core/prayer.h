@@ -91,6 +91,7 @@ int rc_prayer_defence_bonus(uint32_t active_prayers);
 int rc_prayer_ranged_attack_bonus(uint32_t active_prayers);
 int rc_prayer_ranged_strength_bonus(uint32_t active_prayers);
 int rc_prayer_magic_attack_bonus(uint32_t active_prayers);
+int rc_prayer_magic_defence_bonus(uint32_t active_prayers);
 int rc_prayer_magic_damage_bonus(uint32_t active_prayers);
 
 #endif

@@ -166,6 +166,7 @@ void rc_prayer_toggle(RcPlayer *player, int prayer_id) {
 }
 
 int rc_prayer_attack_bonus(uint32_t active_prayers) {
+    if (!active_prayers) return 0;
     int best = 0;
     for (int i = 0; i < RC_MAX_PRAYER_DEFS; i++) {
         const RcPrayerDef *def = rc_prayer_def_get(i);
@@ -177,6 +178,7 @@ int rc_prayer_attack_bonus(uint32_t active_prayers) {
 }
 
 int rc_prayer_strength_bonus(uint32_t active_prayers) {
+    if (!active_prayers) return 0;
     int best = 0;
     for (int i = 0; i < RC_MAX_PRAYER_DEFS; i++) {
         const RcPrayerDef *def = rc_prayer_def_get(i);
@@ -188,6 +190,7 @@ int rc_prayer_strength_bonus(uint32_t active_prayers) {
 }
 
 int rc_prayer_defence_bonus(uint32_t active_prayers) {
+    if (!active_prayers) return 0;
     int total = 0;
     for (int i = 0; i < RC_MAX_PRAYER_DEFS; i++) {
         const RcPrayerDef *def = rc_prayer_def_get(i);
@@ -199,6 +202,7 @@ int rc_prayer_defence_bonus(uint32_t active_prayers) {
 }
 
 int rc_prayer_ranged_attack_bonus(uint32_t active_prayers) {
+    if (!active_prayers) return 0;
     int best = 0;
     for (int i = 0; i < RC_MAX_PRAYER_DEFS; i++) {
         const RcPrayerDef *def = rc_prayer_def_get(i);
@@ -211,6 +215,7 @@ int rc_prayer_ranged_attack_bonus(uint32_t active_prayers) {
 }
 
 int rc_prayer_ranged_strength_bonus(uint32_t active_prayers) {
+    if (!active_prayers) return 0;
     int best = 0;
     for (int i = 0; i < RC_MAX_PRAYER_DEFS; i++) {
         const RcPrayerDef *def = rc_prayer_def_get(i);
@@ -223,6 +228,7 @@ int rc_prayer_ranged_strength_bonus(uint32_t active_prayers) {
 }
 
 int rc_prayer_magic_attack_bonus(uint32_t active_prayers) {
+    if (!active_prayers) return 0;
     int best = 0;
     for (int i = 0; i < RC_MAX_PRAYER_DEFS; i++) {
         const RcPrayerDef *def = rc_prayer_def_get(i);
@@ -235,6 +241,7 @@ int rc_prayer_magic_attack_bonus(uint32_t active_prayers) {
 }
 
 int rc_prayer_magic_damage_bonus(uint32_t active_prayers) {
+    if (!active_prayers) return 0;
     int best = 0;
     for (int i = 0; i < RC_MAX_PRAYER_DEFS; i++) {
         const RcPrayerDef *def = rc_prayer_def_get(i);
@@ -242,6 +249,17 @@ int rc_prayer_magic_damage_bonus(uint32_t active_prayers) {
                 && def->magic_damage > best) {
             best = def->magic_damage;
         }
+    }
+    return best;
+}
+
+int rc_prayer_magic_defence_bonus(uint32_t active_prayers) {
+    if (!active_prayers) return 0;
+    int best = 0;
+    for (int i = 0; i < RC_MAX_PRAYER_DEFS; i++) {
+        const RcPrayerDef *def = rc_prayer_def_get(i);
+        if ((active_prayers & rc_prayer_bit(i)) && def && def->magic_defence > best)
+            best = def->magic_defence;
     }
     return best;
 }

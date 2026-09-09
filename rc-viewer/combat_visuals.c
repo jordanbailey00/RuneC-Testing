@@ -332,6 +332,9 @@ int rc_load_combat_visuals(const char *path) {
                       def->kind == RC_COMBAT_VISUAL_SPECIAL
                     ? parse_int_field(parts[1]) : -1;
         strncpy(def->key_name, parts[1], sizeof(def->key_name) - 1);
+        const char *ammo = def->kind == RC_COMBAT_VISUAL_SPECIAL
+                         ? strchr(parts[1], ':') : NULL;
+        def->ammo_id = ammo ? parse_strict_int_field(ammo + 1) : -1;
         if (def->kind == RC_COMBAT_VISUAL_SPELL) {
             def->key_id = parse_strict_int_field(parts[1]);
             if (def->key_id < 0)
@@ -380,7 +383,7 @@ int rc_load_combat_visuals(const char *path) {
             n > 29 ? parse_int_field(parts[29]) : -1;
         def->aux_projectile_anim_id =
             n > 30 ? parse_int_field(parts[30]) : -1;
-        def->impact_on_last_only = n > 31 ? parse_int_field(parts[31]) : 0;
+        def->impact_on_last_only = n > 31 && parse_int_field(parts[31]) > 0;
         def->double_launch_spotanim_id =
             n > 32 ? parse_int_field(parts[32]) : -1;
         def->launch_spotanim_height = parse_int_field(
@@ -515,10 +518,51 @@ const RcCombatVisualDef *rc_combat_visual_for_special_item(int item_id,
     const RcCombatVisualDef *fallback = NULL;
     for (int i = 0; i < g_rc_combat_visual_count; i++) {
         const RcCombatVisualDef *def = &g_rc_combat_visual_defs[i];
-        if (def->kind != RC_COMBAT_VISUAL_SPECIAL || def->key_id != item_id)
+        if (def->kind != RC_COMBAT_VISUAL_SPECIAL || def->key_id != item_id ||
+                def->ammo_id >= 0)
             continue;
         if (def->style == (int)style) return def;
         if (!fallback && visual_style_matches(def, style)) fallback = def;
     }
     return fallback;
+}
+
+RcPlayerAttackVisuals rc_combat_visual_resolve_player(const RcCombatAttackEvent *e) {
+    RcPlayerAttackVisuals out = {0};
+    if (!e) return out;
+    const RcCombatVisualDef *weapon = rc_combat_visual_for_item_stance(
+        e->weapon_item_id, e->style, e->stance_idx);
+    const RcCombatVisualDef *special = NULL;
+    if (e->action_kind == RC_COMBAT_ACTION_SPECIAL) {
+        special = rc_combat_visual_for_special_item(e->weapon_item_id, e->style);
+        for (int i = 0; i < g_rc_combat_visual_count; i++) {
+            const RcCombatVisualDef *row = &g_rc_combat_visual_defs[i];
+            if (row->kind == RC_COMBAT_VISUAL_SPECIAL && row->key_id == e->weapon_item_id
+                    && row->ammo_id == e->ammo_item_id && row->ammo_id >= 0
+                    && visual_style_matches(row, e->style)) {
+                special = row;
+                break;
+            }
+        }
+    }
+    if (e->style == COMBAT_MAGIC && e->spell_idx >= 0) {
+        out.projectile = rc_combat_visual_for_spell_id(e->spell_idx, e->action_key_name, e->style);
+        out.animation = out.projectile;
+        out.effect = out.projectile;
+    } else {
+        out.projectile = e->style == COMBAT_RANGED
+            ? rc_combat_visual_for_item(e->ammo_item_id, e->style) : weapon;
+        if (!out.projectile) out.projectile = weapon;
+        out.animation = weapon;
+        out.effect = weapon ? weapon : out.projectile;
+    }
+    if (special) {
+        out.animation = out.effect = special;
+        if (special->travel_spotanim_id >= 0 || special->projectile_model_id >= 0)
+            out.projectile = special;
+    }
+    out.timing = special && special->projectile_delay >= 0 ? special :
+        out.projectile && out.projectile->projectile_delay >= 0 ? out.projectile :
+        weapon ? weapon : out.projectile;
+    return out;
 }

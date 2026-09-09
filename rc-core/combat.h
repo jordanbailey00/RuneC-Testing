@@ -30,7 +30,7 @@
 
 #define RC_SLAYER_UNLOCK_AUTO_FINISHER 1u
 
-typedef struct {
+typedef struct RcCombatCalc {
     int attack_roll;
     int defence_roll;
     float hit_chance;
@@ -73,11 +73,11 @@ typedef struct {
     RcCombatHitView player_recent_hits[4];
 } RcCombatViewState;
 
-// Player vs NPC — accuracy + damage calculation per RSMod formulas.
-// `npc_def_id` = NPC definition index (use rc_npc_def_find to resolve).
-RcCombatCalc rc_calc_melee(const RcPlayer *attacker, int npc_def_id);
-RcCombatCalc rc_calc_ranged(const RcPlayer *attacker, int npc_def_id);
-RcCombatCalc rc_calc_magic(const RcPlayer *attacker, int npc_def_id,
+// Accuracy uses the live target's stats, including drains and boosts.
+RcCombatCalc rc_calc_melee(const RcPlayer *attacker, const RcNpc *target);
+RcCombatCalc rc_calc_ranged(const RcPlayer *attacker, const RcNpc *target,
+                           bool uses_ammo_slot);
+RcCombatCalc rc_calc_magic(const RcPlayer *attacker, const RcNpc *target,
                            int spell_max_hit);
 
 // Refresh selected combat style/stance/XP routing from equipped item
@@ -87,11 +87,12 @@ int  rc_player_weapon_can_autocast(const RcPlayer *player);
 void rc_player_set_attack_style(struct RcWorld *world, int style_idx);
 int  rc_player_attack_speed(const RcPlayer *player);
 int  rc_player_attack_range(const RcPlayer *player);
-void rc_award_player_combat_xp(struct RcWorld *world, int damage);
+void rc_award_player_combat_xp(struct RcWorld *world, int damage, int xp_mask);
+void rc_combat_reset_player_life(struct RcWorld *world);
+int rc_combat_apply_player_hit(struct RcWorld *world,
+                               const RcPendingHit *hit, int damage);
 
-// Combat Phase 1 actor-state API. These calls mirror legacy combat
-// fields during migration; later phases will make RcCombatActorState
-// the primary runtime source of truth.
+// Actor combat ownership and derived query state.
 void rc_combat_init_player_state(RcPlayer *player);
 void rc_combat_init_npc_state(RcNpc *npc);
 int  rc_combat_start_player_vs_npc(struct RcWorld *world, int player_uid,
@@ -101,7 +102,7 @@ int  rc_combat_start_npc_vs_player(struct RcWorld *world, int npc_uid,
 void rc_combat_stop_actor(struct RcWorld *world, RcCombatActorRef actor,
                           int reason);
 void rc_combat_set_player_style(struct RcWorld *world, int style_idx);
-void rc_combat_toggle_auto_retaliate(struct RcWorld *world);
+int rc_combat_set_auto_retaliate(struct RcWorld *world, bool enabled);
 void rc_combat_toggle_special(struct RcWorld *world);
 int  rc_combat_actor_has_target(const RcCombatActorState *state);
 void rc_combat_set_multi_combat(struct RcWorld *world, bool enabled);
@@ -119,18 +120,19 @@ const RcCombatAttackEvent *rc_combat_attack_events(
     const struct RcWorld *world, int *count);
 void rc_combat_clear_attack_events(struct RcWorld *world);
 
-// NPC vs Player — picks the NPC's highest-weighted attack style from
-// its attack_types bitfield.
-RcCombatCalc rc_calc_npc_attack(int npc_def_id, const RcPlayer *defender);
-
 // Hit chance: OSRS accuracy formula.
 //   if att > def: 1 - (def+2) / (2*(att+1))
 //   else:         att / (2*(def+1))
 float rc_hit_chance(int att_roll, int def_roll);
 
-// Roll one attack: accuracy check + uniform damage [0, max_hit].
-// Returns damage (0 if miss). `rng_state` is on the world.
-int rc_roll_attack(const RcCombatCalc *calc, uint32_t *rng_state);
+typedef struct {
+    bool accurate;
+    int damage;
+} RcCombatRoll;
+
+// NPCs retain accurate zeroes; ordinary player attacks raise them to one.
+RcCombatRoll rc_roll_attack(const RcCombatCalc *calc, uint32_t *rng_state,
+                             bool player_attack);
 
 // Regular-NPC mechanic consumers. These are deterministic damage-rule
 // hooks backed by regular_npc_mechanics.bin tags.
@@ -167,15 +169,13 @@ int rc_queue_hit_flags(RcPendingHit *hits, int *count, int damage, int delay,
 int rc_resolve_pending(RcPendingHit *hits, int *count,
                        bool is_player_defender, RcTick current_tick);
 
-// Phase-0 compatibility wrappers around the legacy combat loop.
-// The new combat-state engine will replace these internals phase by
-// phase while preserving public callers during migration.
+// Attack admission, launch and derived combat state for each actor.
 void rc_combat_tick_player(struct RcWorld *world);
 void rc_combat_tick_npc(struct RcWorld *world, RcNpc *npc);
 
 // Resolve pending hits on the player for this tick. Fires
 // RC_EVT_PLAYER_DAMAGED per landing hit (after protection-prayer
-// mitigation, before hp deduction). Applies total damage to hp.
+// mitigation and HP deduction).
 // Must be called only when RC_SUB_COMBAT is enabled.
 void rc_resolve_player_hits(struct RcWorld *world);
 

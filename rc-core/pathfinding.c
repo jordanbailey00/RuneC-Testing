@@ -527,7 +527,7 @@ static bool wall_reached(const RcWorldMap *map, int plane, int sx, int sy,
     return false;
 }
 
-static bool route_target_reached(const RcWorldMap *map, int plane,
+bool rc_route_target_reached(const RcWorldMap *map, int plane,
                                  int x, int y, int width, int height,
                                  const RcRouteTarget *target) {
     if (target->kind == RC_ROUTE_REACH_EXACT)
@@ -547,6 +547,11 @@ static bool route_target_reached(const RcWorldMap *map, int plane,
     if (target->max_distance == 1
             && !rectangle_side_reached(map, plane, x, y, width, height,
                                        target)) return false;
+    if (target->require_line_of_walk
+            && !rc_has_line_of_walk_rect(map, x, y, width, height,
+                                          target->x, target->y,
+                                          target->width, target->height, plane))
+        return false;
     return !target->require_los
         || rc_has_los_rect(map, x, y, width, height,
                            target->x, target->y,
@@ -641,7 +646,7 @@ RcRoute rc_find_route(const RcWorldMap *map, int start_x, int start_y,
         route.status = RC_ROUTE_FAILED;
         return route;
     }
-    if (route_target_reached(map, plane, start_x, start_y,
+    if (rc_route_target_reached(map, plane, start_x, start_y,
                              entity_width, entity_height, target)) {
         route.status = RC_ROUTE_ALREADY_ARRIVED;
         route.reached_x = start_x;
@@ -674,7 +679,7 @@ RcRoute rc_find_route(const RcWorldMap *map, int start_x, int start_y,
         head++;
         int world_x = local_x + origin_x;
         int world_y = local_y + origin_y;
-        if (route_target_reached(map, plane, world_x, world_y,
+        if (rc_route_target_reached(map, plane, world_x, world_y,
                                  entity_width, entity_height, target)) {
             end_x = world_x;
             end_y = world_y;

@@ -105,7 +105,8 @@ static void test_default_attack_and_noncombat_handlers_preserve_behavior(void) {
     assert(world->player.interact_target == uid);
     assert(world->player.interact_option == 1);
     assert(world->player.attack_target == uid);
-    assert(world->npcs[npc_idx].target_uid == 0);
+    // Dispatch selects a target; this non-attacking dummy cannot retaliate.
+    assert(world->npcs[npc_idx].target_uid == -1);
 
     world->player.attack_target = -1;
     world->player.interact_type = RC_INTERACT_NONE;

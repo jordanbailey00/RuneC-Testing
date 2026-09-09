@@ -1,6 +1,7 @@
 #include "world_state.h"
 
 #include "npc.h"
+#include "combat.h"
 
 #include <limits.h>
 #include <stdlib.h>
@@ -160,6 +161,28 @@ int rc_world_state_restore_npcs(RcWorld *world) {
         restored++;
     }
     return restored;
+}
+
+static void clear_player_combat(RcNpc *npc) {
+    npc->target_uid = -1;
+    if (npc->facing_entity == 0) npc->facing_entity = -1;
+    if (npc->route_mode == RC_NPC_ROUTE_CHASE)
+        rc_npc_route_clear(npc, RC_MOVEMENT_NONE);
+    npc->combat.active = false;
+    npc->combat.flags = 0;
+    npc->combat.distance_to_target = -1;
+    npc->combat.attack_prepared = false;
+    npc->combat.target = (RcCombatTargetRef){0};
+    npc->combat.attacker_count = npc->combat.under_attack_timer = 0;
+    npc->combat.primary_attacker = (RcCombatActorRef){RC_COMBAT_ACTOR_NONE, -1};
+}
+
+void rc_world_state_clear_player_combat(RcWorld *world) {
+    if (!world) return;
+    for (int i = 0; i < world->npc_count; i++)
+        clear_player_combat(&world->npcs[i]);
+    for (int i = 0; i < world->dormant_npc_count; i++)
+        clear_player_combat(&world->dormant_npcs[i].npc);
 }
 
 static int ground_compare(bool static_a, uint64_t key_a,

@@ -748,6 +748,8 @@ void rc_npc_route_clear(RcNpc *npc, RcMovementResult result) {
 
 void rc_npc_reset_life(RcWorld *world, RcNpc *npc) {
     if (!npc) return;
+    if (world && npc->spawn_hp > 0)
+        rc_npc_clear_references(world, (RcNpcId)npc->uid);
     int def_id = npc->def_id;
     int uid = npc->uid;
     uint64_t spawn_key = npc->spawn_key;
@@ -924,7 +926,8 @@ static void clear_actor_npc_reference(RcCombatActorState *state, int uid) {
     for (int i = 0; i < state->attacker_count; i++) {
         if (state->attackers[i].kind == RC_COMBAT_ACTOR_NPC
                 && state->attackers[i].uid == uid) continue;
-        state->attackers[write++] = state->attackers[i];
+        state->attackers[write] = state->attackers[i];
+        state->attacker_ticks[write++] = state->attacker_ticks[i];
     }
     state->attacker_count = write;
     write = 0;
@@ -954,16 +957,22 @@ void rc_npc_clear_references(RcWorld *world, RcNpcId uid_value) {
             && player->interaction.target.entity_uid == uid) {
         rc_interaction_clear(player);
     }
+    int pending = 0;
     for (int i = 0; i < player->num_pending_hits; i++) {
-        if (player->pending_hits[i].active
-                && player->pending_hits[i].source_idx == uid)
-            player->pending_hits[i].active = 0;
+        if (player->pending_hits[i].active && player->pending_hits[i].source_idx == uid) {
+            if (player->pending_hits[i].attack_style != COMBAT_RANGED
+                    && player->pending_hits[i].attack_style != COMBAT_MAGIC)
+                player->pending_hits[i].active = 0;
+            else player->pending_hits[i].flags |= RC_HIT_SOURCE_EXPIRED;
+        }
+        if (player->pending_hits[i].active)
+            player->pending_hits[pending++] = player->pending_hits[i];
     }
+    player->num_pending_hits = pending;
     clear_actor_npc_reference(&player->combat, uid);
     for (int i = 0; i < world->npc_count; i++) {
         RcNpc *other = &world->npcs[i];
-        if (other->target_uid == uid) other->target_uid = -1;
-        if (other->facing_entity == uid) other->facing_entity = -1;
+        // NPC target/facing IDs refer to players, not the NPC being removed.
         for (int h = 0; h < other->num_pending_hits; h++) {
             if (other->pending_hits[h].active
                     && other->pending_hits[h].source_idx == uid)
@@ -995,10 +1004,37 @@ bool rc_npc_route_request(RcWorld *world, RcNpc *npc,
                           const RcRouteTarget *target, RcNpcRouteMode mode,
                           bool allow_alternative) {
     if (!world || !npc || !target || !npc->active || npc->is_dead
-            || mode == RC_NPC_ROUTE_NONE) return false;
+            || mode == RC_NPC_ROUTE_NONE || mode > RC_NPC_ROUTE_SCRIPTED
+            || (allow_alternative && mode != RC_NPC_ROUTE_SCRIPTED)) return false;
     const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
     if (!def) return false;
     int size = def->size > 0 ? def->size : 1;
+    if (mode != RC_NPC_ROUTE_SCRIPTED) {
+        RcTileBounds bounds;
+        if (!rc_tile_bounds_from_origin_size(target->x, target->y,
+                target->width, target->height, npc->plane, &bounds)
+                || target->kind > RC_ROUTE_REACH_RECTANGLE
+                || target->min_distance < 0
+                || target->max_distance < target->min_distance) {
+            rc_npc_route_clear(npc, RC_MOVEMENT_NO_ROUTE);
+            return false;
+        }
+        if (rc_route_target_reached(&world->map, npc->plane,
+                                    npc->x, npc->y, size, size, target)) {
+            rc_npc_route_clear(npc, RC_MOVEMENT_ARRIVED);
+            return true;
+        }
+        npc->route_target = *target;
+        npc->route_x[0] = target->x;
+        npc->route_y[0] = target->y;
+        npc->route_idx = 0;
+        npc->route_len = 1;
+        npc->route_continue = false;
+        npc->route_status = RC_ROUTE_EXACT;
+        npc->route_mode = (uint8_t)mode;
+        npc->movement_result = RC_MOVEMENT_ROUTE_ADMITTED;
+        return true;
+    }
     RcRoute route = rc_find_route(&world->map, npc->x, npc->y, size, size,
                                   npc->plane, target, allow_alternative);
     if (!rc_route_status_admitted(route.status)) {
@@ -1032,11 +1068,79 @@ static int continue_npc_route(RcWorld *world, RcNpc *npc) {
         && npc->route_idx < npc->route_len;
 }
 
+static int npc_overlaps_target(int x, int y, int size,
+                               const RcRouteTarget *target) {
+    return x < target->x + target->width && x + size > target->x
+        && y < target->y + target->height && y + size > target->y;
+}
+
+static void npc_arrive(RcNpc *npc) {
+    RcNpcRouteMode mode = (RcNpcRouteMode)npc->route_mode;
+    rc_npc_route_clear(npc, RC_MOVEMENT_ARRIVED);
+    if (mode == RC_NPC_ROUTE_WANDER || mode == RC_NPC_ROUTE_RETURN)
+        npc->wander_timer = 0;
+}
+
+static void npc_direct_step(RcWorld *world, RcNpc *npc, int size) {
+    const RcRouteTarget *target = &npc->route_target;
+    if (rc_route_target_reached(&world->map, npc->plane,
+                                npc->x, npc->y, size, size, target)) {
+        npc_arrive(npc);
+        return;
+    }
+    int dx = (target->x > npc->x) - (target->x < npc->x);
+    int dy = (target->y > npc->y) - (target->y < npc->y);
+    int overlap = !target->allow_inside
+        && npc_overlaps_target(npc->x, npc->y, size, target);
+    if (overlap) {
+        // An overlapped target requires a cardinal step away, not a path search.
+        static const int directions[4][2] = {{0, -1}, {-1, 0}, {0, 1}, {1, 0}};
+        int direction = rc_rng_range(&world->rng_state, 3);
+        dx = directions[direction][0];
+        dy = directions[direction][1];
+    } else if (!target->allow_inside) {
+        dx = npc->x + size <= target->x ? 1
+           : npc->x >= target->x + target->width ? -1 : 0;
+        dy = npc->y + size <= target->y ? 1
+           : npc->y >= target->y + target->height ? -1 : 0;
+    }
+    // Ordinary travel tries both axes, then X, then Y. It never searches a detour.
+    const int steps[3][2] = {{dx, dy}, {dx, 0}, {0, dy}};
+    for (int i = 0; i < 3; i++) {
+        int sx = steps[i][0], sy = steps[i][1];
+        if ((!sx && !sy) || (i > 0 && (!dx || !dy))) continue;
+        if (!overlap && !target->allow_inside
+                && npc_overlaps_target(npc->x + sx, npc->y + sy, size, target))
+            continue;
+        if (!rc_can_move_rect(&world->map, npc->x, npc->y, size, size,
+                              sx, sy, npc->plane)) continue;
+        npc->x += sx;
+        npc->y += sy;
+        npc_face_move_delta(npc, sx, sy);
+        npc->movement_result = RC_MOVEMENT_MOVED;
+        if (rc_route_target_reached(&world->map, npc->plane,
+                                    npc->x, npc->y, size, size, target))
+            npc_arrive(npc);
+        return;
+    }
+    npc->movement_result = RC_MOVEMENT_BLOCKED;
+    // Pursuit may resume when the obstruction moves. Idle wandering can reselect.
+    if (npc->route_mode == RC_NPC_ROUTE_WANDER)
+        rc_npc_route_clear(npc, RC_MOVEMENT_BLOCKED);
+}
+
 void rc_npc_movement_tick(RcWorld *world, RcNpc *npc) {
     if (!world || !npc || rc_npc_life_phase(npc) != RC_NPC_LIFE_ALIVE)
         return;
+    if (world->tick < npc->immobilized_until) return;
     if (npc->route_idx >= npc->route_len && !continue_npc_route(world, npc))
         return;
+    const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
+    int size = def && def->size > 0 ? def->size : 1;
+    if (npc->route_mode != RC_NPC_ROUTE_SCRIPTED) {
+        npc_direct_step(world, npc, size);
+        return;
+    }
     int next_x = npc->route_x[npc->route_idx];
     int next_y = npc->route_y[npc->route_idx];
     int dx = next_x - npc->x;
@@ -1049,8 +1153,6 @@ void rc_npc_movement_tick(RcWorld *world, RcNpc *npc) {
         npc->route_idx++;
         return;
     }
-    const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
-    int size = def && def->size > 0 ? def->size : 1;
     if (!rc_can_move_rect(&world->map, npc->x, npc->y, size, size,
                           dx, dy, npc->plane)) {
         rc_npc_route_clear(npc, RC_MOVEMENT_BLOCKED);
@@ -1063,11 +1165,8 @@ void rc_npc_movement_tick(RcWorld *world, RcNpc *npc) {
     if (npc->x == next_x && npc->y == next_y) npc->route_idx++;
     if (npc->route_idx >= npc->route_len && !npc->route_continue) {
         RcRouteStatus status = npc->route_status;
-        RcNpcRouteMode mode = (RcNpcRouteMode)npc->route_mode;
         rc_npc_route_clear(npc, status == RC_ROUTE_ALTERNATIVE
                                ? RC_MOVEMENT_NO_ROUTE : RC_MOVEMENT_ARRIVED);
-        if (mode == RC_NPC_ROUTE_WANDER || mode == RC_NPC_ROUTE_RETURN)
-            npc->wander_timer = 0;
     }
 }
 
@@ -1102,10 +1201,10 @@ void rc_npc_status_tick(RcWorld *world, RcNpc *npc) {
         if (npc->poison_tick_counter > 0) {
             npc->poison_tick_counter--;
         } else {
-            rc_queue_hit_meta(npc->pending_hits, &npc->num_pending_hits,
+            if (!rc_queue_hit_meta(npc->pending_hits, &npc->num_pending_hits,
                               npc->poison_damage, 0, COMBAT_NONE,
                               RC_HIT_SOURCE_STATUS, 0,
-                              world->tick, 0, npc->poison_damage);
+                              world->tick, 0, npc->poison_damage)) return;
             npc->poison_damage--;
             npc->poison_tick_counter = npc->poison_damage > 0 ? 30 : 0;
         }

@@ -229,24 +229,6 @@ POST_DEF_RENDER_REBUILD_SPECS = (
         authority="b237 cache, rebuilt items.bin, and RuneC-owned reviewed player pose sets for first-release validation equipment and static ground-item visuals",
     ),
     RuntimeOutputSpec(
-        dataset="validation_item_icons",
-        logical_paths=("sprites/items/",),
-        rebuild_inputs=OSRSREBOXED_INPUT,
-        commands=(
-            py_cmd(
-                "tools/cache_pipeline/export_reference_item_icons.py",
-                "--reference",
-                "{osrsreboxed_db}/docs/items-icons",
-                "--items",
-                "data/defs/items.bin",
-                "--item-ids",
-                "combat-validation",
-            ),
-        ),
-        authority="validation-only known-good osrsreboxed item icon overlay for combat bank items; full b237 renderer remains baseline",
-        release_required=False,
-    ),
-    RuntimeOutputSpec(
         dataset="animations",
         logical_paths=("anims/player.anims", "anims/npcs.anims", "anims/object.anims", "anims/all.anims"),
         rebuild_inputs=B237_CACHE_INPUT,
@@ -424,7 +406,7 @@ DEF_REBUILD_SPECS = (
         logical_paths=("defs/spells.bin", "defs/teleports.bin"),
         rebuild_inputs=(),
         commands=(snapshot_cmd("data/defs/spells.bin", "data/defs/teleports.bin"),),
-        authority="tracked RuneC-owned reviewed runtime snapshot; combat spell hints accepted for first release",
+        authority="tracked RuneC-owned spell snapshot with reviewed content/combat/spell_effects.tsv combat values",
     ),
     RuntimeOutputSpec(
         dataset="regular_npc_mechanics",
@@ -1125,7 +1107,7 @@ def stage_export_render_assets(ctx: PipelineContext, record: dict[str, Any]) -> 
     record["mode"] = "rebuild_post_definition_render_assets"
     record["notes"] = [
         "Render-facing outputs that depend on regenerated definitions run after export-defs.",
-        "The validation item-icon overlay is non-release-required and exists to keep manual validation recognizable while the b237 icon renderer matures.",
+        "Item sprites come only from the b237 cache exporter; no reference-icon overlay replaces them.",
     ]
     emit_rebuild_plan(ctx, record, POST_DEF_RENDER_REBUILD_SPECS)
     run_rebuild_specs(ctx, record, POST_DEF_RENDER_REBUILD_SPECS)

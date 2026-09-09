@@ -494,8 +494,10 @@ static void prim_spawn_leech_npc(RcWorld *world, int enc_idx,
                 (world->tick % p->poisoned_leech_period_ticks) != 0) {
             return;
         }
-        pl->current_hp -= amount * 10;
-        if (pl->current_hp < 0) pl->current_hp = 0;
+        RcPendingHit hit = {.active = 1, .source_idx = (int)leech->uid,
+            .attack_style = COMBAT_NONE, .max_hit = amount,
+            .flags = RC_HIT_SUPPRESS_ENCOUNTER_EFFECTS};
+        amount = rc_combat_apply_player_hit(world, &hit, amount);
         if (p->heals_boss) {
             int cap = npc_hitpoints_cap(world, boss);
             if (cap > 0) {
@@ -1334,7 +1336,11 @@ static void prim_player_sanity_tracker(RcWorld *world, int enc_idx,
                                : 0;
     }
     if (a->mechanic_progress <= p->insane_threshold) {
-        world->player.current_hp = 0;
+        int damage = (world->player.current_hp + 9) / 10;
+        RcPendingHit hit = {.active = 1, .source_idx = RC_HIT_SOURCE_STATUS,
+            .attack_style = COMBAT_NONE, .max_hit = damage,
+            .flags = RC_HIT_SUPPRESS_ENCOUNTER_EFFECTS};
+        rc_combat_apply_player_hit(world, &hit, damage);
     }
 }
 

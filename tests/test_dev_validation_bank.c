@@ -10,14 +10,7 @@
 #define VISUALS_PATH RC_TEST_SOURCE_DIR "/data/defs/combat_visuals.tsv"
 
 static int find_item_by_name(const char *name) {
-    for (int i = 0; i < RC_MAX_ITEM_DEFS; i++) {
-        const RcItemDef *def = rc_item_def_get(i);
-        if (def && strcmp(def->name, name) == 0 && !def->noted
-                && !def->placeholder) {
-            return def->id;
-        }
-    }
-    return -1;
+    return find_unnoted_item_id_by_name(name);
 }
 
 static void clear_player_items(RcWorld *world) {
@@ -43,6 +36,32 @@ static void assert_validation_item_equips(RcWorld *world, const char *name,
     assert(world->player.equipment[equip_slot].item_id == item_id);
 }
 
+static void test_god_mode(RcWorld *world) {
+    RcPlayer *p = &world->player;
+    const RcPendingHit hit = {.source_idx = RC_HIT_SOURCE_STATUS};
+    assert(!runec_dev_validation_set_god_mode(NULL, true));
+    assert(runec_dev_validation_set_god_mode(world, true));
+    assert(!runec_dev_validation_set_god_mode(world, true));
+    for (int i = 0; i < 6; i++) {
+        rc_combat_apply_player_hit(world, &hit, 100000);
+        assert(p->current_hp == 10 && !p->is_dead);
+    }
+    rc_world_tick(world);
+    assert(!p->is_dead && p->current_hp >= 10);
+    assert(runec_dev_validation_set_god_mode(world, false));
+    rc_combat_apply_player_hit(world, &hit, 100000);
+    rc_world_tick(world);
+    assert(p->is_dead);
+    int x = p->x;
+    p->x = -1;
+    assert(!runec_dev_validation_set_god_mode(world, true));
+    assert(p->is_dead);
+    p->x = x;
+    assert(runec_dev_validation_set_god_mode(world, true));
+    assert(!p->is_dead && p->current_hp > 0);
+    assert(runec_dev_validation_set_god_mode(world, false));
+}
+
 int main(void) {
     RcWorldConfig cfg = rc_preset_base_only();
     cfg.subsystems = RC_SUB_INVENTORY | RC_SUB_EQUIPMENT |
@@ -51,14 +70,37 @@ int main(void) {
     cfg.spells_path = SPELL_PATH;
     cfg.combat_profiles_path = VISUALS_PATH;
     cfg.seed = 12345;
+    cfg.npc_capacity = 2048;
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world);
     for (int i = 0; i < SKILL_COUNT; i++)
         world->player.skills.base_level[i] = 99;
     rc_test_open_mapsquare(world, world->player.x, world->player.y,
                            world->player.plane);
+    test_god_mode(world);
 
     runec_dev_validation_seed_bank(world);
+    const char *runes[] = {"Air rune", "Water rune", "Earth rune", "Fire rune",
+        "Mind rune", "Body rune", "Cosmic rune", "Chaos rune", "Nature rune",
+        "Law rune", "Death rune", "Astral rune", "Blood rune", "Soul rune",
+        "Wrath rune", "Mist rune", "Dust rune", "Mud rune", "Smoke rune",
+        "Steam rune", "Lava rune", "Sunfire rune", "Aether rune"};
+    for (size_t i = 0; i < sizeof(runes) / sizeof(runes[0]); i++) {
+        int id = find_item_by_name(runes[i]);
+        bool found = false;
+        assert(id > 0);
+        for (int slot = 0; slot < RC_BANK_SIZE; slot++) {
+            if (world->player.bank[slot].item_id != id) continue;
+            assert(!found && "rune should be stocked only once");
+            found = true;
+            assert(world->player.bank_tab[slot] == RUNEC_DEV_BANK_TAB_MAGE);
+            assert(world->player.bank[slot].quantity == 100000);
+            assert(!rc_item_def_get(id)->noted);
+        }
+        assert(found && "rune missing from testing bank");
+    }
+    assert(find_item_by_name("Amethyst arrows") == 21326);
+    assert(find_item_by_name("Granite maul (ornate handle)") == 24225);
 
     int tab_seen[5] = {0};
     int used = 0;
@@ -82,6 +124,21 @@ int main(void) {
             gear_slot = i;
     }
     assert(used > 300);
+    const int magic_pairs[][2] = {{27275,27277}, {22323,22481}, {25731,25733},
+        {28585,28583}, {31113,31115}, {12899,12900}, {22288,22290},
+        {22292,22294}, {22555,22552}, {27665,27662}};
+    for (unsigned i = 0; i < sizeof(magic_pairs) / sizeof(magic_pairs[0]); i++) {
+        for (int form = 0; form < 2; form++) {
+            bool found = false;
+            for (int slot = 0; slot < RC_BANK_SIZE; slot++) {
+                const RcInvSlot *item = &world->player.bank[slot];
+                if (item->item_id != magic_pairs[i][form]) continue;
+                found = true;
+                assert(item->state_id == (form ? 0 : rc_content_magic_charge_capacity(item->item_id)));
+            }
+            assert(found && "charged and empty magic weapon must both be stocked");
+        }
+    }
     for (int i = 0; i < 5; i++)
         assert(tab_seen[i] > 0);
 
@@ -111,6 +168,32 @@ int main(void) {
     assert_validation_item_equips(world, "Avernic treads", EQUIP_BOOTS);
     assert_validation_item_equips(world, "Confliction gauntlets", EQUIP_GLOVES);
     assert_validation_item_equips(world, "Twinflame staff", EQUIP_WEAPON);
+    assert_validation_item_equips(world, "Amethyst arrows", EQUIP_AMMO);
+    assert(rc_item_result_accepted(rc_player_unequip(world, EQUIP_AMMO)));
+    rc_world_tick(world);
+    assert(world->player.equipment[EQUIP_AMMO].item_id == -1);
+    assert(rc_inv_find(world->player.inventory, 21326) >= 0);
+
+    int equipment_checked = 0;
+    for (int i = 0; i < RC_BANK_SIZE; i++) {
+        const RcItemDef *def = rc_item_def_get(world->player.bank[i].item_id);
+        if (!def || !def->equippable || !def->equipable_by_player) continue;
+        clear_player_items(world);
+        assert(rc_bank_withdraw_slot(world, i, 1) == 1);
+        rc_world_tick(world);
+        int inv = rc_inv_find(world->player.inventory, def->id);
+        assert(inv >= 0);
+        assert(rc_item_result_accepted(rc_player_equip(world, inv)));
+        rc_world_tick(world);
+        if (world->player.equipment[def->equip_slot].item_id != def->id)
+            fprintf(stderr, "bank equipment regression: %d %s\n", def->id, def->name);
+        assert(world->player.equipment[def->equip_slot].item_id == def->id);
+        assert(rc_item_result_accepted(rc_player_unequip(world, def->equip_slot)));
+        rc_world_tick(world);
+        assert(rc_inv_find(world->player.inventory, def->id) >= 0);
+        equipment_checked++;
+    }
+    printf("validation bank: %d gear entries withdraw/equip/unequip correctly\n", equipment_checked);
 
     rc_test_open_mapsquare(world, 3182, 3443, 0);
     int dummy_idx = runec_dev_validation_spawn_varrock_bank_dummy(world);

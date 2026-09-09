@@ -316,6 +316,7 @@ int rc_world_relocate_player(RcWorld *world, int x, int y, int plane) {
 int rc_world_respawn_player(RcWorld *world, int x, int y, int plane) {
     if (!world || !world->player.is_dead) return 0;
     if (!rc_world_relocate_player(world, x, y, plane)) return 0;
+    rc_combat_reset_player_life(world);
     world->player.current_hp = world->player.max_hp;
     world->player.is_dead = false;
     world->player.death_tick = 0;

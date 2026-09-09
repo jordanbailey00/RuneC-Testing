@@ -317,87 +317,13 @@ static const RuneCUiAssetSpec g_ui_asset_specs[] = {
     UI_ASSET("magicon_22"),
     UI_ASSET("magicon_23"),
     UI_ASSET("magicon_24"),
-    UI_ASSET("standard_spell_on_0"),
-    UI_ASSET("standard_spell_on_1"),
-    UI_ASSET("standard_spell_on_2"),
-    UI_ASSET("standard_spell_on_3"),
-    UI_ASSET("standard_spell_on_4"),
-    UI_ASSET("standard_spell_on_5"),
-    UI_ASSET("standard_spell_on_6"),
-    UI_ASSET("standard_spell_on_7"),
-    UI_ASSET("standard_spell_on_8"),
-    UI_ASSET("standard_spell_on_9"),
-    UI_ASSET("standard_spell_on_10"),
-    UI_ASSET("standard_spell_on_11"),
-    UI_ASSET("standard_spell_on_12"),
-    UI_ASSET("standard_spell_on_13"),
-    UI_ASSET("standard_spell_on_14"),
-    UI_ASSET("standard_spell_on_15"),
-    UI_ASSET("standard_spell_on_16"),
-    UI_ASSET("standard_spell_on_17"),
-    UI_ASSET("standard_spell_on_18"),
-    UI_ASSET("standard_spell_on_19"),
-    UI_ASSET("standard_spell_on_20"),
-    UI_ASSET("standard_spell_on_21"),
-    UI_ASSET("standard_spell_on_22"),
-    UI_ASSET("standard_spell_on_23"),
-    UI_ASSET("standard_spell_on_24"),
-    UI_ASSET("standard_spell_on_25"),
-    UI_ASSET("standard_spell_on_26"),
-    UI_ASSET("standard_spell_on_27"),
-    UI_ASSET("standard_spell_on_28"),
-    UI_ASSET("standard_spell_on_29"),
-    UI_ASSET("standard_spell_on_30"),
-    UI_ASSET("standard_spell_on_31"),
-    UI_ASSET("standard_spell_on_32"),
-    UI_ASSET("standard_spell_on_33"),
-    UI_ASSET("standard_spell_on_34"),
-    UI_ASSET("standard_spell_on_35"),
-    UI_ASSET("standard_spell_on_36"),
-    UI_ASSET("standard_spell_on_37"),
-    UI_ASSET("standard_spell_on_38"),
-    UI_ASSET("standard_spell_on_39"),
-    UI_ASSET("standard_spell_on_40"),
-    UI_ASSET("standard_spell_on_41"),
-    UI_ASSET("standard_spell_on_42"),
-    UI_ASSET("standard_spell_on_43"),
-    UI_ASSET("standard_spell_on_44"),
-    UI_ASSET("standard_spell_on_45"),
-    UI_ASSET("standard_spell_on_46"),
-    UI_ASSET("standard_spell_on_47"),
-    UI_ASSET("standard_spell_on_48"),
-    UI_ASSET("standard_spell_on_49"),
-    UI_ASSET("standard_spell_on_50"),
-    UI_ASSET("standard_spell_on_51"),
-    UI_ASSET("standard_spell_on_52"),
-    UI_ASSET("standard_spell_on_53"),
-    UI_ASSET("standard_spell_on_54"),
-    UI_ASSET("standard_spell_on_55"),
-    UI_ASSET("standard_spell_on_56"),
-    UI_ASSET("standard_spell_on_57"),
-    UI_ASSET("standard_spell_on_58"),
-    UI_ASSET("standard_spell_on_59"),
-    UI_ASSET("standard_spell_on_60"),
-    UI_ASSET("standard_spell_on_61"),
-    UI_ASSET("standard_spell_on_62"),
-    UI_ASSET("standard_spell_on_63"),
-    UI_ASSET("standard_spell_on_64"),
-    UI_ASSET("standard_spell_on_65"),
-    UI_ASSET("standard_spell_on_66"),
-    UI_ASSET("standard_spell_on_67"),
-    UI_ASSET("standard_spell_on_68"),
-    UI_ASSET("standard_spell_on_69"),
-    UI_ASSET("standard_spell_on_70"),
-    UI_ASSET("standard_spell_on_71"),
-    UI_ASSET("standard_spell_on_72"),
-    UI_ASSET("standard_spell_on_73"),
-    UI_ASSET("standard_spell_on_74"),
-    UI_ASSET("standard_spell_on_75"),
-    UI_ASSET("standard_spell_on_76"),
-    UI_ASSET("standard_spell_on_77"),
-    UI_ASSET("standard_spell_on_78"),
-    UI_ASSET("standard_spell_on_79"),
+#define SPELL_ICON(book, name, sprite) UI_ASSET(#sprite),
+#include "spell_icons.inc"
+#undef SPELL_ICON
 };
+
+_Static_assert(sizeof(g_ui_asset_specs) / sizeof(g_ui_asset_specs[0]) <= RUNEC_UI_ASSET_MAX,
+               "UI asset table exceeds texture capacity");
 
 static int runec_make_font_texture_crisp(Font *font) {
     if (!font || font->texture.id == 0)
@@ -440,8 +366,6 @@ void runec_ui_assets_load(RuneCUiAssets *assets) {
     memset(assets, 0, sizeof(*assets));
 
     int count = ui_asset_count();
-    if (count > RUNEC_UI_ASSET_MAX)
-        count = RUNEC_UI_ASSET_MAX;
 
     for (int i = 0; i < count; i++) {
         char path[256];
@@ -538,8 +462,6 @@ void runec_ui_assets_load(RuneCUiAssets *assets) {
 
 void runec_ui_assets_unload(RuneCUiAssets *assets) {
     int count = ui_asset_count();
-    if (count > RUNEC_UI_ASSET_MAX)
-        count = RUNEC_UI_ASSET_MAX;
 
     for (int i = 0; i < count; i++) {
         if (assets->loaded[i]) {

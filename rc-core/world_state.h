@@ -5,6 +5,7 @@
 
 int rc_world_state_save_npcs(RcWorld *world);
 int rc_world_state_restore_npcs(RcWorld *world);
+void rc_world_state_clear_player_combat(RcWorld *world);
 
 int rc_world_state_save_ground_items(RcWorld *world,
                                      int min_x, int min_y,

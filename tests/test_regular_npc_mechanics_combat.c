@@ -305,12 +305,11 @@ int main(void) {
     w->player.equipment[EQUIP_HEAD].item_id = 12;
     assert(rc_combat_apply_regular_npc_attack_rules(w, &spectre, 10) == 10);
 
-    dragon.active = true;
-    dragon.target_uid = 0;
-    dragon.x = w->player.x;
-    dragon.y = w->player.y;
-    dragon.plane = w->player.plane;
-    rc_combat_tick_npc(w, &dragon);
+    int dragon_idx = rc_npc_spawn(w, 2, w->player.x + 1, w->player.y,
+                                  w->player.plane);
+    assert(dragon_idx >= 0);
+    assert(rc_combat_start_npc_vs_player(w, w->npcs[dragon_idx].uid, 0));
+    rc_combat_tick_npc(w, &w->npcs[dragon_idx]);
     assert(w->player.num_pending_hits == 1);
 
     w->player.num_pending_hits = 0;
@@ -346,7 +345,8 @@ int main(void) {
     assert(rc_player_freeze_ticks_remaining(w) == 10);
     assert(rev->current_hp == 52);
 
-    int shaman_idx = rc_npc_spawn(w, 5, w->player.x, w->player.y, 0);
+    rc_combat_set_multi_combat(w, true);
+    int shaman_idx = rc_npc_spawn(w, 5, w->player.x + 1, w->player.y, 0);
     assert(shaman_idx >= 0);
     RcNpc *shaman = &w->npcs[shaman_idx];
     shaman->active = true;
@@ -359,7 +359,7 @@ int main(void) {
     assert(w->player.num_pending_hits >= 2);
     assert(w->npc_count == npc_count_before + 1);
 
-    int araxxor_idx = rc_npc_spawn(w, 7, w->player.x, w->player.y, 0);
+    int araxxor_idx = rc_npc_spawn(w, 7, w->player.x + 1, w->player.y, 0);
     assert(araxxor_idx >= 0);
     RcNpc *araxxor = &w->npcs[araxxor_idx];
     araxxor->current_hp = 100;
@@ -458,8 +458,8 @@ int main(void) {
            == 20);
 
     int dusk_idx = rc_npc_spawn(w, 21, w->player.x, w->player.y, 0);
-    int brutus_idx = rc_npc_spawn(w, 22, w->player.x, w->player.y, 0);
-    int demonic_idx = rc_npc_spawn(w, 23, w->player.x, w->player.y, 0);
+    int brutus_idx = rc_npc_spawn(w, 22, w->player.x + 1, w->player.y, 0);
+    int demonic_idx = rc_npc_spawn(w, 23, w->player.x + 1, w->player.y, 0);
     assert(dusk_idx >= 0 && brutus_idx >= 0 && demonic_idx >= 0);
     RcNpc *dusk = &w->npcs[dusk_idx];
     RcNpc *brutus = &w->npcs[brutus_idx];
@@ -503,7 +503,7 @@ int main(void) {
     rc_combat_tick_npc(w, brutus);
     assert(brutus->attack_count == 5);
     assert(w->player.num_pending_hits >= 2);
-    assert(w->player.pending_hits[0].damage == 19);
+    assert(w->player.pending_hits[w->player.num_pending_hits - 1].damage == 19);
 
     demonic->active = true;
     demonic->target_uid = 0;
@@ -513,9 +513,9 @@ int main(void) {
     rc_combat_tick_npc(w, demonic);
     assert(demonic->attack_count == 3);
     assert(w->player.num_pending_hits >= 2);
-    assert(w->player.pending_hits[0].damage == 56);
+    assert(w->player.pending_hits[w->player.num_pending_hits - 1].damage == 56);
 
-    int blood_idx = rc_npc_spawn(w, 12, w->player.x, w->player.y, 0);
+    int blood_idx = rc_npc_spawn(w, 12, w->player.x + 1, w->player.y, 0);
     assert(blood_idx >= 0);
     RcNpc *blood = &w->npcs[blood_idx];
     blood->current_hp = 100;
@@ -527,7 +527,7 @@ int main(void) {
     assert(blood->current_hp == 130);
 
     int ahrim_idx = rc_npc_spawn(w, 13, w->player.x, w->player.y, 0);
-    int dharok_idx = rc_npc_spawn(w, 14, w->player.x, w->player.y, 0);
+    int dharok_idx = rc_npc_spawn(w, 14, w->player.x + 1, w->player.y, 0);
     int guthan_idx = rc_npc_spawn(w, 15, w->player.x, w->player.y, 0);
     int karil_idx = rc_npc_spawn(w, 16, w->player.x, w->player.y, 0);
     int torag_idx = rc_npc_spawn(w, 17, w->player.x, w->player.y, 0);
@@ -579,9 +579,10 @@ int main(void) {
     assert(w->player.pending_hits[0].damage > 54);
     w->player.num_pending_hits = 0;
 
-    int mal_idx = rc_npc_spawn(w, 10, w->player.x, w->player.y, 0);
+    int mal_idx = rc_npc_spawn(w, 10, w->player.x + 1, w->player.y, 0);
     assert(mal_idx >= 0);
     RcNpc *mal = &w->npcs[mal_idx];
+    w->player.current_hp = 1000;
     mal->current_hp = 50;
     mal->attack_count = 1;
     w->player.freeze_start_tick = 0;
@@ -608,7 +609,7 @@ int main(void) {
     rc_combat_tick_npc(w, mal);
     assert(mal->attack_count == 3);
     assert(w->player.num_pending_hits >= 2);
-    assert(w->player.pending_hits[0].damage == 25);
+    assert(w->player.pending_hits[w->player.num_pending_hits - 1].damage == 25);
 
     jad->active = true;
     jad->target_uid = 0;
@@ -619,7 +620,7 @@ int main(void) {
     rc_combat_tick_npc(w, jad);
     assert(w->player.num_pending_hits == 1);
     assert(w->player.pending_hits[0].attack_style != COMBAT_MELEE_CRUSH);
-    jad->x = w->player.x;
+    jad->x = w->player.x + 1;
     jad->y = w->player.y;
     jad->attack_timer = 0;
     w->player.num_pending_hits = 0;
@@ -635,9 +636,9 @@ int main(void) {
     rc_combat_tick_npc(w, blood);
     assert(blood->attack_count == 6);
     assert(w->player.num_pending_hits >= 2);
-    assert(w->player.pending_hits[0].damage == 12);
+    assert(w->player.pending_hits[w->player.num_pending_hits - 1].damage == 12);
 
-    int gen_enrage_idx = rc_npc_spawn(w, 18, w->player.x, w->player.y, 0);
+    int gen_enrage_idx = rc_npc_spawn(w, 18, w->player.x + 1, w->player.y, 0);
     assert(gen_enrage_idx >= 0);
     RcNpc *gen_enrage = &w->npcs[gen_enrage_idx];
     gen_enrage->active = true;

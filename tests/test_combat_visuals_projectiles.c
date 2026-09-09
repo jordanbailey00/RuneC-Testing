@@ -1,4 +1,6 @@
+#define _POSIX_C_SOURCE 200809L
 #include "api.h"
+#include "assets.h"
 #include "combat.h"
 #include "combat_profiles.h"
 #include "items.h"
@@ -8,6 +10,7 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -290,10 +293,6 @@ static void test_viewer_visual_parser_owns_rich_projectile_metadata(void) {
 }
 
 static void test_generated_visuals_still_load_in_viewer_module(void) {
-    FILE *f = fopen("data/defs/combat_visuals.tsv", "r");
-    if (!f) return;
-    fclose(f);
-
     memset(g_rc_combat_visual_defs, 0, sizeof(g_rc_combat_visual_defs));
     g_rc_combat_visual_count = 0;
     int count = rc_load_combat_visuals("data/defs/combat_visuals.tsv");
@@ -317,9 +316,57 @@ static void test_generated_visuals_still_load_in_viewer_module(void) {
     assert(darkbow->aux_travel_spotanim_id >= 0);
     assert(darkbow->primitive_type ==
            RC_COMBAT_VISUAL_PRIMITIVE_MULTI_PROJECTILE);
+
+    RcCombatAttackEvent e = {.weapon_item_id = 11235, .ammo_item_id = 11212,
+        .spell_idx = -1, .style = COMBAT_RANGED, .stance_idx = 1};
+    RcPlayerAttackVisuals resolved = rc_combat_visual_resolve_player(&e);
+    assert(resolved.effect && resolved.effect->projectile_count == 2);
+    assert(resolved.projectile->travel_spotanim_id == 1120);
+    assert(resolved.projectile->double_launch_spotanim_id == 1111);
+    e.action_kind = RC_COMBAT_ACTION_SPECIAL;
+    resolved = rc_combat_visual_resolve_player(&e);
+    assert(resolved.effect->aux_travel_spotanim_id == 1099);
+    assert(resolved.effect->aux_impact_spotanim_id == 1100);
+    assert(resolved.effect->impact_spotanim_height == 96);
+    assert(resolved.projectile->travel_spotanim_id == 1120);
+    e.ammo_item_id = 892;
+    resolved = rc_combat_visual_resolve_player(&e);
+    assert(resolved.effect->aux_travel_spotanim_id == 1101);
+    for (int i = 0; i < 3; i++) {
+        const int chins[] = {10033,10034,11959};
+        e.weapon_item_id = e.ammo_item_id = chins[i];
+        e.action_kind = RC_COMBAT_ACTION_ITEM;
+        resolved = rc_combat_visual_resolve_player(&e);
+        assert(resolved.projectile->impact_spotanim_id == 157);
+        assert(resolved.projectile->impact_spotanim_height == 92);
+    }
+    e.style = COMBAT_MAGIC;
+    e.weapon_item_id = 27275;
+    e.ammo_item_id = -1;
+    resolved = rc_combat_visual_resolve_player(&e);
+    assert(resolved.projectile->travel_spotanim_id == 2126);
+    assert(resolved.animation->attack_anim_id == 9493);
+    e.spell_idx = 0;
+    strcpy(e.action_key_name, "Fire Blast");
+    resolved = rc_combat_visual_resolve_player(&e);
+    assert(resolved.animation->attack_anim_id == fire_blast->attack_anim_id);
+    assert(resolved.projectile == fire_blast && resolved.effect == fire_blast);
+    e.style = COMBAT_RANGED;
+    e.spell_idx = -1;
+    e.weapon_item_id = e.ammo_item_id = 28922;
+    e.action_kind = RC_COMBAT_ACTION_SPECIAL;
+    resolved = rc_combat_visual_resolve_player(&e);
+    assert(resolved.projectile == resolved.effect);
+    assert(resolved.projectile->travel_spotanim_id >= 0);
+    assert(rc_combat_visual_resolve_player(NULL).projectile == NULL);
 }
 
 int main(void) {
+    test_generated_visuals_still_load_in_viewer_module();
+    // Installed assets use the requested backend; temporary fixtures are loose.
+    assert(unsetenv("RUNEC_ASSET_BACKEND") == 0);
+    assert(rc_asset_reset());
+    assert(rc_asset_set_backend(RC_ASSET_BACKEND_LOOSE));
     snprintf(g_npc_fixture_path, sizeof(g_npc_fixture_path),
              "/tmp/runec_combat_visual_npcs_%ld.bin", (long)getpid());
     snprintf(g_spell_fixture_path, sizeof(g_spell_fixture_path),
@@ -328,7 +375,6 @@ int main(void) {
     test_core_spell_profile_uses_spell_id_after_rename();
     test_core_npc_attack_event_is_backend_only();
     test_viewer_visual_parser_owns_rich_projectile_metadata();
-    test_generated_visuals_still_load_in_viewer_module();
     assert(unlink(g_npc_fixture_path) == 0);
     assert(unlink(g_spell_fixture_path) == 0);
     return 0;

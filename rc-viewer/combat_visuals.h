@@ -38,6 +38,7 @@ typedef enum {
 typedef struct {
     uint8_t kind;
     int key_id;
+    int ammo_id;             // optional special key: weapon_id:ammo_id
     char key_name[64];
     int style;
     int stance_idx;
@@ -81,6 +82,12 @@ typedef struct {
     uint8_t impact_attachment;
     char authority[64];
 } RcCombatVisualDef;
+
+typedef struct {
+    const RcCombatVisualDef *animation, *projectile, *effect, *timing;
+} RcPlayerAttackVisuals;
+
+RcPlayerAttackVisuals rc_combat_visual_resolve_player(const RcCombatAttackEvent *event);
 
 extern RcCombatVisualDef g_rc_combat_visual_defs[RC_MAX_COMBAT_VISUAL_DEFS];
 extern int g_rc_combat_visual_count;

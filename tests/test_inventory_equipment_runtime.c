@@ -5,6 +5,7 @@
 #include "combat.h"
 #include "config.h"
 #include "items.h"
+#include "../rc-viewer/equipment_slots.h"
 
 #define ITEM_PATH RC_TEST_SOURCE_DIR "/data/defs/items.bin"
 
@@ -24,6 +25,30 @@ int main(void) {
 
     RcPlayer *p = &world->player;
     max_melee_stats(p);
+    for (int i = 0; i < SKILL_COUNT; i++) p->skills.base_level[i] = 99;
+    for (int slot = 0; slot < RC_EQUIP_COUNT; slot++)
+        assert(ui_equip_slot_to_core(core_equip_slot_to_ui(slot)) == slot);
+    assert(core_equip_slot_to_ui(EQUIP_AMMO) == 13);
+    assert(ui_equip_slot_to_core(6) == -1);
+    assert(ui_equip_slot_to_core(-1) == -1 && ui_equip_slot_to_core(14) == -1);
+    assert(core_equip_slot_to_ui(-1) == -1 && core_equip_slot_to_ui(RC_EQUIP_COUNT) == -1);
+    const int ammo_ids[] = {882, 892, 11212, 9144, 9243, 8882, 4740, 825, 28991};
+    for (unsigned i = 0; i < sizeof(ammo_ids) / sizeof(ammo_ids[0]); i++) {
+        const RcItemDef *def = rc_item_def_get(ammo_ids[i]);
+        assert(def && def->equippable && def->equipable_by_player);
+        int slot = rc_inv_add(p->inventory, ammo_ids[i], 100);
+        assert(slot >= 0);
+        assert(rc_item_result_accepted(rc_player_equip(world, slot)));
+        rc_world_tick(world);
+        assert(p->equipment[ui_equip_slot_to_core(13)].item_id == ammo_ids[i]);
+        assert(p->equipment[EQUIP_AMMO].quantity == 100);
+        assert(rc_item_result_accepted(rc_player_unequip(world, ui_equip_slot_to_core(13))));
+        rc_world_tick(world);
+        assert(p->equipment[EQUIP_AMMO].item_id == -1);
+        slot = rc_inv_find(p->inventory, ammo_ids[i]);
+        assert(slot >= 0 && p->inventory[slot].quantity == 100);
+        rc_inv_remove(p->inventory, slot);
+    }
 
     int coins = rc_inv_add(p->inventory, 995, 100);
     assert(coins == 0);

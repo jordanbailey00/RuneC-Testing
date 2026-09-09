@@ -64,6 +64,14 @@ presentation responsibilities.
     oldschool live cache through
     `tools/cache_pipeline/export_sprites_modern.py` and the local
     RuneLite OSRS font when present
+- `ui_spellbook.c` / `spell_icons.inc`
+  - project the active book and backend-owned weapon/autocast compatibility
+  - 195 B237 spell buttons across Standard, Ancient, Lunar and Arceuus; the
+    checked-in catalog drives both icon export and required UI sprite loading
+  - left click selects Cast; right click offers compatible normal/defensive
+    Autocast. Eligible weapons expose both spell pickers beside their melee
+    styles in Combat. Choosing melee clears autocast; powered weapons retain
+    their native attacks rather than offering incompatible book spells.
 - `terrain.h`
   - terrain-binary loader and terrain mesh helpers
 - `objects.h`
@@ -103,10 +111,40 @@ presentation responsibilities.
   - viewer-only combat testing helpers
   - owns the temporary validation bank seed, Clan-tab boss transports,
     Varrock-bank combat dummy spawn, and leave-one validation withdraw policy
+  - god mode subscribes to core damage events before death processing; it is
+    a development override, not a gameplay immunity rule
+  - bank lookup prefers player-equippable variants; charged Tonalztics stock
+    starts with 1,000 charges and the uncharged version is also available
+  - magic stock includes charged and empty powered weapons; charged stock uses
+    the content owner's capacity and keeps that state through normal transfers
+  - Mage starts with 100,000 of each of 23 rune types, including Body,
+    combination, Sunfire and Aether runes; withdrawals use ordinary inventory rules
+  - Clan tab Spellbook buttons select Standard, Ancient, Lunar or Arceuus through
+    the existing queued player command, then open the Magic tab. Book changes
+    clear previous spell/autocast selection. All four books use icon grids,
+    independently of this testing control. Buttons lacking a usable runtime
+    definition report that limitation in chat. This UI does not implement
+    missing utility, teleport, area-effect or summoning content.
   - can be disabled with `RUNEC_DEV_VALIDATION=0`
 
 ## Runtime expectations
 
+- Actors and projectile/spot effects share `all.anims`, including powered-cast
+  sequences. Missing shared data is a startup error, not a silent subset fallback.
+  Sequence/base lookups sort once at load and use binary search during playback.
+  The former NPC/player/fallback animation overrides are removed.
+- Player visual selection keeps weapon effects when ammunition supplies the
+  projectile. Special `weapon:ammo` rows distinguish Dark bow dragon-arrow heads
+  from other ammunition; selected spells own their cast animation. Missed spells
+  use splash effects. Flight-end and impact heights are separate fields.
+- Ancient Rush/Blitz use sequence 1978 and Burst/Barrage use 1979, distinct
+  from Standard staff casting. Attack playback restarts for each launch and
+  uses the sequence's duration instead of a fixed two-tick cutoff.
+- Inventory, bank and equipment icons use native 36x32 cache-rendered PNGs,
+  without auto-fit scaling, reference overlays or invented 3D/model icons.
+  The exporter owns camera angles, perspective, face ordering, lighting,
+  textures, stack variants and note/bought/placeholder composition. Missing
+  PNGs are logged once and shown as a question mark, not a substitute item.
 - `rc-viewer` expects to be launched with the project root as the
   working directory because it loads data by relative path.
 - It depends on runtime assets such as:
@@ -133,8 +171,7 @@ presentation responsibilities.
   - `RUNEC_COLLISION_TILES` (defaults to the indexed world collision file)
   - `RUNEC_NPC_DEFS`, `RUNEC_NPC_ATTACK_ANIMS`, `RUNEC_NPC_SPAWNS`,
     `RUNEC_NPC_MODELS`
-  - `RUNEC_NPC_ANIMS`, `RUNEC_PLAYER_MODELS`,
-    `RUNEC_PLAYER_ANIMS`, `RUNEC_FALLBACK_ANIMS`
+  - `RUNEC_PLAYER_MODELS`, `RUNEC_ANIMS` (shared `data/anims/all.anims`)
   - `RUNEC_ITEM_MODELS`, `RUNEC_ITEM_RENDER_MAP`
   - `RUNEC_COMBAT_VISUALS`, `RUNEC_COMBAT_PROFILES`
   - `RUNEC_HITSPLATS`, `RUNEC_HITSPLAT_SPRITES`

@@ -43,7 +43,8 @@ static RcWorld *phase8_world(void) {
         world->player.skills.base_level[i] = 99;
         world->player.skills.boosted_level[i] = 99;
     }
-    rc_combat_set_player_style(world, 2);
+    rc_test_open_mapsquare(world, 3200, 3200, 0);
+    rc_combat_set_player_style(world, 3);
     rc_world_tick(world);
     return world;
 }
@@ -56,7 +57,7 @@ static void test_player_view_exposes_ui_combat_state_and_target_hits(void) {
 
     RcCombatViewState view;
     assert(rc_combat_get_player_view(world, &view));
-    assert(view.selected_style_idx == 2);
+    assert(view.selected_style_idx == 3);
     assert(view.auto_retaliate == 1);
     assert(view.special_pending == 0);
     assert(view.special_energy == world->player.special_energy);
@@ -105,7 +106,7 @@ static void test_player_view_tracks_auto_retaliate_toggle(void) {
     RcCombatViewState view;
     assert(rc_combat_get_player_view(world, &view));
     assert(view.auto_retaliate == 1);
-    rc_combat_toggle_auto_retaliate(world);
+    assert(rc_combat_set_auto_retaliate(world, !world->player.auto_retaliate));
     rc_world_tick(world);
     assert(rc_combat_get_player_view(world, &view));
     assert(view.auto_retaliate == 0);

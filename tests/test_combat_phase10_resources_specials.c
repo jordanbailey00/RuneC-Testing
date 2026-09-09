@@ -214,6 +214,8 @@ static void test_ranged_requires_and_consumes_ammo(void) {
 
     world->player.equipment[EQUIP_AMMO] = (RcInvSlot){TEST_ARROW, 3};
     rc_recalc_bonuses(&world->player);
+    assert(world->player.combat.failure_reason != NULL);
+    assert(rc_combat_start_player_vs_npc(world, 0, world->npcs[npc_idx].uid));
     rc_combat_tick_player(world);
     assert(world->npcs[npc_idx].num_pending_hits == 1);
     assert(world->npcs[npc_idx].pending_hits[0].attack_style == COMBAT_RANGED);
@@ -238,6 +240,7 @@ static void test_magic_requires_spell_and_consumes_runes(void) {
     world->player.inventory[1] = (RcInvSlot){TEST_AIR_RUNE, 2};
     world->player.manual_spell_cast = 0;
     rc_refresh_player_combat_style(&world->player);
+    assert(rc_combat_start_player_vs_npc(world, 0, world->npcs[npc_idx].uid));
     rc_combat_tick_player(world);
     assert(world->npcs[npc_idx].num_pending_hits == 1);
     assert(world->npcs[npc_idx].pending_hits[0].attack_style == COMBAT_MAGIC);
@@ -391,9 +394,78 @@ static void test_content_specials_spend_energy_and_modify_damage(void) {
     rc_combat_tick_player(world);
     assert(world->player.special_energy == 4500);
     assert(world->player.equipment[EQUIP_AMMO].quantity == 1);
-    assert(world->npcs[npc_idx].num_pending_hits == 1);
+    assert(world->npcs[npc_idx].num_pending_hits == 2);
     assert(world->npcs[npc_idx].pending_hits[0].damage >= 8);
     assert(world->npcs[npc_idx].pending_hits[0].damage <= 48);
+    world->player.attack_timer = 0;
+    world->player.special_energy = 10000;
+    world->player.combat.special_pending = true;
+    int queued = world->npcs[npc_idx].num_pending_hits;
+    int events = world->combat_attack_event_count;
+    uint32_t rng = world->rng_state;
+    rc_combat_tick_player(world);
+    assert(world->player.equipment[EQUIP_AMMO].quantity == 1);
+    assert(world->player.special_energy == 10000);
+    assert(world->npcs[npc_idx].num_pending_hits == queued);
+    assert(world->combat_attack_event_count == events && world->rng_state == rng);
+    assert(world->player.combat.failure_reason && "two-ammo attack cannot consume only one");
+    rc_world_destroy(world);
+}
+
+static void test_final_thrown_item_retains_launch_context(void) {
+    reset_defs();
+    add_ranged_defs();
+    RcItemDef *thrown = &g_item_defs[TEST_BOW];
+    thrown->weapon_type = 23;
+    thrown->stackable = true;
+    RcWorld *world = make_world();
+    int index = spawn_target(world, 4);
+    RcNpc *target = &world->npcs[index];
+    target->force_player_max_hit = true;
+    world->player.equipment[EQUIP_WEAPON] = (RcInvSlot){TEST_BOW, 1};
+    world->player.attack_style_idx = 3;
+    rc_recalc_bonuses(&world->player);
+    rc_refresh_player_combat_style(&world->player);
+    int speed = rc_player_attack_speed(&world->player);
+    assert(rc_combat_start_player_vs_npc(world, 0, target->uid));
+    rc_combat_tick_player(world);
+    assert(world->player.equipment[EQUIP_WEAPON].item_id == -1);
+    assert(world->player.attack_timer == speed);
+    assert(target->num_pending_hits == 1);
+    assert(target->pending_hits[0].attack_style == COMBAT_RANGED);
+    int count = 0;
+    const RcCombatAttackEvent *events = rc_combat_attack_events(world, &count);
+    assert(count == 1 && events[0].style == COMBAT_RANGED);
+    assert(events[0].weapon_item_id == TEST_BOW && events[0].stance_idx == 3);
+    assert(world->player.skills.xp[SKILL_RANGED] > 0);
+    rc_world_destroy(world);
+}
+
+static int two_ammo_cost(const RcPlayer *player, bool special) {
+    (void)player; (void)special;
+    return 2;
+}
+
+static void test_resource_transaction_failure_rolls_back_launch(void) {
+    reset_defs();
+    add_ranged_defs();
+    RcWorld *world = make_world();
+    RcCombatContentHooks hooks = {.player_ranged_resource_cost = two_ammo_cost};
+    rc_combat_register_content_hooks(world, &hooks);
+    world->player.equipment[EQUIP_WEAPON] = (RcInvSlot){TEST_BOW, 1};
+    world->player.equipment[EQUIP_AMMO] = (RcInvSlot){TEST_ARROW, 1};
+    rc_recalc_bonuses(&world->player);
+    int index = spawn_target(world, 4);
+    assert(rc_combat_start_player_vs_npc(world, 0, world->npcs[index].uid));
+    uint32_t rng = world->rng_state;
+    int xp = world->player.skills.xp[SKILL_RANGED];
+    rc_combat_tick_player(world);
+    assert(world->rng_state == rng && world->combat_attack_event_count == 0);
+    assert(world->npcs[index].num_pending_hits == 0 && world->npcs[index].target_uid == -1);
+    assert(world->player.equipment[EQUIP_AMMO].quantity == 1);
+    assert(world->player.attack_timer == 0 && world->player.skills.xp[SKILL_RANGED] == xp);
+    assert(world->player.combat.failure_reason
+        && strstr(world->player.combat.failure_reason, "transaction rejected"));
     rc_world_destroy(world);
 }
 
@@ -403,5 +475,7 @@ int main(void) {
     test_osrs_rune_sources_cover_staff_pouch_and_combos();
     test_special_spends_energy_and_recovers();
     test_content_specials_spend_energy_and_modify_damage();
+    test_final_thrown_item_retains_launch_context();
+    test_resource_transaction_failure_rolls_back_launch();
     return 0;
 }

@@ -14,6 +14,9 @@ RcRoute rc_find_route(const RcWorldMap *map, int start_x, int start_y,
                       const RcRouteTarget *target, bool allow_alternative);
 bool rc_route_status_admitted(RcRouteStatus status);
 bool rc_route_status_has_path(RcRouteStatus status);
+bool rc_route_target_reached(const RcWorldMap *map, int plane,
+                             int x, int y, int width, int height,
+                             const RcRouteTarget *target);
 void rc_player_route_clear(RcPlayer *player, RcMovementResult result);
 bool rc_player_route_admit(RcPlayer *player, const RcRoute *route,
                            const RcRouteTarget *target, int entity_width,

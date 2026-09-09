@@ -7,31 +7,29 @@
 #include "rng.h"
 #include "spells.h"
 #include <stddef.h>
+#include <math.h>
 
 // ---- Hit chance (OSRS DPS formula) ------------------------------------
 
 float rc_hit_chance(int att_roll, int def_roll) {
-    if (att_roll > def_roll) {
-        return 1.0f - ((float)(def_roll + 2) / (2.0f * (att_roll + 1)));
+    double attack = att_roll, defence = def_roll;
+    if (attack < 0) attack = fmin(0, attack + 2);
+    if (defence < 0) defence = fmin(0, defence + 2);
+    if (attack >= 0 && defence < 0)
+        return (float)(1 - 1 / ((1 - defence) * (attack + 1)));
+    if (attack < 0 && defence >= 0) return 0;
+    if (attack < 0) {
+        double old_attack = attack;
+        attack = -defence;
+        defence = -old_attack;
     }
-    return (float)att_roll / (2.0f * (def_roll + 1));
+    return attack > defence
+        ? (float)(1 - (defence + 2) / (2 * (attack + 1)))
+        : (float)(attack / (2 * (defence + 1)));
 }
 
 int rc_hit_chance_scaled(int att_roll, int def_roll) {
-    if (att_roll <= 0 || def_roll < 0) return 0;
-    if (att_roll > def_roll) {
-        int denom = 2 * (att_roll + 1);
-        int blocked = ((def_roll + 2) * RC_HIT_CHANCE_SCALE) / denom;
-        int chance = RC_HIT_CHANCE_SCALE - blocked;
-        if (chance < 0) return 0;
-        if (chance > RC_HIT_CHANCE_SCALE) return RC_HIT_CHANCE_SCALE;
-        return chance;
-    }
-    int denom = 2 * (def_roll + 1);
-    int chance = (att_roll * RC_HIT_CHANCE_SCALE) / denom;
-    if (chance < 0) return 0;
-    if (chance > RC_HIT_CHANCE_SCALE) return RC_HIT_CHANCE_SCALE;
-    return chance;
+    return (int)(rc_hit_chance(att_roll, def_roll) * RC_HIT_CHANCE_SCALE);
 }
 
 // ---- Player weapon/style helpers --------------------------------------
@@ -71,19 +69,8 @@ enum {
     RC_WEAPON_TYPE_MULTI_STYLE = 27,
     RC_WEAPON_TYPE_POWERED_WAND = 28,
     RC_WEAPON_TYPE_BLADED_STAFF = 29,
+    RC_WEAPON_TYPE_PARTISAN = 30,
 };
-
-static RcCombatStyle best_melee_style_from_bonuses(const RcPlayer *p,
-                                                   const RcItemDef *weapon) {
-    int stab = weapon ? weapon->attack_stab : p->equipment_bonuses[EQ_STAB_ATK];
-    int slash = weapon ? weapon->attack_slash
-                       : p->equipment_bonuses[EQ_SLASH_ATK];
-    int crush = weapon ? weapon->attack_crush
-                       : p->equipment_bonuses[EQ_CRUSH_ATK];
-    if (stab > slash && stab > crush) return COMBAT_MELEE_STAB;
-    if (slash > crush) return COMBAT_MELEE_SLASH;
-    return COMBAT_MELEE_CRUSH;
-}
 
 static int weapon_type_for_style(const RcItemDef *weapon) {
     if (!weapon || !weapon->equipable_weapon) return RC_WEAPON_TYPE_UNARMED;
@@ -112,9 +99,7 @@ static int weapon_type_is_magic(int weapon_type) {
 static int weapon_type_can_autocast(int weapon_type) {
     return weapon_type == RC_WEAPON_TYPE_STAFF ||
            weapon_type == RC_WEAPON_TYPE_POLESTAFF ||
-           weapon_type == RC_WEAPON_TYPE_POWERED_STAFF ||
-           weapon_type == RC_WEAPON_TYPE_POWERED_WAND ||
-           weapon_type == RC_WEAPON_TYPE_FIXED_DEVICE;
+           weapon_type == RC_WEAPON_TYPE_BLADED_STAFF;
 }
 
 static RcCombatAttackType attack_type_from_style(RcCombatStyle style) {
@@ -177,6 +162,10 @@ static void set_magic_style(RcPlayer *p, int weapon_type) {
     set_magic_style_state(p, weapon_type, p->attack_style_idx == 3);
 }
 
+static void set_unavailable_style(RcPlayer *p, int weapon_type) {
+    set_player_style_state(p, COMBAT_NONE, RC_ATTACK_STANCE_ACCURATE, 0, weapon_type);
+}
+
 static int player_has_active_autocast(const RcPlayer *p, int weapon_type) {
     if (!p || p->autocast_spell < 0 ||
             !weapon_type_can_autocast(weapon_type)) {
@@ -196,7 +185,9 @@ int rc_player_weapon_can_autocast(const RcPlayer *p) {
 }
 
 static void set_ranged_style(RcPlayer *p, int weapon_type) {
-    if (p->attack_style_idx == 1) {
+    if (p->attack_style_idx == 2) {
+        set_unavailable_style(p, weapon_type);
+    } else if (p->attack_style_idx == 1) {
         set_player_style_state(p, COMBAT_RANGED, RC_ATTACK_STANCE_RAPID,
                                RC_COMBAT_XP_RANGED, weapon_type);
     } else if (p->attack_style_idx >= 2) {
@@ -245,7 +236,9 @@ static void set_axe_or_2h_style(RcPlayer *p, int weapon_type) {
 }
 
 static void set_staff_style(RcPlayer *p, int weapon_type) {
-    if (p->attack_style_idx >= 2) {
+    if (p->attack_style_idx == 2) {
+        set_unavailable_style(p, weapon_type);
+    } else if (p->attack_style_idx == 3) {
         set_player_style_state(p, COMBAT_MELEE_CRUSH,
                                RC_ATTACK_STANCE_DEFENSIVE,
                                RC_COMBAT_XP_DEFENCE, weapon_type);
@@ -261,7 +254,9 @@ static void set_staff_style(RcPlayer *p, int weapon_type) {
 }
 
 static void set_whip_style(RcPlayer *p, int weapon_type) {
-    if (p->attack_style_idx == 1) {
+    if (p->attack_style_idx == 2) {
+        set_unavailable_style(p, weapon_type);
+    } else if (p->attack_style_idx == 1) {
         set_player_style_state(p, COMBAT_MELEE_SLASH,
                                RC_ATTACK_STANCE_CONTROLLED,
                                RC_COMBAT_XP_ATTACK |
@@ -349,18 +344,24 @@ static void set_salamander_style(RcPlayer *p, int weapon_type) {
 
 void rc_refresh_player_combat_style(RcPlayer *p) {
     if (!p) return;
-    if (p->attack_style_idx < 0) p->attack_style_idx = 0;
-    if (p->attack_style_idx > 3) p->attack_style_idx = 3;
-
     const RcItemDef *weapon = equipped_weapon_def(p);
     int weapon_type = weapon_type_for_style(weapon);
+    if (p->equipment[EQUIP_WEAPON].item_id >= 0 && (!weapon || !weapon->equipable_weapon)) {
+        set_unavailable_style(p, weapon_type);
+        return;
+    }
+    if (p->attack_style_idx < 0 || p->attack_style_idx > 3) {
+        set_unavailable_style(p, weapon_type);
+        return;
+    }
 
     if (p->manual_spell_cast >= 0) {
         set_magic_style(p, weapon_type);
     } else if (player_has_active_autocast(p, weapon_type)) {
         set_magic_style_state(p, weapon_type, p->defensive_autocast);
     } else if (weapon_type_is_magic(weapon_type)) {
-        set_magic_style(p, weapon_type);
+        if (p->attack_style_idx == 2) set_unavailable_style(p, weapon_type);
+        else set_magic_style(p, weapon_type);
     } else if (weapon_type_is_ranged(weapon_type)) {
         set_ranged_style(p, weapon_type);
     } else {
@@ -375,22 +376,50 @@ void rc_refresh_player_combat_style(RcPlayer *p) {
                 set_whip_style(p, weapon_type);
                 break;
             case RC_WEAPON_TYPE_SPEAR:
-            case RC_WEAPON_TYPE_POLEARM:
                 set_spear_style(p, weapon_type);
                 break;
+            case RC_WEAPON_TYPE_POLEARM:
+                if (p->attack_style_idx == 2) set_unavailable_style(p, weapon_type);
+                else if (p->attack_style_idx == 1)
+                    set_player_style_state(p, COMBAT_MELEE_SLASH,
+                        RC_ATTACK_STANCE_AGGRESSIVE, RC_COMBAT_XP_STRENGTH, weapon_type);
+                else set_spear_style(p, weapon_type);
+                break;
             case RC_WEAPON_TYPE_SLASH_SWORD:
-            case RC_WEAPON_TYPE_BLADED_STAFF:
+            case RC_WEAPON_TYPE_CLAW:
                 set_slash_sword_style(p, weapon_type);
                 break;
             case RC_WEAPON_TYPE_STAB_SWORD:
-            case RC_WEAPON_TYPE_CLAW:
-            case RC_WEAPON_TYPE_PICKAXE:
                 set_stab_sword_style(p, weapon_type);
                 break;
-            case RC_WEAPON_TYPE_BLUNT:
-            case RC_WEAPON_TYPE_BLUDGEON:
-            case RC_WEAPON_TYPE_BULWARK:
+            case RC_WEAPON_TYPE_PICKAXE:
+            case RC_WEAPON_TYPE_PARTISAN:
+                if (p->attack_style_idx == 2)
+                    set_player_style_state(p, COMBAT_MELEE_CRUSH,
+                        RC_ATTACK_STANCE_AGGRESSIVE, RC_COMBAT_XP_STRENGTH, weapon_type);
+                else set_basic_melee_style(p, weapon_type, COMBAT_MELEE_STAB);
+                break;
             case RC_WEAPON_TYPE_SPIKED:
+                set_basic_melee_style(p, weapon_type,
+                    p->attack_style_idx == 2 ? COMBAT_MELEE_STAB : COMBAT_MELEE_CRUSH);
+                break;
+            case RC_WEAPON_TYPE_BLUDGEON:
+                if (p->attack_style_idx == 2) set_unavailable_style(p, weapon_type);
+                else set_player_style_state(p, COMBAT_MELEE_CRUSH,
+                    RC_ATTACK_STANCE_AGGRESSIVE, RC_COMBAT_XP_STRENGTH, weapon_type);
+                break;
+            case RC_WEAPON_TYPE_BULWARK:
+                if (p->attack_style_idx != 0) set_unavailable_style(p, weapon_type);
+                else set_basic_melee_style(p, weapon_type, COMBAT_MELEE_CRUSH);
+                break;
+            case RC_WEAPON_TYPE_BLADED_STAFF:
+                if (p->attack_style_idx == 2) set_unavailable_style(p, weapon_type);
+                else set_basic_melee_style(p, weapon_type,
+                    p->attack_style_idx == 0 ? COMBAT_MELEE_STAB :
+                    p->attack_style_idx == 1 ? COMBAT_MELEE_SLASH : COMBAT_MELEE_CRUSH);
+                break;
+            case RC_WEAPON_TYPE_UNARMED:
+            case RC_WEAPON_TYPE_BLUNT:
             case RC_WEAPON_TYPE_STAFF:
             case RC_WEAPON_TYPE_POLESTAFF:
                 set_staff_style(p, weapon_type);
@@ -400,8 +429,7 @@ void rc_refresh_player_combat_style(RcPlayer *p) {
                 set_salamander_style(p, weapon_type);
                 break;
             default:
-                set_basic_melee_style(p, weapon_type,
-                                      best_melee_style_from_bonuses(p, weapon));
+                set_unavailable_style(p, weapon_type);
                 break;
         }
     }
@@ -424,6 +452,8 @@ void rc_player_set_attack_style(struct RcWorld *world, int style_idx) {
 }
 
 int rc_player_attack_speed(const RcPlayer *p) {
+    if (p && p->combat_style == COMBAT_MAGIC &&
+            (p->manual_spell_cast >= 0 || p->autocast_spell >= 0)) return 5;
     const RcItemDef *weapon = equipped_weapon_def(p);
     int speed = 4;
     if (weapon && weapon->attack_speed > 0) {
@@ -440,6 +470,8 @@ int rc_player_attack_speed(const RcPlayer *p) {
 }
 
 int rc_player_attack_range(const RcPlayer *p) {
+    if (p && p->combat_style == COMBAT_MAGIC &&
+            (p->manual_spell_cast >= 0 || p->autocast_spell >= 0)) return 10;
     const RcItemDef *weapon = equipped_weapon_def(p);
     int range = 1;
     if (weapon && weapon->attack_range > 1) {
@@ -472,19 +504,18 @@ static int stance_strength_bonus(const RcPlayer *p) {
 static int stance_defence_bonus(const RcPlayer *p) {
     if (p->attack_stance == RC_ATTACK_STANCE_DEFENSIVE) return 3;
     if (p->attack_stance == RC_ATTACK_STANCE_LONGRANGE) return 3;
-    if (p->attack_stance == RC_ATTACK_STANCE_DEFENSIVE_CAST) return 3;
     if (p->attack_stance == RC_ATTACK_STANCE_CONTROLLED) return 1;
     return 0;
 }
 
 static int stance_ranged_attack_bonus(const RcPlayer *p) {
     if (p->attack_stance == RC_ATTACK_STANCE_ACCURATE) return 3;
-    if (p->attack_stance == RC_ATTACK_STANCE_LONGRANGE) return 3;
     return 0;
 }
 
 static int stance_magic_attack_bonus(const RcPlayer *p) {
-    return p->attack_stance == RC_ATTACK_STANCE_DEFENSIVE_CAST ? 0 : 3;
+    if (p->manual_spell_cast >= 0 || p->autocast_spell >= 0) return 1;
+    return p->attack_stance == RC_ATTACK_STANCE_DEFENSIVE_CAST ? 1 : 3;
 }
 
 int rc_player_effective_attack_level(const RcPlayer *p) {
@@ -492,7 +523,7 @@ int rc_player_effective_attack_level(const RcPlayer *p) {
     int base = p->skills.boosted_level[SKILL_ATTACK];
     int stance = stance_attack_bonus(p);
     int prayer = rc_prayer_attack_bonus(p->active_prayers);
-    return ((base + stance) * (100 + prayer)) / 100 + 8;
+    return (base * (100 + prayer)) / 100 + stance + 8;
 }
 
 int rc_player_effective_strength_level(const RcPlayer *p) {
@@ -500,7 +531,7 @@ int rc_player_effective_strength_level(const RcPlayer *p) {
     int base = p->skills.boosted_level[SKILL_STRENGTH];
     int stance = stance_strength_bonus(p);
     int prayer = rc_prayer_strength_bonus(p->active_prayers);
-    return ((base + stance) * (100 + prayer)) / 100 + 8;
+    return (base * (100 + prayer)) / 100 + stance + 8;
 }
 
 int rc_player_effective_defence_level(const RcPlayer *p) {
@@ -508,17 +539,18 @@ int rc_player_effective_defence_level(const RcPlayer *p) {
     int base = p->skills.boosted_level[SKILL_DEFENCE];
     int stance = stance_defence_bonus(p);
     int prayer = rc_prayer_defence_bonus(p->active_prayers);
-    return ((base + stance) * (100 + prayer)) / 100 + 8;
+    return (base * (100 + prayer)) / 100 + stance + 8;
 }
 
 int rc_player_effective_magic_defence_level(const RcPlayer *p) {
     if (!p) return 0;
     int defence = p->skills.boosted_level[SKILL_DEFENCE];
     int magic = p->skills.boosted_level[SKILL_MAGIC];
-    int base = (magic * 7 + defence * 3) / 10;
+    magic = magic * (100 + rc_prayer_magic_defence_bonus(p->active_prayers)) / 100;
+    defence = defence * (100 + rc_prayer_defence_bonus(p->active_prayers)) / 100;
+    int base = magic * 7 / 10 + defence * 3 / 10;
     int stance = stance_defence_bonus(p);
-    int prayer = rc_prayer_defence_bonus(p->active_prayers);
-    return ((base + stance) * (100 + prayer)) / 100 + 8;
+    return base + stance + 8;
 }
 
 int rc_player_effective_ranged_attack_level(const RcPlayer *p) {
@@ -526,14 +558,14 @@ int rc_player_effective_ranged_attack_level(const RcPlayer *p) {
     int base = p->skills.boosted_level[SKILL_RANGED];
     int stance = stance_ranged_attack_bonus(p);
     int prayer = rc_prayer_ranged_attack_bonus(p->active_prayers);
-    return ((base + stance) * (100 + prayer)) / 100 + 8;
+    return (base * (100 + prayer)) / 100 + stance + 8;
 }
 
 int rc_player_effective_ranged_strength_level(const RcPlayer *p) {
     if (!p) return 0;
     int base = p->skills.boosted_level[SKILL_RANGED];
     int prayer = rc_prayer_ranged_strength_bonus(p->active_prayers);
-    return (base * (100 + prayer)) / 100 + 8;
+    return (base * (100 + prayer)) / 100 + stance_ranged_attack_bonus(p) + 8;
 }
 
 int rc_player_effective_magic_attack_level(const RcPlayer *p) {
@@ -541,7 +573,7 @@ int rc_player_effective_magic_attack_level(const RcPlayer *p) {
     int base = p->skills.boosted_level[SKILL_MAGIC];
     int stance = stance_magic_attack_bonus(p);
     int prayer = rc_prayer_magic_attack_bonus(p->active_prayers);
-    return ((base + stance) * (100 + prayer)) / 100 + 8;
+    return (base * (100 + prayer)) / 100 + stance + 8;
 }
 
 static int npc_eff(int stat) { return stat + 9; }
@@ -599,14 +631,16 @@ int rc_player_max_hit_melee(const RcPlayer *p) {
     if (!p) return 0;
     int eff = rc_player_effective_strength_level(p);
     int bonus = p->equipment_bonuses[EQ_STR];
-    return (eff * (bonus + 64)) / 640 + 1;
+    int hit = (int)floor(((double)eff * (bonus + 64) + 320) / 640);
+    return hit > 0 ? hit : 0;
 }
 
 int rc_player_max_hit_ranged(const RcPlayer *p) {
     if (!p) return 0;
     int eff = rc_player_effective_ranged_strength_level(p);
     int bonus = p->equipment_bonuses[EQ_RANGED_STR];
-    return (eff * (bonus + 64)) / 640 + 1;
+    int hit = (int)floor(((double)eff * (bonus + 64) + 320) / 640);
+    return hit > 0 ? hit : 0;
 }
 
 int rc_player_max_hit_magic(const RcPlayer *p, int spell_max_hit) {
@@ -616,56 +650,65 @@ int rc_player_max_hit_magic(const RcPlayer *p, int spell_max_hit) {
     return spell_max_hit + (spell_max_hit * bonus) / 100;
 }
 
-int rc_npc_offensive_roll(int npc_def_id, RcCombatStyle style) {
-    const RcNpcDef *d = rc_npc_def_get(npc_def_id);
-    if (!d) return 0;
+int rc_npc_offensive_roll(const RcNpc *npc, RcCombatStyle style) {
+    if (!npc) return 0;
     int stat = 0;
     switch (style) {
-        case COMBAT_RANGED: stat = d->stats[4]; break;
-        case COMBAT_MAGIC:  stat = d->stats[5]; break;
-        default:            stat = d->stats[0]; break;
+        case COMBAT_RANGED: stat = npc->stats[4]; break;
+        case COMBAT_MAGIC:  stat = npc->stats[5]; break;
+        default:            stat = npc->stats[0]; break;
     }
     return npc_eff(stat) * 64;
 }
 
-int rc_npc_defensive_roll(int npc_def_id, RcCombatStyle style) {
-    (void)style;
-    const RcNpcDef *d = rc_npc_def_get(npc_def_id);
-    if (!d) return 0;
-    return npc_eff(d->stats[1]) * 64;
+int rc_npc_defensive_roll(const RcNpc *npc, RcCombatStyle style) {
+    if (!npc) return 0;
+    return npc_eff(npc->stats[style == COMBAT_MAGIC ? 5 : 1]) * 64;
 }
 
 // ---- Player vs NPC calc ------------------------------------------------
 
-RcCombatCalc rc_calc_melee(const RcPlayer *atk, int npc_def_id) {
+RcCombatCalc rc_calc_melee(const RcPlayer *atk, const RcNpc *npc) {
     RcCombatCalc c = {0};
-    if (!rc_npc_def_get(npc_def_id)) return c;
+    if (!atk || !npc) return c;
 
     c.attack_roll = rc_player_offensive_roll(atk, atk->combat_style);
-    c.defence_roll = rc_npc_defensive_roll(npc_def_id, atk->combat_style);
+    c.defence_roll = rc_npc_defensive_roll(npc, atk->combat_style);
     c.hit_chance = rc_hit_chance(c.attack_roll, c.defence_roll);
     c.max_hit = rc_player_max_hit_melee(atk);
     return c;
 }
 
-RcCombatCalc rc_calc_ranged(const RcPlayer *atk, int npc_def_id) {
+RcCombatCalc rc_calc_ranged(const RcPlayer *atk, const RcNpc *npc,
+                           bool uses_ammo_slot) {
     RcCombatCalc c = {0};
-    if (!rc_npc_def_get(npc_def_id)) return c;
+    if (!atk || !npc) return c;
 
     c.attack_roll = rc_player_offensive_roll(atk, COMBAT_RANGED);
-    c.defence_roll = rc_npc_defensive_roll(npc_def_id, COMBAT_RANGED);
+    const RcItemDef *unused_ammo = uses_ammo_slot ? NULL
+        : rc_item_def_get(atk->equipment[EQUIP_AMMO].item_id);
+    if (unused_ammo && atk->equipment[EQUIP_AMMO].quantity > 0)
+        c.attack_roll -= rc_player_effective_ranged_attack_level(atk)
+                      * unused_ammo->attack_ranged;
+    c.defence_roll = rc_npc_defensive_roll(npc, COMBAT_RANGED);
     c.hit_chance = rc_hit_chance(c.attack_roll, c.defence_roll);
     c.max_hit = rc_player_max_hit_ranged(atk);
+    if (unused_ammo && atk->equipment[EQUIP_AMMO].quantity > 0) {
+        int bonus = atk->equipment_bonuses[EQ_RANGED_STR] - unused_ammo->ranged_strength;
+        int effective = rc_player_effective_ranged_strength_level(atk);
+        int hit = (int)floor(((double)effective * (bonus + 64) + 320) / 640);
+        c.max_hit = hit > 0 ? hit : 0;
+    }
     return c;
 }
 
-RcCombatCalc rc_calc_magic(const RcPlayer *atk, int npc_def_id,
+RcCombatCalc rc_calc_magic(const RcPlayer *atk, const RcNpc *npc,
                            int spell_max_hit) {
     RcCombatCalc c = {0};
-    if (!rc_npc_def_get(npc_def_id)) return c;
+    if (!atk || !npc) return c;
 
     c.attack_roll = rc_player_offensive_roll(atk, COMBAT_MAGIC);
-    c.defence_roll = rc_npc_defensive_roll(npc_def_id, COMBAT_MAGIC);
+    c.defence_roll = rc_npc_defensive_roll(npc, COMBAT_MAGIC);
     c.hit_chance = rc_hit_chance(c.attack_roll, c.defence_roll);
     c.max_hit = rc_player_max_hit_magic(atk, spell_max_hit);
     return c;
@@ -682,36 +725,31 @@ RcCombatStyle rc_combat_npc_preferred_style(int attack_types) {
     return COMBAT_MELEE_CRUSH;
 }
 
-RcCombatCalc rc_calc_npc_attack_style(int npc_def_id,
+RcCombatCalc rc_calc_npc_attack_style(const RcNpc *npc, const RcNpcDef *d,
                                       const RcPlayer *def,
                                       RcCombatStyle style) {
     RcCombatCalc c = {0};
-    const RcNpcDef *d = rc_npc_def_get(npc_def_id);
-    if (!d) return c;
+    if (!npc || !d || !def) return c;
 
-    c.attack_roll = rc_npc_offensive_roll(npc_def_id, style);
+    c.attack_roll = rc_npc_offensive_roll(npc, style);
     c.defence_roll = rc_player_defensive_roll(def, style);
     c.hit_chance = rc_hit_chance(c.attack_roll, c.defence_roll);
     c.max_hit = d->max_hit;
     return c;
 }
 
-RcCombatCalc rc_calc_npc_attack(int npc_def_id, const RcPlayer *def) {
-    const RcNpcDef *npc_def = rc_npc_def_get(npc_def_id);
-    if (!npc_def) {
-        RcCombatCalc c = {0};
-        return c;
-    }
-    RcCombatStyle style =
-        rc_combat_npc_preferred_style(npc_def->attack_types);
-    return rc_calc_npc_attack_style(npc_def_id, def, style);
-}
-
 // ---- Roll --------------------------------------------------------------
 
-int rc_roll_attack(const RcCombatCalc *calc, uint32_t *rng_state) {
+RcCombatRoll rc_roll_attack(const RcCombatCalc *calc, uint32_t *rng_state,
+                             bool player_attack) {
+    RcCombatRoll result = {0};
     uint32_t roll = rc_rng_next(rng_state) & 0xFFFF;
     uint32_t threshold = (uint32_t)(calc->hit_chance * 65536.0f);
-    if (roll >= threshold) return 0;
-    return rc_rng_range(rng_state, calc->max_hit);
+    if (roll >= threshold) return result;
+    result.accurate = true;
+    result.damage = rc_rng_range(rng_state, calc->max_hit);
+    // Ordinary player damage retains the zero roll's probability at one.
+    if (player_attack && result.damage == 0 && calc->max_hit > 0)
+        result.damage = 1;
+    return result;
 }

@@ -27,6 +27,7 @@
 #define RUNEC_UI_COMBAT_STYLE_COUNT 4
 #define RUNEC_UI_DEV_TRANSPORT_MAX 8
 #define RUNEC_UI_SCENE_PLANE_COUNT 4
+#define RUNEC_UI_SPELL_MAX 128
 
 typedef enum RuneCUiTab {
     RUNEC_UI_TAB_NONE = -1,
@@ -76,7 +77,8 @@ typedef enum RuneCUiIntentKind {
     RUNEC_UI_INTENT_BANK_DEPOSIT,
     RUNEC_UI_INTENT_BANK_CLOSE,
     RUNEC_UI_INTENT_SCENE_PLANE,
-    RUNEC_UI_INTENT_DEV_TRANSPORT
+    RUNEC_UI_INTENT_DEV_TRANSPORT,
+    RUNEC_UI_INTENT_DEV_SPELLBOOK
 } RuneCUiIntentKind;
 
 typedef struct RuneCUiIntent {
@@ -134,6 +136,12 @@ typedef struct RuneCUiCombatStyleOption {
     char mode[32];
     char icon_asset[32];
 } RuneCUiCombatStyleOption;
+
+typedef struct RuneCUiSpellRef {
+    int book;
+    const char *name;
+    const char *icon_asset;
+} RuneCUiSpellRef;
 
 typedef enum RuneCUiContextSourceKind {
     RUNEC_UI_CONTEXT_NONE = 0,
@@ -238,6 +246,20 @@ typedef struct RuneCUiState {
     char chat_lines[RUNEC_UI_CHAT_LINES][96];
     int chat_line_count;
     int magic_filter_open;
+    int dev_spellbooks_enabled;
+    int current_spellbook;
+    int spell_count;
+    int spell_scroll;
+    const RuneCUiSpellRef *spells[RUNEC_UI_SPELL_MAX];
+    const Texture2D *spell_icons[RUNEC_UI_SPELL_MAX];
+    int spell_runtime_ids[RUNEC_UI_SPELL_MAX];
+    unsigned char spell_can_autocast[RUNEC_UI_SPELL_MAX];
+    uint64_t spell_sync_tick;
+    int autocast_available;
+    int autocast_slot;
+    int defensive_autocast;
+    int autocast_picker;
+    int autocast_picker_defensive;
 
     int context_open;
     int context_dismissed;
@@ -300,6 +322,10 @@ void runec_ui_set_dev_transport_options(RuneCUiState *ui,
                                         int count);
 void runec_ui_set_scene_plane_state(RuneCUiState *ui, int scene_plane,
                                     int player_plane, int override_active);
+int runec_ui_set_spellbook(RuneCUiState *ui, int book);
+struct RcWorld;
+int runec_ui_sync_spellbook(RuneCUiState *ui, const struct RcWorld *world);
+int runec_ui_spell_runtime_id(const RuneCUiState *ui, int slot);
 void runec_ui_sync_status(RuneCUiState *ui, int world_x, int world_y,
                           int local_x, int local_y, uint32_t tick,
                           int running, int paused);

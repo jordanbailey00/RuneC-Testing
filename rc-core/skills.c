@@ -759,8 +759,16 @@ int rc_level_for_xp(int xp) {
 }
 
 void rc_add_xp(RcSkills *skills, RcSkill skill, int xp) {
-    skills->xp[skill] += xp;
-    if (skills->xp[skill] > 200000000) skills->xp[skill] = 200000000;
+    rc_add_xp_hundredths(skills, skill, (int64_t)xp * 100);
+}
+
+void rc_add_xp_hundredths(RcSkills *skills, RcSkill skill, int64_t xp) {
+    if (!skills || skill < 0 || skill >= SKILL_COUNT || xp <= 0) return;
+    int64_t current = (int64_t)skills->xp[skill] * 100 + skills->xp_hundredths[skill];
+    int64_t cap = 20000000000LL;
+    current = xp >= cap - current ? cap : current + xp;
+    skills->xp[skill] = (int)(current / 100);
+    skills->xp_hundredths[skill] = (uint8_t)(current % 100);
 
     int new_level = rc_level_for_xp(skills->xp[skill]);
     if (new_level > skills->base_level[skill]) {
@@ -791,7 +799,24 @@ int rc_combat_level(const RcSkills *skills) {
     return (int)(base + type_bonus);
 }
 
-void rc_stat_restore_tick(RcSkills *skills) {
-    // TODO: every 60 ticks, boosted stats decay toward base by 1
-    (void)skills;
+void rc_stat_restore_tick(RcPlayer *player) {
+    if (!player || player->is_dead || player->current_hp <= 0) return;
+    RcSkills *skills = &player->skills;
+    // One minute is 100 game ticks. Prayer does not restore naturally.
+    if (++player->hp_regen_counter >= 100) {
+        player->hp_regen_counter = 0;
+        if (player->current_hp < player->max_hp) {
+            player->current_hp += 10;
+            if (player->current_hp > player->max_hp) player->current_hp = player->max_hp;
+        } else if (player->current_hp > player->max_hp) {
+            player->current_hp -= 10;
+            if (player->current_hp < player->max_hp) player->current_hp = player->max_hp;
+        }
+        for (int i = 0; i < SKILL_COUNT; i++) {
+            if (i == SKILL_HITPOINTS || i == SKILL_PRAYER) continue;
+            if (skills->boosted_level[i] < skills->base_level[i]) skills->boosted_level[i]++;
+            else if (skills->boosted_level[i] > skills->base_level[i]) skills->boosted_level[i]--;
+        }
+    }
+    skills->boosted_level[SKILL_HITPOINTS] = (player->current_hp + 9) / 10;
 }

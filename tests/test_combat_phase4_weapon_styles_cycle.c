@@ -168,7 +168,7 @@ static void test_ranged_table_applies_rapid_and_longrange_modifiers(void) {
     assert(rc_player_attack_speed(&world->player) == 4);
     assert(rc_player_attack_range(&world->player) == 7);
 
-    apply_attack_style(world, 2);
+    apply_attack_style(world, 3);
     assert(world->player.attack_stance == RC_ATTACK_STANCE_LONGRANGE);
     assert(world->player.combat_xp_mask == (RC_COMBAT_XP_RANGED |
                                             RC_COMBAT_XP_DEFENCE));
@@ -309,6 +309,66 @@ static void test_attack_cycle_does_not_queue_hits_during_cooldown(void) {
     rc_world_destroy(world);
 }
 
+static void test_extended_melee_checks_walk_blocking(void) {
+    RcWorld *w = phase4_world(0);
+    fake_weapon(TEST_SLASH_SWORD, "Reach test polearm", 14, 6, 2, 80, 0, 0);
+    equip_weapon(w, TEST_SLASH_SWORD);
+    int index = spawn_phase4_npc(w, 2, 0);
+    RcNpc *n = &w->npcs[index];
+    int x = (w->player.x + 1) % 64, y = w->player.y % 64;
+    w->map.regions[0].tiles[0][x][y].collision_flags = COL_LOC;
+    assert(rc_combat_start_player_vs_npc(w, 0, n->uid));
+    assert(rc_player_attack_range(&w->player) == 2);
+    rc_combat_tick_player(w);
+    assert(n->num_pending_hits == 0 && w->player.route_len > 0);
+    w->map.regions[0].tiles[0][x][y].collision_flags = 0;
+    rc_combat_tick_player(w);
+    assert(n->num_pending_hits == 1);
+    rc_world_destroy(w);
+}
+
+static void test_category_specific_and_unavailable_slots(void) {
+    const struct { int category, slot; RcCombatStyle style; RcAttackStance stance; } cases[] = {
+        {0, 2, COMBAT_NONE, 0},
+        {0, 3, COMBAT_MELEE_CRUSH, RC_ATTACK_STANCE_DEFENSIVE},
+        {8, 2, COMBAT_MELEE_STAB, RC_ATTACK_STANCE_CONTROLLED},
+        {13, 2, COMBAT_MELEE_CRUSH, RC_ATTACK_STANCE_AGGRESSIVE},
+        {13, 0, COMBAT_MELEE_STAB, RC_ATTACK_STANCE_ACCURATE},
+        {10, 1, COMBAT_MELEE_SLASH, RC_ATTACK_STANCE_CONTROLLED},
+        {14, 0, COMBAT_MELEE_STAB, RC_ATTACK_STANCE_CONTROLLED},
+        {14, 1, COMBAT_MELEE_SLASH, RC_ATTACK_STANCE_AGGRESSIVE},
+        {14, 2, COMBAT_NONE, 0},
+        {14, 3, COMBAT_MELEE_STAB, RC_ATTACK_STANCE_DEFENSIVE},
+        {20, 2, COMBAT_MELEE_STAB, RC_ATTACK_STANCE_CONTROLLED},
+        {5, 1, COMBAT_MELEE_CRUSH, RC_ATTACK_STANCE_AGGRESSIVE},
+        {5, 2, COMBAT_NONE, 0},
+        {6, 0, COMBAT_MELEE_CRUSH, RC_ATTACK_STANCE_ACCURATE},
+        {6, 1, COMBAT_NONE, 0},
+        {29, 0, COMBAT_MELEE_STAB, RC_ATTACK_STANCE_ACCURATE},
+        {29, 1, COMBAT_MELEE_SLASH, RC_ATTACK_STANCE_AGGRESSIVE},
+        {29, 2, COMBAT_NONE, 0},
+        {29, 3, COMBAT_MELEE_CRUSH, RC_ATTACK_STANCE_DEFENSIVE},
+        {25, 2, COMBAT_NONE, 0}, {16, 2, COMBAT_NONE, 0},
+        {22, 2, COMBAT_NONE, 0}, {10, 2, COMBAT_NONE, 0},
+        {99, 0, COMBAT_NONE, 0}, {18, -1, COMBAT_NONE, 0},
+    };
+    RcWorld *w = phase4_world(0);
+    for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        fake_weapon(TEST_SLASH_SWORD, "Category test", cases[i].category, 4, 1, 100, 100, 100);
+        equip_weapon(w, TEST_SLASH_SWORD);
+        w->player.attack_style_idx = cases[i].slot;
+        rc_refresh_player_combat_style(&w->player);
+        assert(w->player.combat_style == cases[i].style);
+        if (cases[i].style != COMBAT_NONE)
+            assert(w->player.attack_stance == cases[i].stance);
+    }
+    w->player.equipment[EQUIP_WEAPON].item_id = RC_MAX_ITEM_DEFS;
+    w->player.attack_style_idx = 0;
+    rc_refresh_player_combat_style(&w->player);
+    assert(w->player.combat_style == COMBAT_NONE);
+    rc_world_destroy(w);
+}
+
 int main(void) {
     test_slash_sword_table_sets_style_stance_xp_and_metadata();
     test_ranged_table_applies_rapid_and_longrange_modifiers();
@@ -317,5 +377,7 @@ int main(void) {
     test_weapon_type_beats_bonus_guessing_for_loaded_weapons();
     test_attack_cycle_uses_selected_style_speed_for_cooldown();
     test_attack_cycle_does_not_queue_hits_during_cooldown();
+    test_extended_melee_checks_walk_blocking();
+    test_category_specific_and_unavailable_slots();
     return 0;
 }

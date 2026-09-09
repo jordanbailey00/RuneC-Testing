@@ -7,11 +7,9 @@ output remains compatible with the existing viewer and packer:
   data/sprites/items/item_<item_id>.png
   data/sprites/items/item_stack_variants.tsv
 
-The renderer is intentionally conservative. It uses b237 item config metadata
-for the inventory model, 2D rotations, offsets, recolors/retextures, resize
-fields, and quantity display variants. It is not a pixel-perfect OSRS client
-ItemSpriteFactory clone, but every generated icon is backed by the b237 cache
-instead of an external PNG dump.
+Uses the client inventory camera, face ordering, lighting, textures, template
+composition, and native 36x32 pixels. The existing RuneC lighting helpers are
+shared with model export; no external client code or PNG dump is invoked.
 """
 
 from __future__ import annotations
@@ -25,12 +23,14 @@ from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from export_models import hsl15_to_rgb  # noqa: E402
-from rc_cache import RcCacheStore, load_texture_average_colors  # noqa: E402
+from export_models import (  # noqa: E402
+    _compute_normals, _lit_face_vertex_colors, _projected_face_uvs,
+)
+from rc_cache import RcCacheStore, load_texture_sprites  # noqa: E402
 from rc_cache.models import ModelData, load_model as rc_load_model  # noqa: E402
 
 CONFIG_INDEX = 2
@@ -38,7 +38,6 @@ OBJ_GROUP = 10
 MISSING_U16 = 0xFFFF
 ICON_W = 36
 ICON_H = 32
-SUPERSAMPLE = 3
 
 
 @dataclass
@@ -55,6 +54,8 @@ class ItemSpriteDef:
     stackable: bool = False
     note_id: int = -1
     note_template_id: int = -1
+    bought_id: int = -1
+    bought_template_id: int = -1
     placeholder_id: int = -1
     placeholder_template_id: int = -1
     resize_x: int = 128
@@ -197,9 +198,9 @@ def decode_item_sprite_def(item_id: int, data: bytes) -> ItemSpriteDef:
         elif opcode == 4:
             d.zoom_2d, pos = _u16(data, pos)
         elif opcode == 5:
-            d.yan_2d, pos = _u16(data, pos)
-        elif opcode == 6:
             d.xan_2d, pos = _u16(data, pos)
+        elif opcode == 6:
+            d.yan_2d, pos = _u16(data, pos)
         elif opcode == 7:
             value, pos = _u16(data, pos)
             d.offset_x_2d = _i16_from_u16(value)
@@ -210,7 +211,7 @@ def decode_item_sprite_def(item_id: int, data: bytes) -> ItemSpriteDef:
             _unknown, pos = _read_string(data, pos)
         elif opcode in (10, 21, 22, 66, 67, 68, 71, 73, 74, 76, 77, 80, 81,
                         82, 83, 84, 85, 86, 87, 90, 91, 92, 93, 94, 116, 117,
-                        118, 139, 140, 156, 161):
+                        118, 156, 161):
             pos += 2
         elif opcode == 11:
             d.stackable = True
@@ -284,6 +285,12 @@ def decode_item_sprite_def(item_id: int, data: bytes) -> ItemSpriteDef:
             d.ambient, pos = _i8(data, pos)
         elif opcode == 114:
             d.contrast, pos = _i8(data, pos)
+        elif opcode == 139:
+            value, pos = _u16(data, pos)
+            d.bought_id = _id(value)
+        elif opcode == 140:
+            value, pos = _u16(data, pos)
+            d.bought_template_id = _id(value)
         elif opcode == 148:
             value, pos = _u16(data, pos)
             d.placeholder_id = _id(value)
@@ -323,127 +330,196 @@ def apply_item_overrides(model: ModelData, item: ItemSpriteDef) -> None:
                     model.face_textures[idx] = dst
     if item.resize_x != 128 or item.resize_y != 128 or item.resize_z != 128:
         for idx in range(model.vertex_count):
-            model.vertices_x[idx] = int(round(model.vertices_x[idx] * item.resize_x / 128.0))
-            model.vertices_y[idx] = int(round(model.vertices_y[idx] * item.resize_y / 128.0))
-            model.vertices_z[idx] = int(round(model.vertices_z[idx] * item.resize_z / 128.0))
+            model.vertices_x[idx] = int(model.vertices_x[idx] * item.resize_x / 128)
+            model.vertices_y[idx] = int(model.vertices_y[idx] * item.resize_y / 128)
+            model.vertices_z[idx] = int(model.vertices_z[idx] * item.resize_z / 128)
 
 
-def rotate_points(points: np.ndarray, item: ItemSpriteDef) -> np.ndarray:
-    out = points.astype(np.float64, copy=True)
-    for axis, angle_units in (("z", item.zan_2d), ("y", item.yan_2d), ("x", item.xan_2d)):
-        angle = (angle_units & 2047) * math.pi / 1024.0
-        if angle == 0.0:
+def project_vertices(model: ModelData, item: ItemSpriteDef, noted: bool = False) -> np.ndarray:
+    # Client inventory camera: fixed-point Z/Y rotations, translation, then pitch.
+    points = np.array([model.vertices_x, model.vertices_y, model.vertices_z],
+                      dtype=np.int64).T.copy()
+    def trig(angle):
+        angle = (angle & 2047) * math.pi / 1024
+        return int(math.sin(angle) * 65536), int(math.cos(angle) * 65536)
+
+    s, c = trig(item.zan_2d)
+    x, y = points[:, 0].copy(), points[:, 1].copy()
+    points[:, 0], points[:, 1] = (y * s + x * c) >> 16, (y * c - x * s) >> 16
+    s, c = trig(item.yan_2d)
+    x, z = points[:, 0].copy(), points[:, 2].copy()
+    points[:, 0], points[:, 2] = (z * s + x * c) >> 16, (z * c - x * s) >> 16
+    s, c = trig(item.xan_2d)
+    zoom = int(item.zoom_2d * 1.5) if noted else item.zoom_2d
+    points += (item.offset_x_2d,
+               max(0, -min(model.vertices_y)) // 2 + ((zoom * s) >> 16) + item.offset_y_2d,
+               ((zoom * c) >> 16) + item.offset_y_2d)
+    y, z = points[:, 1].copy(), points[:, 2].copy()
+    points[:, 1], points[:, 2] = (y * c - z * s) >> 16, (y * s + z * c) >> 16
+    depth = points[:, 2]
+    if np.any(depth <= 0):
+        raise ValueError(f"item {item.item_id}: inventory model crosses the camera")
+    points[:, :2] = np.trunc(points[:, :2] * 512 / depth[:, None]).astype(np.int64) + 16
+    return points
+
+
+def ordered_faces(model: ModelData, points: np.ndarray) -> list[int]:
+    faces = []
+    for fi, (a, b, c) in enumerate(zip(model.face_a, model.face_b, model.face_c)):
+        pa, pb, pc = points[[a, b, c]]
+        if (pa[0] - pb[0]) * (pc[1] - pb[1]) - (pc[0] - pb[0]) * (pa[1] - pb[1]) > 0:
+            faces.append((int(pa[2] + pb[2] + pc[2]), fi))
+    faces.sort(key=lambda pair: pair[0], reverse=True)
+    if not model.face_priorities:
+        return [fi for _, fi in faces]
+    groups = [[] for _ in range(12)]
+    for depth, fi in faces:
+        priority = model.face_priorities[fi]
+        if not 0 <= priority < 12:
+            raise ValueError(f"model {model.model_id}: invalid face priority {priority}")
+        groups[priority].append((depth, fi))
+    special = iter(groups[10] + groups[11])
+    pending = next(special, None)
+    result = []
+    for priority in range(10):
+        if priority in (0, 3, 5):
+            pair = {0: (1, 2), 3: (3, 4), 5: (6, 8)}[priority]
+            normal = groups[pair[0]] + groups[pair[1]]
+            threshold = sum(d for d, _ in normal) / len(normal) if normal else 0
+            while pending and pending[0] > threshold:
+                result.append(pending[1])
+                pending = next(special, None)
+        result.extend(fi for _, fi in groups[priority])
+    if pending:
+        result.append(pending[1])
+    result.extend(fi for _, fi in special)
+    return result
+
+
+def raster_face(canvas, points, colors, texture=None, uvs=None):
+    left, top = np.maximum(points[:, :2].min(axis=0), (0, 0)).astype(int)
+    right, bottom = np.minimum(points[:, :2].max(axis=0), (ICON_W - 1, ICON_H - 1)).astype(int)
+    if left > right or top > bottom:
+        return
+    y, x = np.mgrid[top:bottom + 1, left:right + 1]
+    x, y = x + 0.5, y + 0.5
+    a, b, c = points[:, :2]
+    area = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1])
+    if not area:
+        return
+    w0 = ((b[1] - c[1]) * (x - c[0]) + (c[0] - b[0]) * (y - c[1])) / area
+    w1 = ((c[1] - a[1]) * (x - c[0]) + (a[0] - c[0]) * (y - c[1])) / area
+    weights = np.stack((w0, w1, 1 - w0 - w1), axis=-1)
+    mask = np.all(weights >= -1e-9, axis=-1)
+    if not mask.any():
+        return
+    color = weights[mask] @ np.asarray(colors, dtype=float)
+    if texture is not None:
+        perspective = weights[mask] / points[:, 2]
+        uv = perspective @ np.asarray(uvs) / perspective.sum(axis=-1, keepdims=True)
+        h, w = texture.shape[:2]
+        texels = texture[(np.floor(uv[:, 1] * h).astype(int) % h),
+                         (np.floor(uv[:, 0] * w).astype(int) % w)]
+        color *= texels / 255.0
+    region = canvas[top:bottom + 1, left:right + 1]
+    previous = region[mask].astype(float)
+    alpha = color[:, 3:4] / 255
+    old_alpha = previous[:, 3:4] / 255 * (1 - alpha)
+    combined = alpha + old_alpha
+    rgb = (color[:, :3] * alpha + previous[:, :3] * old_alpha) / np.maximum(combined, 1e-9)
+    region[mask] = np.rint(np.clip(np.concatenate((rgb, combined * 255), axis=1), 0, 255)).astype(np.uint8)
+
+
+def render_icon(item, model, textures, noted=False) -> Image.Image:
+    canvas = np.zeros((ICON_H, ICON_W, 4), dtype=np.uint8)
+    if model is None or not model.vertex_count or not model.face_count:
+        return Image.fromarray(canvas)
+    points = project_vertices(model, item, noted)
+    normals, face_normals = _compute_normals(model)
+    for fi in ordered_faces(model, points):
+        alpha = 255 - (model.face_alphas[fi] if model.face_alphas else 0)
+        colors = _lit_face_vertex_colors(model, fi, alpha, item.ambient + 64,
+                                         item.contrast + 768, (-50, -10, -50),
+                                         normals, face_normals)
+        if colors is None:
             continue
-        s = math.sin(angle)
-        c = math.cos(angle)
-        x = out[:, 0].copy()
-        y = out[:, 1].copy()
-        z = out[:, 2].copy()
-        if axis == "x":
-            out[:, 1] = y * c - z * s
-            out[:, 2] = y * s + z * c
-        elif axis == "y":
-            out[:, 0] = x * c + z * s
-            out[:, 2] = -x * s + z * c
-        else:
-            out[:, 0] = x * c - y * s
-            out[:, 1] = x * s + y * c
-    return out
+        texture_id = model.face_textures[fi] if model.face_textures else -1
+        texture, uvs = None, None
+        if texture_id >= 0:
+            if texture_id not in textures:
+                raise ValueError(f"item {item.item_id}: missing texture {texture_id}")
+            texture = textures[texture_id]
+            uvs = np.asarray(_projected_face_uvs(model, fi)).T
+        vertices = points[[model.face_a[fi], model.face_b[fi], model.face_c[fi]]]
+        raster_face(canvas, vertices, colors, texture, uvs)
+    return Image.fromarray(canvas)
 
 
-def face_color(
-    model: ModelData,
-    face_idx: int,
-    texture_average_colors: dict[int, int],
-) -> tuple[int, int, int, int]:
-    texture = (
-        model.face_textures[face_idx]
-        if face_idx < len(model.face_textures)
-        else -1
-    )
-    if texture is not None and texture >= 0:
-        color = texture_average_colors.get(texture, model.face_colors[face_idx])
-    else:
-        color = model.face_colors[face_idx]
-    rgb = hsl15_to_rgb(color)
-    alpha = 255
-    if face_idx < len(model.face_alphas):
-        alpha = max(0, min(255, 255 - model.face_alphas[face_idx]))
-    return rgb[0], rgb[1], rgb[2], alpha
+def outline_icon(image, border=True, shadow=True):
+    pixels = np.array(image)
+    mask = pixels[:, :, 3] != 0
+    if border:
+        neighbors = np.zeros_like(mask)
+        neighbors[1:] |= mask[:-1]
+        neighbors[:-1] |= mask[1:]
+        neighbors[:, 1:] |= mask[:, :-1]
+        neighbors[:, :-1] |= mask[:, 1:]
+        pixels[neighbors & ~mask] = (0, 0, 1, 255)
+    if shadow:
+        mask = pixels[:, :, 3] != 0
+        shifted = np.zeros_like(mask)
+        shifted[1:, 1:] = mask[:-1, :-1]
+        pixels[shifted & ~mask] = (48, 32, 32, 255)
+    return Image.fromarray(pixels)
 
 
-def render_icon(
-    item: ItemSpriteDef,
-    model: ModelData | None,
-    texture_average_colors: dict[int, int],
-) -> Image.Image:
-    if model is None or model.vertex_count == 0 or model.face_count == 0:
-        return Image.new("RGBA", (ICON_W, ICON_H), (0, 0, 0, 0))
-
-    points = np.array(
-        [
-            (model.vertices_x[i], -model.vertices_y[i], model.vertices_z[i])
-            for i in range(model.vertex_count)
-        ],
-        dtype=np.float64,
-    )
-    rotated = rotate_points(points, item)
-
-    min_xy = rotated[:, :2].min(axis=0)
-    max_xy = rotated[:, :2].max(axis=0)
-    span_x = max(1.0, max_xy[0] - min_xy[0])
-    span_y = max(1.0, max_xy[1] - min_xy[1])
-
-    canvas_w = ICON_W * SUPERSAMPLE
-    canvas_h = ICON_H * SUPERSAMPLE
-    # The cache zoom field is still used as a relative factor, but auto-fit is
-    # the guardrail that keeps unusually shaped items inside the 36x32 icon box.
-    zoom_factor = max(0.45, min(1.75, item.zoom_2d / 2000.0))
-    scale = min((canvas_w - 8) / span_x, (canvas_h - 8) / span_y) * zoom_factor
-    if scale * span_x > canvas_w - 2 or scale * span_y > canvas_h - 2:
-        scale = min((canvas_w - 2) / span_x, (canvas_h - 2) / span_y)
-
-    center_x = (canvas_w / 2.0) + item.offset_x_2d * SUPERSAMPLE / 16.0
-    center_y = (canvas_h / 2.0) + item.offset_y_2d * SUPERSAMPLE / 16.0
-    mid_x = (min_xy[0] + max_xy[0]) / 2.0
-    mid_y = (min_xy[1] + max_xy[1]) / 2.0
-    screen_x = (rotated[:, 0] - mid_x) * scale + center_x
-    screen_y = -(rotated[:, 1] - mid_y) * scale + center_y
-
-    faces: list[tuple[float, int]] = []
-    for face_idx in range(model.face_count):
-        a = model.face_a[face_idx]
-        b = model.face_b[face_idx]
-        c = model.face_c[face_idx]
-        if a < 0 or b < 0 or c < 0:
-            continue
-        if a >= model.vertex_count or b >= model.vertex_count or c >= model.vertex_count:
-            continue
-        faces.append(((rotated[a, 2] + rotated[b, 2] + rotated[c, 2]) / 3.0, face_idx))
-
-    image = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(image, "RGBA")
-    for _depth, face_idx in sorted(faces):
-        color = face_color(model, face_idx, texture_average_colors)
-        if color[3] <= 0:
-            continue
-        coords = [
-            (float(screen_x[model.face_a[face_idx]]), float(screen_y[model.face_a[face_idx]])),
-            (float(screen_x[model.face_b[face_idx]]), float(screen_y[model.face_b[face_idx]])),
-            (float(screen_x[model.face_c[face_idx]]), float(screen_y[model.face_c[face_idx]])),
-        ]
-        draw.polygon(coords, fill=color)
-
-    alpha = image.getchannel("A")
-    if alpha.getbbox():
-        outline_mask = alpha.filter(ImageFilter.MaxFilter(3))
-        outline = Image.new("RGBA", image.size, (0, 0, 0, 130))
-        outline.putalpha(outline_mask)
-        outlined = Image.alpha_composite(outline, image)
-        outlined.putalpha(Image.composite(alpha, outline_mask, alpha))
-        image = outlined
-
-    return image.resize((ICON_W, ICON_H), Image.Resampling.LANCZOS)
+def render_item_icon(item_id, definitions, load_model, textures, quantity=1,
+                     border=True, shadow=True, noted=False, ancestry=()):
+    if item_id in ancestry:
+        raise ValueError(f"item {item_id}: cyclic icon template")
+    item = copy.copy(definitions[item_id])
+    if quantity > 1:
+        variants = [i for i, n in zip(item.count_obj, item.count_amt) if quantity >= n]
+        if variants:
+            return render_item_icon(variants[-1], definitions, load_model, textures,
+                                    1, border, shadow, noted, ancestry + (item_id,))
+    template_id, base_id, kind = -1, -1, ""
+    for kind, template_id, base_id in (
+        ("note", item.note_template_id, item.note_id),
+        ("bought", item.bought_template_id, item.bought_id),
+        ("placeholder", item.placeholder_template_id, item.placeholder_id),
+    ):
+        if template_id >= 0:
+            break
+    auxiliary = None
+    if template_id >= 0:
+        template = definitions[template_id]
+        for field_name in ("inventory_model", "zoom_2d", "xan_2d", "yan_2d", "zan_2d",
+                           "offset_x_2d", "offset_y_2d"):
+            setattr(item, field_name, getattr(template, field_name))
+        colors = definitions[base_id] if kind == "bought" else template
+        for field_name in ("recolor_src", "recolor_dst", "retexture_src", "retexture_dst"):
+            setattr(item, field_name, getattr(colors, field_name))
+        auxiliary = render_item_icon(base_id, definitions, load_model, textures,
+                                     10 if kind == "note" else quantity,
+                                     kind != "placeholder" and border, False,
+                                     kind == "note", ancestry + (item_id,))
+    model = None
+    if item.inventory_model >= 0:
+        model = copy.deepcopy(load_model(item.inventory_model))
+        if model is None:
+            raise ValueError(f"item {item_id}: missing inventory model {item.inventory_model}")
+        apply_item_overrides(model, item)
+    image = render_icon(item, model, textures, noted)
+    if auxiliary is not None:
+        if kind == "placeholder":
+            image = Image.alpha_composite(auxiliary, image)
+        elif kind == "bought":
+            image = Image.alpha_composite(image, auxiliary)
+    image = outline_icon(image, border, shadow)
+    if auxiliary is not None and kind == "note":
+        image = Image.alpha_composite(image, auxiliary)
+    return image
 
 
 def item_ids_from_arg(raw: str | None, item_defs: dict[int, ItemSpriteDef]) -> list[int]:
@@ -503,12 +579,8 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:  # noqa: BLE001 - keep row-level diagnostics.
             decode_errors.append(f"{item_id}: {exc}")
 
-    if decode_errors and args.fail_on_decode_gap:
+    if decode_errors:
         raise SystemExit("item sprite decode gaps:\n" + "\n".join(decode_errors[:40]))
-    for msg in decode_errors[:20]:
-        print(f"warning: {msg}", file=sys.stderr)
-    if len(decode_errors) > 20:
-        print(f"warning: {len(decode_errors) - 20} additional item decode gaps", file=sys.stderr)
 
     item_ids = item_ids_from_arg(args.item_ids, item_defs)
     args.output.mkdir(parents=True, exist_ok=True)
@@ -519,28 +591,26 @@ def main(argv: list[str] | None = None) -> int:
         if variants.exists():
             variants.unlink()
 
-    texture_average_colors = load_texture_average_colors(store)
+    textures = {key: np.frombuffer(sprite.pixels, dtype=np.uint8).reshape(
+        sprite.height, sprite.width, 4)
+        for key, sprite in load_texture_sprites(store).items()}
 
     @lru_cache(maxsize=4096)
     def load_base_model(model_id: int) -> ModelData | None:
         return rc_load_model(store, model_id)
 
     rendered = 0
-    transparent = 0
+    transparent = []
     missing_model = 0
     for index, item_id in enumerate(item_ids, start=1):
         item = item_defs.get(item_id)
         if item is None:
-            continue
-        base_model = load_base_model(item.inventory_model) if item.inventory_model >= 0 else None
-        model = copy.deepcopy(base_model) if base_model is not None else None
-        if model is None:
+            raise ValueError(f"item {item_id}: definition missing")
+        if item.inventory_model < 0 and item.note_template_id < 0 and item.placeholder_template_id < 0:
             missing_model += 1
-        else:
-            apply_item_overrides(model, item)
-        icon = render_icon(item, model, texture_average_colors)
+        icon = render_item_icon(item_id, item_defs, load_base_model, textures)
         if not icon.getchannel("A").getbbox():
-            transparent += 1
+            transparent.append(item_id)
         icon.save(args.output / f"item_{item_id}.png")
         rendered += 1
         if rendered % 2500 == 0:
@@ -549,8 +619,10 @@ def main(argv: list[str] | None = None) -> int:
     variants = write_stack_variants(item_defs, args.output / "item_stack_variants.tsv")
     print(
         f"rendered {rendered} b237 item sprites to {args.output} "
-        f"({transparent} transparent, {missing_model} without inventory model)"
+        f"({len(transparent)} transparent, {missing_model} without inventory model)"
     )
+    if transparent:
+        print("transparent item IDs: " + ", ".join(map(str, transparent)))
     print(f"wrote {variants} stack icon variants")
     return 0
 

@@ -3,6 +3,7 @@
 #include "../../rc-core/api.h"
 #include "../../rc-core/combat.h"
 #include "../../rc-core/npc.h"
+#include "../world_test_fixture.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -71,6 +72,7 @@ static RcWorld *rc_make_world(int seed, RcBenchMode mode, int *npc_def_idx) {
     rc_player_set_attack_style(world, 0);
 
     if (mode == RC_BENCH_COMBAT) {
+        rc_test_open_mapsquare(world, 3200, 3200, 0);
         if (*npc_def_idx < 0) *npc_def_idx = rc_find_bench_npc_def();
         int npc_idx = rc_npc_spawn(world, *npc_def_idx, 3201, 3200, 0);
         if (npc_idx < 0) {
@@ -79,6 +81,7 @@ static RcWorld *rc_make_world(int seed, RcBenchMode mode, int *npc_def_idx) {
         }
         world->npcs[npc_idx].current_hp = 1000000000;
         world->npcs[npc_idx].spawn_hp = 1000000000;
+        world->npcs[npc_idx].disable_wander = true;
         if (!rc_combat_start_player_vs_npc(world, 0, world->npcs[npc_idx].uid)) {
             fprintf(stderr, "failed to start benchmark combat\n");
             exit(1);
@@ -150,6 +153,13 @@ int main(int argc, char **argv) {
         }
     }
     double elapsed = rc_now_seconds() - start;
+
+    for (int env = 0; mode == RC_BENCH_COMBAT && env < envs; env++) {
+        if (worlds[env]->npcs[0].current_hp >= 1000000000) {
+            fprintf(stderr, "combat benchmark failed: env %d inflicted no damage\n", env);
+            return 1;
+        }
+    }
 
     uint64_t total_steps = (uint64_t)(uint32_t)envs * (uint64_t)(uint32_t)steps;
     double sps = (double)total_steps / elapsed;

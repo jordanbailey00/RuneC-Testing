@@ -52,7 +52,7 @@ int main(void) {
     int lumbridge = rc_spell_find("Lumbridge Home Teleport");
     assert(fire_blast >= 0);
     assert(rc_spell_find("Definitely Missing Spell") == -1);
-    assert(rc_spell_def_get(fire_blast)->max_hit == 0);
+    assert(rc_spell_def_get(fire_blast)->max_hit == 16);
     assert(lumbridge >= 0);
     assert(rc_spell_def_get(lumbridge)->effect_flags & RC_SPELL_EFFECT_TELEPORT);
 
@@ -71,7 +71,8 @@ int main(void) {
     rc_world_destroy(denied);
 
     RcWorldConfig cfg = rc_preset_base_only();
-    cfg.subsystems = RC_SUB_COMBAT | RC_SUB_PRAYER;
+    cfg.subsystems = RC_SUB_COMBAT | RC_SUB_PRAYER | RC_SUB_INVENTORY;
+    cfg.items_path = RC_TEST_SOURCE_DIR "/data/defs/items.bin";
     cfg.npc_defs_path = NDEF_PATH;
     cfg.prayers_path = PRAY_PATH;
     cfg.spells_path = SPEL_PATH;
@@ -124,17 +125,16 @@ int main(void) {
     world->player.skills.boosted_level[SKILL_RANGED] = 99;
     world->player.equipment_bonuses[EQ_RANGED_STR] = 64;
     world->player.active_prayers = PRAYER_RIGOUR;
-    RcCombatCalc ranged = rc_calc_ranged(&world->player, jad_def);
-    assert(ranged.attack_roll > 0 && ranged.max_hit > 0);
-
     int npc_idx = rc_npc_spawn(world, jad_def, world->player.x, world->player.y, 0);
     assert(npc_idx >= 0);
+    RcCombatCalc ranged = rc_calc_ranged(&world->player, &world->npcs[npc_idx], true);
+    assert(ranged.attack_roll > 0 && ranged.max_hit > 0);
     world->player.attack_target = world->npcs[npc_idx].uid;
     world->player.manual_spell_cast = fire_blast;
     world->player.skills.boosted_level[SKILL_MAGIC] = 99;
     world->player.active_prayers = PRAYER_AUGURY;
     rc_combat_tick_player(world);
-    assert(world->npcs[npc_idx].num_pending_hits == 0);
+    assert(world->npcs[npc_idx].num_pending_hits == 1);
 
     rc_world_destroy(world);
     return 0;

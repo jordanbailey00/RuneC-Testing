@@ -158,6 +158,15 @@ static void test_event_identity_and_sync(void) {
 }
 
 static void test_actor_projection(void) {
+    float x = 0, y = 0, distance = 1.25f;
+    assert(runec_actor_advance_tile(&x, &y, 1, 1, &distance));
+    assert(x == 1 && y == 1 && distance == 0.25f);
+    assert(!runec_actor_advance_tile(&x, &y, 1, 2, &distance));
+    assert(x == 1 && y == 1.25f && distance == 0
+           && "remaining frame time must follow the next segment, not cut the corner");
+    distance = 2;
+    assert(runec_actor_advance_tile(&x, &y, 1, 1.25f, &distance));
+    assert(distance == 2 && "duplicate waypoints must not consume time");
     assert(runec_actor_model_midpoint(0.0f, 2.0f, 1.0f) == 1.0f);
     assert(runec_actor_model_midpoint(2.0f, 0.0f, 0.5f) == 0.5f);
 

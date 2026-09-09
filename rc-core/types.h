@@ -39,7 +39,7 @@ typedef enum {
     RC_PLAYER_COMMAND_SET_RUNNING,
     RC_PLAYER_COMMAND_ATTACK_NPC,
     RC_PLAYER_COMMAND_SET_ATTACK_STYLE,
-    RC_PLAYER_COMMAND_TOGGLE_AUTO_RETALIATE,
+    RC_PLAYER_COMMAND_SET_AUTO_RETALIATE,
     RC_PLAYER_COMMAND_TOGGLE_SPECIAL,
     RC_PLAYER_COMMAND_SET_PRAYER,
     RC_PLAYER_COMMAND_SET_SPELLBOOK,
@@ -467,6 +467,7 @@ typedef enum {
 // Pending hit (delayed damage with prayer snapshot)
 enum {
     RC_HIT_SUPPRESS_ENCOUNTER_EFFECTS = 1u << 0,
+    RC_HIT_SOURCE_EXPIRED = 1u << 1,
 };
 
 enum {
@@ -484,13 +485,17 @@ typedef struct {
     int active;
     int damage;
     int max_hit;
+    int defence_drain;
     RcTick apply_tick;
+    bool accurate;
     int attack_style;       // RcCombatStyle
     int source_idx;         // player, status, or NPC uid
     int prayer_snapshot;    // locked prayer at snapshot tick
     RcTick prayer_lock_tick;
     uint8_t hit_type;
     uint8_t flags;
+    uint16_t spell_key;     // spell index + 1; zero means no spellbook cast
+    uint16_t weapon_id;     // launch-time weapon, zero for unarmed
 } RcPendingHit;
 
 typedef enum {
@@ -537,6 +542,10 @@ typedef struct {
 typedef struct {
     bool active;
     RcCombatTargetRef target;
+    const char *failure_reason;
+    bool attack_prepared;
+    uint16_t prepared_min_hit, prepared_max_hit;
+    uint32_t prepared_attack_flags;
     uint32_t flags;
     int attack_range;
     int distance_to_target;
@@ -546,6 +555,7 @@ typedef struct {
     RcCombatActorRef primary_attacker;
     RcCombatActorRef attackers[RC_MAX_COMBAT_ATTACKERS];
     int attacker_count;
+    uint8_t attacker_ticks[RC_MAX_COMBAT_ATTACKERS];
     int under_attack_timer;
     int last_hit_timer;
     int selected_style_idx;
@@ -586,7 +596,9 @@ typedef struct {
     uint8_t target_kind;
     uint8_t style;
     uint8_t action_kind;
+    bool accurate;
     int source_uid;
+    int hit_count;
     int target_uid;
     int source_definition_id;
     int target_definition_id;
@@ -639,6 +651,7 @@ typedef struct {
 // Skill state
 typedef struct {
     int xp[SKILL_COUNT];
+    uint8_t xp_hundredths[SKILL_COUNT];
     int base_level[SKILL_COUNT];
     int boosted_level[SKILL_COUNT];
 } RcSkills;
@@ -690,6 +703,7 @@ typedef struct {
     uint8_t block_access;
     bool allow_inside;
     bool require_los;
+    bool require_line_of_walk;
 } RcRouteTarget;
 
 typedef struct {
@@ -900,6 +914,7 @@ typedef enum {
     RC_NPC_ROUTE_WANDER,
     RC_NPC_ROUTE_CHASE,
     RC_NPC_ROUTE_RETURN,
+    RC_NPC_ROUTE_SCRIPTED,
 } RcNpcRouteMode;
 
 // NPC (live instance)
@@ -933,6 +948,8 @@ typedef struct {
     int poison_damage;
     int poison_tick_counter;
     int route_x[RC_MAX_ROUTE], route_y[RC_MAX_ROUTE];
+    RcTick immobilized_until;
+    RcTick immobilize_immune_until;
     int route_len, route_idx;
     RcRouteTarget route_target;
     bool route_continue;
@@ -1030,8 +1047,14 @@ typedef struct {
 struct RcWorld;
 struct RcGameData;
 struct RcSpellDef;
+struct RcCombatCalc;
 struct RcDormantNpcState;
 struct RcDormantGroundItemState;
+
+enum {
+    RC_RANGED_RESOURCE_NONE = -1,
+    RC_RANGED_RESOURCE_INVALID = -2,
+};
 
 typedef struct {
     int (*apply_player_damage)(const struct RcWorld *world,
@@ -1049,6 +1072,7 @@ typedef struct {
                                   RcCombatStyle style, int damage);
     void (*after_npc_swing)(struct RcWorld *world, RcNpc *npc,
                             RcCombatStyle style);
+    int (*extra_npc_hit_count)(const struct RcWorld *world, const RcNpc *npc);
     int (*modify_npc_attack_speed)(struct RcWorld *world, RcNpc *npc,
                                    int default_speed);
     int (*modify_incoming_damage_after_protection)(
@@ -1056,11 +1080,30 @@ typedef struct {
     int (*player_special_energy_cost)(const struct RcWorld *world,
                                       const RcPlayer *player,
                                       const RcNpc *target, int weapon_id);
+    int (*player_ranged_resource_cost)(const RcPlayer *player, bool special);
+    int (*player_ranged_resource_slot)(const RcPlayer *player,
+                                      const char **failure_reason);
+    // Zero leaves ordinary single-hit rolling to core; negative rejects launch.
+    int (*prepare_player_hits)(struct RcWorld *world, const RcNpc *target,
+                               const struct RcCombatCalc *calc, bool special,
+                               RcPendingHit *hits, int capacity,
+                               const char **failure_reason);
+    int (*consume_weapon_charge)(struct RcWorld *world, int weapon_id);
+    int (*prepare_player_magic)(struct RcWorld *world, const RcNpc *target,
+                                const struct RcSpellDef *spell,
+                                struct RcCombatCalc *calc, int *speed,
+                                const char **failure_reason);
+    int (*can_autocast_spell)(const RcPlayer *player,
+                              const struct RcSpellDef *spell);
+    void (*on_player_hit_npc)(struct RcWorld *world, RcNpc *target,
+                              const RcPendingHit *hit, int damage);
     int (*modify_player_special_damage)(struct RcWorld *world,
                                         const RcPlayer *player,
                                         const RcNpc *target, int weapon_id,
                                         RcCombatStyle style, int damage,
                                         int max_hit);
+    void (*after_player_special_launch)(struct RcWorld *world,
+                                        int weapon_id, int damage);
     int (*player_has_spell_runes)(const struct RcWorld *world,
                                   const RcPlayer *player,
                                   const struct RcSpellDef *spell);

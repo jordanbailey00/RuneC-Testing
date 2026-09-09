@@ -116,7 +116,7 @@ static void test_custom_attack_handler_preserves_content_priority(void) {
     rc_world_destroy(world);
 }
 
-static void test_noncombat_actions_cancel_combat_through_new_state(void) {
+static void test_noncombat_actions_cancel_only_the_player(void) {
     RcWorld *world = phase2_world(920202);
     int npc_idx = spawn_phase2_npc(world, 1);
     RcNpc *npc = &world->npcs[npc_idx];
@@ -132,8 +132,8 @@ static void test_noncombat_actions_cancel_combat_through_new_state(void) {
     assert(world->player.attack_target == -1);
     assert(world->player.attack_target_def_id == -1);
     assert(!rc_combat_actor_has_target(&world->player.combat));
-    assert(npc->target_uid == -1);
-    assert(!rc_combat_actor_has_target(&npc->combat));
+    assert(npc->target_uid == 0);
+    assert(rc_combat_actor_has_target(&npc->combat));
     assert(world->player.interact_type == RC_INTERACT_NPC);
     assert(world->player.interact_target == npc->uid);
     assert(world->player.interact_option == 0);
@@ -146,8 +146,8 @@ static void test_noncombat_actions_cancel_combat_through_new_state(void) {
     rc_world_tick(world);
     assert(world->player.attack_target == -1);
     assert(!rc_combat_actor_has_target(&world->player.combat));
-    assert(npc->target_uid == -1);
-    assert(!rc_combat_actor_has_target(&npc->combat));
+    assert(npc->target_uid == 0);
+    assert(rc_combat_actor_has_target(&npc->combat));
 
     rc_world_destroy(world);
 }
@@ -155,6 +155,6 @@ static void test_noncombat_actions_cancel_combat_through_new_state(void) {
 int main(void) {
     test_default_attack_handler_enters_new_combat_state();
     test_custom_attack_handler_preserves_content_priority();
-    test_noncombat_actions_cancel_combat_through_new_state();
+    test_noncombat_actions_cancel_only_the_player();
     return 0;
 }

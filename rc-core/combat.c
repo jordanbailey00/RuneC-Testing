@@ -14,9 +14,11 @@
 #include "skills.h"
 #include "spells.h"
 #include "types.h"
+#include "world_state.h"
 #include <limits.h>
 #include <stddef.h>   // NULL
 #include <string.h>
+#include <stdio.h>
 
 static int npc_can_retaliate(const RcWorld *world, const RcNpc *npc);
 static int combat_can_attack_target(RcWorld *world, RcCombatActorRef attacker,
@@ -129,9 +131,10 @@ static int style_needs_los(RcCombatStyle style) {
 }
 
 static int default_npc_attack_range(const RcNpcDef *def, RcCombatStyle style) {
+    (void)def;
     if (style == COMBAT_MAGIC) return 10;
     if (style == COMBAT_RANGED) return 7;
-    return def && (def->attack_types & 0x18) ? 7 : 1;
+    return 1;
 }
 
 static int content_npc_attack_range(const RcWorld *world, const RcNpc *npc,
@@ -219,38 +222,28 @@ static void content_on_npc_hit_player(RcWorld *world, const RcPendingHit *hit,
     }
 }
 
-static int equipment_consume_one(RcWorld *world, int slot) {
+static int equipment_consume(RcWorld *world, int slot, int quantity) {
     if (!world || slot < 0 || slot >= RC_EQUIP_COUNT) return 0;
     RcItemTransaction tx;
     RcItemActionResult result = rc_item_tx_begin(&tx, world);
     if (result.code == RC_ITEM_RESULT_OK)
-        result = rc_item_tx_remove_equipment(&tx, slot, 1, UINT32_MAX);
+        result = rc_item_tx_remove_equipment(&tx, slot, quantity, UINT32_MAX);
     if (result.code == RC_ITEM_RESULT_OK) result = rc_item_tx_commit(&tx);
     return result.code == RC_ITEM_RESULT_OK;
 }
 
-static int player_has_ranged_resource(const RcPlayer *p) {
-    if (!p || p->combat_style != COMBAT_RANGED) return 1;
+static int player_ranged_resource_slot(const RcWorld *world,
+                                       const char **failure_reason) {
+    const RcPlayer *p = &world->player;
+    if (world->combat_hooks.player_ranged_resource_slot)
+        return world->combat_hooks.player_ranged_resource_slot(p, failure_reason);
     const RcInvSlot *weapon_slot = &p->equipment[EQUIP_WEAPON];
     const RcItemDef *weapon = rc_item_def_get(weapon_slot->item_id);
     if (weapon && weapon->stackable && weapon_slot->quantity > 0 &&
             weapon->equip_slot == EQUIP_WEAPON) {
-        return 1;
+        return EQUIP_WEAPON;
     }
-    return p->equipment[EQUIP_AMMO].item_id >= 0 &&
-           p->equipment[EQUIP_AMMO].quantity > 0;
-}
-
-static int player_consume_ranged_resource(RcWorld *world) {
-    RcPlayer *p = world ? &world->player : NULL;
-    if (!p || p->combat_style != COMBAT_RANGED) return 1;
-    const RcInvSlot *weapon_slot = &p->equipment[EQUIP_WEAPON];
-    const RcItemDef *weapon = rc_item_def_get(weapon_slot->item_id);
-    if (weapon && weapon->stackable && weapon_slot->quantity > 0 &&
-            weapon->equip_slot == EQUIP_WEAPON) {
-        return equipment_consume_one(world, EQUIP_WEAPON);
-    }
-    return equipment_consume_one(world, EQUIP_AMMO);
+    return EQUIP_AMMO;
 }
 
 static int inventory_quantity(const RcInvSlot *inv, int item_id) {
@@ -319,7 +312,8 @@ static const RcSpellDef *player_selected_combat_spell(const RcPlayer *p) {
                   ? p->manual_spell_cast : p->autocast_spell;
     const RcSpellDef *spell = rc_spell_def_get(spell_idx);
     if (!spell || spell->type != RC_SPELL_TYPE_COMBAT ||
-            spell->max_hit <= 0 ||
+            (spell->max_hit == 0 && !(spell->effect_flags &
+                (RC_SPELL_EFFECT_FREEZE | RC_SPELL_EFFECT_DRAIN))) ||
             spell->book != p->current_spellbook) {
         return NULL;
     }
@@ -335,17 +329,6 @@ static void clear_failed_player_spell_attack(RcPlayer *p) {
         p->defensive_autocast = false;
     }
     rc_refresh_player_combat_style(p);
-}
-
-static int player_ammo_item_id(const RcPlayer *p) {
-    if (!p) return -1;
-    const RcInvSlot *weapon_slot = &p->equipment[EQUIP_WEAPON];
-    const RcItemDef *weapon = rc_item_def_get(weapon_slot->item_id);
-    if (weapon && weapon->stackable && weapon_slot->quantity > 0 &&
-            weapon->equip_slot == EQUIP_WEAPON) {
-        return weapon_slot->item_id;
-    }
-    return p->equipment[EQUIP_AMMO].item_id;
 }
 
 typedef struct {
@@ -410,7 +393,7 @@ static void emit_player_attack_event(
     int weapon_id,
     bool use_special,
     const RcPlayerAttackProfiles *profiles,
-    int hit_delay
+    int hit_delay, RcCombatStyle style, int stance_idx, bool accurate, int hit_count
 ) {
     if (!world || !p || !target || !profiles) return;
     int target_x, target_y;
@@ -422,9 +405,11 @@ static void emit_player_attack_event(
     if (!event) return;
     memset(event, 0, sizeof(*event));
     event->active = true;
+    event->accurate = accurate;
+    event->hit_count = hit_count;
     event->source_kind = RC_COMBAT_ACTOR_PLAYER;
     event->target_kind = RC_COMBAT_ACTOR_NPC;
-    event->style = (uint8_t)p->combat_style;
+    event->style = (uint8_t)style;
     event->source_uid = 0;
     event->target_uid = target->uid;
     event->source_definition_id = -1;
@@ -439,7 +424,7 @@ static void emit_player_attack_event(
     event->weapon_item_id = weapon_id;
     event->ammo_item_id = profiles->ammo_id;
     event->spell_idx = spell_idx;
-    event->stance_idx = p->attack_style_idx;
+    event->stance_idx = stance_idx;
     event->world_tick = world->tick;
 
     if (use_special) {
@@ -447,7 +432,7 @@ static void emit_player_attack_event(
         event->action_key_id = weapon_id;
         const RcItemDef *item = rc_item_def_get(weapon_id);
         copy_event_name(event->action_key_name, item ? item->name : "");
-    } else if (p->combat_style == COMBAT_MAGIC && spell) {
+    } else if (style == COMBAT_MAGIC && spell) {
         event->action_kind = RC_COMBAT_ACTION_SPELL;
         event->action_key_id = spell_idx;
         copy_event_name(event->action_key_name, spell->name);
@@ -505,6 +490,7 @@ static RcPlayerAttackProfiles select_player_attack_profiles(
     const RcSpellDef *spell,
     int spell_idx,
     int weapon_id,
+    int ammo_id,
     bool use_special
 ) {
     RcPlayerAttackProfiles out = {
@@ -514,7 +500,7 @@ static RcPlayerAttackProfiles select_player_attack_profiles(
         .ammo_id = -1,
     };
     if (!p) return out;
-    out.ammo_id = player_ammo_item_id(p);
+    out.ammo_id = ammo_id;
     const RcCombatProfileDef *weapon_profile =
         rc_combat_profile_for_item_stance(weapon_id, p->combat_style,
                                           p->attack_style_idx);
@@ -546,11 +532,11 @@ static RcPlayerAttackProfiles select_player_attack_profiles(
 
 static int has_player_attack_los(const RcWorld *world, const RcPlayer *p,
                                  const RcNpc *npc, RcCombatStyle style) {
-    if (!style_needs_los(style)) {
-        return 1;
-    }
     const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
     int size = def && def->size > 0 ? def->size : 1;
+    if (style_is_melee(style))
+        return rc_has_line_of_walk_rect(&world->map, p->x, p->y, 1, 1,
+                                         npc->x, npc->y, size, size, p->plane);
     return rc_has_los_rect(&world->map, p->x, p->y, 1, 1,
                            npc->x, npc->y, size, size, p->plane);
 }
@@ -560,13 +546,24 @@ static int player_can_attack_npc_now(const RcWorld *world, const RcPlayer *p,
                                      RcCombatStyle style, int *distance,
                                      int *los) {
     int dist = distance_player_to_npc(world, p, npc);
-    int line = has_player_attack_los(world, p, npc, style);
     if (distance) *distance = dist;
-    if (los) *los = line;
+    if (los) *los = 0;
     if (style_is_melee(style)
             && point_in_npc_footprint(world, npc, p->x, p->y)) {
         return 0;
     }
+    if (style_is_melee(style) && range == 1) {
+        const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
+        int size = def && def->size > 0 ? def->size : 1;
+        RcRouteTarget target = rc_route_target_rectangle(
+            npc->x, npc->y, size, size, 1, 1, false, false);
+        int reached = p->plane == npc->plane && rc_route_target_reached(
+            &world->map, p->plane, p->x, p->y, 1, 1, &target);
+        if (los) *los = reached;
+        return reached;
+    }
+    int line = has_player_attack_los(world, p, npc, style);
+    if (los) *los = line;
     return dist <= range && line;
 }
 
@@ -581,6 +578,7 @@ static int choose_player_attack_tile(const RcWorld *world, const RcPlayer *p,
     RcRouteTarget target = rc_route_target_rectangle(
         npc->x, npc->y, size, size, 1, range, false,
         style_needs_los(style));
+    target.require_line_of_walk = style_is_melee(style) && range > 1;
     *out_route = rc_find_route(&world->map, p->x, p->y, 1, 1,
                                p->plane, &target, false);
     return rc_route_status_admitted(out_route->status);
@@ -599,6 +597,7 @@ static int route_player_toward_npc(RcWorld *world, RcPlayer *p,
     RcRouteTarget target = rc_route_target_rectangle(
         npc->x, npc->y, size, size, 1, range, false,
         style_needs_los(p->combat_style));
+    target.require_line_of_walk = style_is_melee(p->combat_style) && range > 1;
     return rc_player_route_admit(p, &route, &target, 1, 1, false);
 }
 
@@ -620,6 +619,13 @@ static int npc_can_attack_player_now(const RcWorld *world, const RcNpc *npc,
                : 1;
     if (distance) *distance = dist;
     if (los) *los = line;
+    if (style_is_melee(style)) {
+        RcRouteTarget target = rc_route_target_rectangle(
+            p->x, p->y, 1, 1, 1, range, false, false);
+        target.require_line_of_walk = range > 1;
+        return rc_route_target_reached(&world->map, npc->plane,
+                                       npc->x, npc->y, size, size, &target);
+    }
     return dist <= range && line;
 }
 
@@ -743,41 +749,41 @@ static void route_npc_to_player(RcWorld *world, RcNpc *npc, int range,
     RcRouteTarget target = rc_route_target_rectangle(
         world->player.x, world->player.y, 1, 1, 1, range, false,
         style_needs_los(style));
+    target.require_line_of_walk = style_is_melee(style) && range > 1;
     if (npc->route_mode != RC_NPC_ROUTE_CHASE
             || npc->route_target.x != target.x
             || npc->route_target.y != target.y
             || npc->route_target.max_distance != target.max_distance
-            || npc->route_target.require_los != target.require_los) {
+            || npc->route_target.require_los != target.require_los
+            || npc->route_target.require_line_of_walk != target.require_line_of_walk) {
         (void)rc_npc_route_request(world, npc, &target,
                                    RC_NPC_ROUTE_CHASE, false);
     }
 }
 
-void rc_award_player_combat_xp(RcWorld *world, int damage) {
-    if (!world || damage <= 0) return;
+void rc_award_player_combat_xp(RcWorld *world, int damage, int mask) {
+    if (!world || damage <= 0 || mask == 0) return;
     RcPlayer *p = &world->player;
-    int mask = p->combat_xp_mask;
-    int count = 0;
     const int skills[] = {
-        SKILL_ATTACK, SKILL_STRENGTH, SKILL_DEFENCE,
-        SKILL_RANGED, SKILL_MAGIC,
+        SKILL_ATTACK, SKILL_STRENGTH, SKILL_DEFENCE, SKILL_RANGED, SKILL_MAGIC,
     };
-    for (int i = 0; i < (int)(sizeof(skills) / sizeof(skills[0])); i++) {
-        if (mask & (1u << skills[i])) count++;
+    int selected = 0;
+    for (unsigned i = 0; i < sizeof(skills) / sizeof(skills[0]); i++)
+        if (mask & (1u << skills[i])) selected++;
+    for (unsigned i = 0; i < sizeof(skills) / sizeof(skills[0]); i++) {
+        int skill = skills[i];
+        if (!(mask & (1u << skill))) continue;
+        int rate = selected == 3 ? 133 : selected == 2 ? 200 : 400;
+        if (mask & RC_COMBAT_XP_MAGIC)
+            rate = skill == SKILL_MAGIC ? (selected == 2 ? 133 : 200) : 100;
+        rc_add_xp_hundredths(&p->skills, (RcSkill)skill, (int64_t)damage * rate);
     }
-    if (count <= 0) return;
-    int combat_xp = damage * 4;
-    int each = combat_xp / count;
-    if (each <= 0) each = 1;
-    for (int i = 0; i < (int)(sizeof(skills) / sizeof(skills[0])); i++) {
-        if (mask & (1u << skills[i]))
-            rc_add_xp(&p->skills, (RcSkill)skills[i], each);
-    }
-    int hp_xp = (damage * 4) / 3;
-    if (hp_xp <= 0) hp_xp = 1;
-    rc_add_xp(&p->skills, SKILL_HITPOINTS, hp_xp);
+    int previous_level = p->skills.base_level[SKILL_HITPOINTS];
+    rc_add_xp_hundredths(&p->skills, SKILL_HITPOINTS, (int64_t)damage * 133);
+    int gained = p->skills.base_level[SKILL_HITPOINTS] - previous_level;
+    p->max_hp += gained * 10;
+    p->current_hp += gained * 10;
 }
-
 static RcNpc *find_npc_by_uid(struct RcWorld *world, int uid) {
     return rc_npc_resolve(world, uid);
 }
@@ -796,11 +802,11 @@ static int combat_actor_equal(RcCombatActorRef a, RcCombatActorRef b) {
 static int combat_actor_live(RcWorld *world, RcCombatActorRef actor) {
     if (!world) return 0;
     if (actor.kind == RC_COMBAT_ACTOR_PLAYER) {
-        return actor.uid == 0 && world->player.current_hp > 0;
+        return actor.uid == 0 && !world->player.is_dead && world->player.current_hp > 0;
     }
     if (actor.kind == RC_COMBAT_ACTOR_NPC) {
         RcNpc *npc = find_npc_by_uid(world, actor.uid);
-        return npc && !npc->is_dead && !npc->player_untargetable;
+        return npc && !npc->is_dead && npc->current_hp > 0 && !npc->player_untargetable;
     }
     return 0;
 }
@@ -835,12 +841,21 @@ static void combat_register_attacker(RcCombatActorState *target,
     target->primary_attacker = attacker;
     target->under_attack_timer = 10;
     for (int i = 0; i < target->attacker_count; i++) {
-        if (combat_actor_equal(target->attackers[i], attacker)) return;
+        if (combat_actor_equal(target->attackers[i], attacker)) {
+            target->attacker_ticks[i] = 10;
+            return;
+        }
     }
     if (target->attacker_count < RC_MAX_COMBAT_ATTACKERS) {
-        target->attackers[target->attacker_count++] = attacker;
+        int index = target->attacker_count++;
+        target->attackers[index] = attacker;
+        target->attacker_ticks[index] = 10;
     } else {
-        target->attackers[RC_MAX_COMBAT_ATTACKERS - 1] = attacker;
+        int oldest = 0;
+        for (int i = 1; i < RC_MAX_COMBAT_ATTACKERS; i++)
+            if (target->attacker_ticks[i] < target->attacker_ticks[oldest]) oldest = i;
+        target->attackers[oldest] = attacker;
+        target->attacker_ticks[oldest] = 10;
     }
 }
 
@@ -859,14 +874,15 @@ static int combat_target_has_other_live_attacker(RcWorld *world,
 
 static int combat_can_attack_target(RcWorld *world, RcCombatActorRef attacker,
                                     RcCombatActorRef target) {
-    if (!world || world->multi_combat) return 1;
+    if (!world) return 0;
     if (!combat_actor_live(world, attacker)) return 0;
     if (!combat_actor_live(world, target)) return 0;
+    if (rc_combat_is_multi_combat(world)) return 1;
     return !combat_target_has_other_live_attacker(world, target, attacker);
 }
 
 static int player_locked_by_other_npc(RcWorld *world, int npc_uid) {
-    if (!world || world->multi_combat ||
+    if (!world || rc_combat_is_multi_combat(world) ||
             world->player.combat.under_attack_timer <= 0) {
         return 0;
     }
@@ -975,7 +991,7 @@ static void sync_player_combat_state_from_legacy(RcWorld *world,
     player->combat.line_of_sight = 0;
     player->combat.hp_current = player->current_hp;
     player->combat.hp_max = player->max_hp;
-    player->combat.in_multi_combat = world->multi_combat;
+    player->combat.in_multi_combat = rc_combat_is_multi_combat(world);
     player->combat.last_hit_timer = player->last_hit_timer;
     player->combat.selected_style_idx = player->attack_style_idx;
     player->combat.style = player->combat_style;
@@ -1026,7 +1042,7 @@ static void sync_npc_combat_state_from_legacy(RcWorld *world, RcNpc *npc) {
     const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
     npc->combat.hp_max = def ? def->hitpoints : 0;
     npc->combat.retaliates = npc_can_retaliate(world, npc);
-    npc->combat.in_multi_combat = world->multi_combat;
+    npc->combat.in_multi_combat = rc_combat_is_multi_combat(world);
     npc->combat.last_hit_timer = npc->last_hit_timer;
     npc->combat.attack_count = npc->attack_count;
     if (npc->target_uid >= 0) {
@@ -1086,15 +1102,8 @@ int rc_combat_start_player_vs_npc(struct RcWorld *world, int player_uid,
     RcPlayer *player = &world->player;
     player->attack_target = npc->uid;
     player->attack_target_def_id = def->id;
-    if (npc_can_retaliate(world, npc) &&
-            combat_can_attack_target(world, npc_actor, player_actor)) {
-        npc->target_uid = 0;
-        combat_register_attacker(&player->combat, npc_actor);
-    }
-    combat_register_attacker(&npc->combat, player_actor);
     rc_refresh_player_combat_style(player);
     face_player_to_npc(world, player, npc);
-    face_npc_to_player(npc, player);
     sync_player_combat_state_from_legacy(world, player);
     sync_npc_combat_state_from_legacy(world, npc);
     rc_player_action_refresh(world);
@@ -1120,7 +1129,6 @@ int rc_combat_start_npc_vs_player(struct RcWorld *world, int npc_uid,
     };
     if (!combat_can_attack_target(world, npc_actor, player_actor)) return 0;
     npc->target_uid = 0;
-    combat_register_attacker(&world->player.combat, npc_actor);
     face_npc_to_player(npc, &world->player);
     sync_npc_combat_state_from_legacy(world, npc);
     sync_player_combat_state_from_legacy(world, &world->player);
@@ -1129,35 +1137,21 @@ int rc_combat_start_npc_vs_player(struct RcWorld *world, int npc_uid,
 
 void rc_combat_stop_actor(struct RcWorld *world, RcCombatActorRef actor,
                           int reason) {
-    (void)reason;
     if (!world) return;
     if (actor.kind == RC_COMBAT_ACTOR_PLAYER && actor.uid == 0) {
-        RcCombatRecentHit recent_hits[4];
-        int recent_hit_count = world->player.combat.recent_hit_count;
-        uint64_t next_hit_sequence = world->player.combat.next_hit_sequence;
-        memcpy(recent_hits, world->player.combat.recent_hits,
-               sizeof(recent_hits));
         world->player.attack_target = -1;
         world->player.attack_target_def_id = -1;
-        rc_combat_init_player_state(&world->player);
-        memcpy(world->player.combat.recent_hits, recent_hits,
-               sizeof(recent_hits));
-        world->player.combat.recent_hit_count = recent_hit_count;
-        world->player.combat.next_hit_sequence = next_hit_sequence;
-        world->player.combat.flags = RC_COMBAT_STATE_CANCELLED;
+        sync_player_combat_state_from_legacy(world, &world->player);
+        world->player.combat.flags |= reason | RC_COMBAT_STATE_CANCELLED;
     } else if (actor.kind == RC_COMBAT_ACTOR_NPC) {
         RcNpc *npc = find_npc_by_uid(world, actor.uid);
         if (!npc) return;
-        RcCombatRecentHit recent_hits[4];
-        int recent_hit_count = npc->combat.recent_hit_count;
-        uint64_t next_hit_sequence = npc->combat.next_hit_sequence;
-        memcpy(recent_hits, npc->combat.recent_hits, sizeof(recent_hits));
         npc->target_uid = -1;
-        rc_combat_init_npc_state(npc);
-        memcpy(npc->combat.recent_hits, recent_hits, sizeof(recent_hits));
-        npc->combat.recent_hit_count = recent_hit_count;
-        npc->combat.next_hit_sequence = next_hit_sequence;
-        npc->combat.flags = RC_COMBAT_STATE_CANCELLED;
+        npc->combat.attack_prepared = false;
+        if (npc->route_mode == RC_NPC_ROUTE_CHASE)
+            rc_npc_route_clear(npc, RC_MOVEMENT_NONE);
+        sync_npc_combat_state_from_legacy(world, npc);
+        npc->combat.flags |= reason | RC_COMBAT_STATE_CANCELLED;
     }
 }
 
@@ -1167,17 +1161,17 @@ void rc_combat_set_player_style(struct RcWorld *world, int style_idx) {
     sync_player_combat_state_from_legacy(world, &world->player);
 }
 
-void rc_combat_toggle_auto_retaliate(struct RcWorld *world) {
+int rc_combat_set_auto_retaliate(struct RcWorld *world, bool enabled) {
     if (rc_player_command_should_queue(world)) {
-        int args[8] = {0};
-        (void)rc_player_command_submit(
-            world, RC_PLAYER_COMMAND_TOGGLE_AUTO_RETALIATE,
+        int args[8] = {enabled};
+        return rc_player_command_submit(
+            world, RC_PLAYER_COMMAND_SET_AUTO_RETALIATE,
             RC_ACTION_CATEGORY_SOFT, args, 0);
-        return;
     }
-    if (!world) return;
-    world->player.auto_retaliate = !world->player.auto_retaliate;
+    if (!world) return 0;
+    world->player.auto_retaliate = enabled;
     sync_player_combat_state_from_legacy(world, &world->player);
+    return 1;
 }
 
 void rc_combat_toggle_special(struct RcWorld *world) {
@@ -1280,7 +1274,9 @@ void rc_combat_set_multi_combat(struct RcWorld *world, bool enabled) {
 }
 
 int rc_combat_is_multi_combat(const struct RcWorld *world) {
-    return world && world->multi_combat;
+    return world && (world->multi_combat ||
+        (rc_area_flags_at(world->player.x, world->player.y,
+                          world->player.plane) & RC_AREA_MULTICOMBAT) != 0);
 }
 
 int rc_combat_actor_attacker_count(const RcCombatActorState *state) {
@@ -1299,168 +1295,230 @@ void rc_combat_actor_register_attacker(RcCombatActorState *target,
 
 void rc_combat_tick_actor_threat(RcCombatActorState *state) {
     if (!state) return;
-    if (state->under_attack_timer > 0) state->under_attack_timer--;
-    if (state->under_attack_timer > 0) return;
-    state->primary_attacker = combat_actor_none();
-    state->attacker_count = 0;
+    int write = 0;
+    state->under_attack_timer = 0;
+    for (int i = 0; i < state->attacker_count; i++) {
+        int remaining = state->attacker_ticks[i];
+        if (remaining <= 1) continue;
+        state->attackers[write] = state->attackers[i];
+        state->attacker_ticks[write++] = --remaining;
+        if (remaining > state->under_attack_timer)
+            state->under_attack_timer = remaining;
+    }
+    state->attacker_count = write;
+    if (!write) state->primary_attacker = combat_actor_none();
 }
 
-static void combat_tick_player_legacy(struct RcWorld *world) {
+static void reject_launch(RcWorld *world, RcCombatActorRef actor,
+                           const char *reason) {
+    RcCombatActorState *state = combat_state_for_actor(world, actor);
+    if (state && state->failure_reason != reason)
+        fprintf(stderr, "combat: %s %d attack rejected: %s\n",
+                actor.kind == RC_COMBAT_ACTOR_PLAYER ? "player" : "npc",
+                actor.uid, reason);
+    rc_combat_stop_actor(world, actor, RC_COMBAT_STATE_CANCELLED);
+    if (state) state->failure_reason = reason;
+}
+
+static void combat_tick_player_attack(RcWorld *world) {
     RcPlayer *p = &world->player;
+    RcCombatActorRef player_actor = {RC_COMBAT_ACTOR_PLAYER, 0};
     if (p->attack_timer > 0) p->attack_timer--;
     if (p->attack_target < 0) return;
     RcNpc *target = find_npc_by_uid(world, p->attack_target);
-    if (!target || target->is_dead) {
-        p->attack_target = -1;
-        p->attack_target_def_id = -1;
-        return;
-    }
     const RcNpcDef *target_def = rc_npc_def_for_npc(world, target);
-    if (!target_def) {
-        p->attack_target = -1;
-        p->attack_target_def_id = -1;
+    RcCombatActorRef npc_actor = {RC_COMBAT_ACTOR_NPC, p->attack_target};
+    if (!target_def || !combat_can_attack_target(world, player_actor, npc_actor)
+            || player_locked_by_other_npc(world, p->attack_target)
+            || target->player_untargetable
+            || (p->attack_target_def_id >= 0 && p->attack_target_def_id != target_def->id)) {
+        reject_launch(world, player_actor, "target is unavailable or engaged");
         return;
     }
-    if (p->attack_target_def_id >= 0 &&
-            p->attack_target_def_id != target_def->id) {
-        p->attack_target = -1;
-        p->attack_target_def_id = -1;
-        return;
-    }
-    if (target->player_untargetable) return;
-    if (!rc_encounter_player_can_target_npc(world, (uint16_t)target->uid)) {
-        return;
-    }
+    if (!rc_encounter_player_can_target_npc(world, target->uid)) return;
     rc_refresh_player_combat_style(p);
+    if (p->combat_style == COMBAT_NONE) {
+        reject_launch(world, player_actor, "weapon attack mode is unavailable");
+        return;
+    }
     face_player_to_npc(world, p, target);
     int range = rc_player_attack_range(p);
     if (!player_can_attack_npc_now(world, p, target, range,
                                    p->combat_style, NULL, NULL)) {
-        if (!route_player_toward_npc(world, p, target, range)) {
-            RcCombatActorRef player = {RC_COMBAT_ACTOR_PLAYER, 0};
-            rc_combat_stop_actor(world, player, RC_COMBAT_STATE_CANCELLED);
-        }
+        if (!route_player_toward_npc(world, p, target, range))
+            reject_launch(world, player_actor, "no reachable attack tile");
         return;
     }
     if (p->attack_timer > 0) return;
-
-    int weapon_id = p->equipment[EQUIP_WEAPON].item_id;
-    const RcSpellDef *spell = NULL;
-    if (p->combat_style == COMBAT_RANGED &&
-            !player_has_ranged_resource(p)) {
+    if (target->num_pending_hits >= RC_MAX_PENDING_HITS
+            || world->combat_attack_event_count >= RC_MAX_COMBAT_ATTACK_EVENTS) {
+        reject_launch(world, player_actor, "pending-hit or attack-event capacity exhausted");
         return;
     }
-    if (p->combat_style == COMBAT_MAGIC) {
+
+    const RcCombatStyle style = p->combat_style;
+    const int stance = p->attack_style_idx;
+    int speed = rc_player_attack_speed(p);
+    const int xp_mask = p->combat_xp_mask;
+    const int weapon_id = p->equipment[EQUIP_WEAPON].item_id;
+    const RcSpellDef *spell = NULL;
+    RcCombatCalc magic_calc = {0};
+    int resource_slot = RC_RANGED_RESOURCE_NONE;
+    const char *resource_failure = NULL;
+    if (style == COMBAT_RANGED) {
+        resource_slot = player_ranged_resource_slot(world, &resource_failure);
+        if (resource_slot < RC_RANGED_RESOURCE_NONE || resource_slot >= RC_EQUIP_COUNT
+                || (resource_slot >= 0 && (p->equipment[resource_slot].item_id < 0
+                    || p->equipment[resource_slot].quantity <= 0))) {
+            reject_launch(world, player_actor, resource_failure
+                ? resource_failure : "ammunition is unavailable");
+            return;
+        }
+    }
+    if (style == COMBAT_MAGIC) {
         spell = player_selected_combat_spell(p);
-        if (!spell || !content_player_has_spell_runes(world, p, spell)) {
+        bool selected = p->manual_spell_cast >= 0 || p->autocast_spell >= 0;
+        if (selected && !spell) {
+            reject_launch(world, player_actor, "This spell is not supported as a combat attack.");
             clear_failed_player_spell_attack(p);
             return;
         }
-    }
-
-    bool use_special = false;
-    int special_cost = 0;
-    if (p->combat.special_pending) {
-        special_cost = content_player_special_energy_cost(world, p, target,
-                                                          weapon_id);
-        if (special_cost <= 0) {
-            p->combat.special_pending = false;
-        } else if (p->special_energy < special_cost) {
-            p->combat.special_pending = false;
+        if (spell && !content_player_has_spell_runes(world, p, spell)) {
+            reject_launch(world, player_actor, "You do not have enough runes to cast this spell.");
+            clear_failed_player_spell_attack(p);
             return;
+        }
+        if (world->combat_hooks.prepare_player_magic) {
+            if (!world->combat_hooks.prepare_player_magic(world, target, spell,
+                    &magic_calc, &speed, &resource_failure)) {
+                reject_launch(world, player_actor, resource_failure);
+                return;
+            }
+        } else if (spell && p->skills.boosted_level[SKILL_MAGIC] >= spell->level) {
+            magic_calc = rc_calc_magic(p, target, spell->max_hit);
         } else {
-            use_special = true;
+            reject_launch(world, player_actor, "Magic level insufficient or powered attack unavailable.");
+            return;
         }
     }
-
-    // Pick the calc based on current combat style.
-    int def_idx = target->def_id;
-    RcCombatCalc calc;
-    switch (p->combat_style) {
-        case COMBAT_RANGED:
-            calc = rc_calc_ranged(p, def_idx); break;
-        case COMBAT_MAGIC:
-            calc = rc_calc_magic(p, def_idx, spell->max_hit);
-            break;
-        default:
-            calc = rc_calc_melee(p, def_idx); break;
-    }
-    int dmg = rc_roll_attack(&calc, &world->rng_state);
-    if (target->force_player_max_hit)
-        dmg = calc.max_hit;
-    if (use_special) {
-        p->special_energy -= special_cost;
-        if (p->special_energy < 0) p->special_energy = 0;
+    const bool special = p->combat.special_pending;
+    int special_cost = special
+        ? content_player_special_energy_cost(world, p, target, weapon_id) : 0;
+    if (special && (special_cost <= 0 || p->special_energy < special_cost)) {
+        reject_launch(world, player_actor, "special attack unsupported or resources insufficient");
         p->combat.special_pending = false;
-        p->combat.special_energy = p->special_energy;
-        dmg = content_modify_player_special_damage(
-            world, p, target, weapon_id, p->combat_style, dmg, calc.max_hit);
+        return;
     }
-    dmg = rc_combat_apply_regular_npc_player_damage_rules(world, target, dmg);
-    dmg = rc_encounter_scale_player_damage(world, (uint16_t)target->uid,
-                                           p->combat_style, dmg);
-    int spell_idx = p->manual_spell_cast >= 0
-                  ? p->manual_spell_cast : p->autocast_spell;
+    const int spell_idx = p->manual_spell_cast >= 0 ? p->manual_spell_cast : p->autocast_spell;
     RcPlayerAttackProfiles profiles =
         select_player_attack_profiles(p, spell, spell_idx, weapon_id,
-                                      use_special);
-    const RcCombatProfileDef *timing_profile =
-        player_timing_profile(&profiles);
-    int delay = profile_hit_delay(
-        timing_profile, rc_combat_hit_delay_for_style(p->combat_style));
-
-    if (p->combat_style == COMBAT_RANGED &&
-            !player_consume_ranged_resource(world)) {
+            resource_slot >= 0 ? p->equipment[resource_slot].item_id : -1, special);
+    int delay = profile_hit_delay(player_timing_profile(&profiles),
+                                   rc_combat_hit_delay_for_style(style));
+    RcCombatCalc calc;
+    if (style == COMBAT_RANGED)
+        calc = rc_calc_ranged(p, target, resource_slot == EQUIP_AMMO);
+    else if (style == COMBAT_MAGIC) calc = magic_calc;
+    else calc = rc_calc_melee(p, target);
+    uint32_t rng_before = world->rng_state;
+    RcPendingHit prepared[4] = {0};
+    int count = world->combat_hooks.prepare_player_hits
+        ? world->combat_hooks.prepare_player_hits(world, target, &calc, special,
+                                                  prepared, 4, &resource_failure) : 0;
+    if (count == 0) {
+        RcCombatRoll roll = rc_roll_attack(&calc, &world->rng_state, true);
+        if (target->force_player_max_hit) roll = (RcCombatRoll){true, calc.max_hit};
+        if (special)
+            roll.damage = content_modify_player_special_damage(
+                world, p, target, weapon_id, style, roll.damage, calc.max_hit);
+        prepared[0] = (RcPendingHit){.damage = roll.damage,
+            .accurate = roll.accurate, .max_hit = calc.max_hit};
+        count = 1;
+    }
+    if (count < 0 || count > 4 || target->num_pending_hits > RC_MAX_PENDING_HITS - count) {
+        world->rng_state = rng_before;
+        reject_launch(world, player_actor, count < 0 && resource_failure
+            ? resource_failure : "pending-hit capacity exhausted; attack not launched");
         return;
     }
-    if (p->combat_style == COMBAT_MAGIC &&
-            !content_player_consume_spell_runes(world, p, spell)) {
-        clear_failed_player_spell_attack(p);
+    int hit_index = target->num_pending_hits;
+    int total_damage = 0;
+    for (int i = 0; i < count; i++) {
+        RcPendingHit *hit = &prepared[i];
+        hit->damage = rc_combat_apply_regular_npc_player_damage_rules(world, target, hit->damage);
+        hit->damage = rc_encounter_scale_player_damage(world, target->uid, style, hit->damage);
+        rc_queue_hit_meta(target->pending_hits, &target->num_pending_hits,
+                         hit->damage, delay, style, RC_HIT_SOURCE_PLAYER,
+                         0, world->tick, 0, hit->max_hit);
+        target->pending_hits[hit_index + i].accurate = hit->accurate;
+        target->pending_hits[hit_index + i].defence_drain = hit->defence_drain;
+        target->pending_hits[hit_index + i].spell_key = spell ? spell_idx + 1 : 0;
+        target->pending_hits[hit_index + i].weapon_id = weapon_id > 0 ? weapon_id : 0;
+        total_damage += hit->damage;
+    }
+    int ammo_cost = world->combat_hooks.player_ranged_resource_cost
+        ? world->combat_hooks.player_ranged_resource_cost(p, special) : 1;
+    bool paid = true;
+    if (style == COMBAT_RANGED && resource_slot >= 0)
+        paid = ammo_cost > 0 && equipment_consume(world, resource_slot, ammo_cost);
+    else if (style == COMBAT_MAGIC && spell)
+        paid = content_player_consume_spell_runes(world, p, spell);
+    else if (world->combat_hooks.consume_weapon_charge)
+        paid = world->combat_hooks.consume_weapon_charge(world, weapon_id);
+    if (!paid) {
+        memset(&target->pending_hits[hit_index], 0, sizeof(RcPendingHit) * count);
+        target->num_pending_hits = hit_index;
+        world->rng_state = rng_before;
+        reject_launch(world, player_actor, "resource transaction rejected; attack not launched");
         return;
     }
 
+    p->combat.failure_reason = NULL;
+    rc_encounter_player_attack_committed(world, target->uid);
+    if (special) {
+        p->special_energy -= special_cost;
+        p->combat.special_pending = false;
+        p->combat.special_energy = p->special_energy;
+        if (world->combat_hooks.after_player_special_launch)
+            world->combat_hooks.after_player_special_launch(world, weapon_id, total_damage);
+    }
+    int xp_damage = total_damage < target->current_hp ? total_damage : target->current_hp;
+    rc_award_player_combat_xp(world, xp_damage, xp_mask);
     emit_player_attack_event(world, p, target, spell, spell_idx, weapon_id,
-                             use_special, &profiles, delay);
-
-    // NPCs don't flick prayer (overhead prayer is static per phase),
-    // so the snapshot is the NPC's phase prayer flags. For now,
-    // NPC overhead prayer is not modelled — snapshot = 0.
-    rc_queue_hit_meta(target->pending_hits, &target->num_pending_hits,
-                      dmg, delay, p->combat_style,
-                      RC_HIT_SOURCE_PLAYER,
-                      0u /* NPC prayer snapshot */, world->tick,
-                      0, calc.max_hit);
+                              special, &profiles, delay, style, stance, prepared[0].accurate, count);
+    if (p->manual_spell_cast >= 0) {
+        p->attack_target = -1;
+        p->attack_target_def_id = -1;
+    }
     p->manual_spell_cast = -1;
-    p->attack_timer = rc_player_attack_speed(p);
-    target->target_uid = 0;
+    p->attack_timer = speed;
+    combat_register_attacker(&target->combat, player_actor);
+    if (npc_can_retaliate(world, target))
+        rc_combat_start_npc_vs_player(world, target->uid, 0);
     RcPayloadPlayerAttack payload = {
-        .target_npc_id = (uint32_t)target->uid,
-        .style = (uint8_t)p->combat_style,
+        .target_npc_id = (uint32_t)target->uid, .style = (uint8_t)style,
     };
     rc_event_fire(world, RC_EVT_PLAYER_ATTACK, &payload);
 }
 
-static void combat_tick_npc_legacy(struct RcWorld *world, RcNpc *npc) {
+static void combat_tick_npc_attack(RcWorld *world, RcNpc *npc) {
     if (npc->is_dead || !npc->active) return;
+    if (npc->attack_timer > 0) npc->attack_timer--;
     if (npc->player_untargetable) return;
     const RcNpcDef *d = rc_npc_def_for_npc(world, npc);
     if (!d) return;
     if (npc->target_uid < 0) {
-        if (npc->combat.aggro_state == NPC_HUNT_ACTIVE) {
-            npc->combat.aggro_state =
-                (d->hunt.flags & RC_NPC_HUNT_KEEP_HUNTING)
+        if (npc->combat.aggro_state == NPC_HUNT_ACTIVE)
+            npc->combat.aggro_state = (d->hunt.flags & RC_NPC_HUNT_KEEP_HUNTING)
                 ? NPC_HUNT_READY : NPC_HUNT_CONSUMED;
-        }
         if (npc_should_auto_attack_player(world, npc, d)) {
             if (rc_combat_start_npc_vs_player(world, npc->uid, 0))
                 npc->combat.aggro_state = NPC_HUNT_ACTIVE;
         } else {
-            int spawn_dist = npc_spawn_distance(npc);
-            if (spawn_dist > npc_leash_range(d))
-                npc->combat.leash_state = 1;
-            if (npc->combat.leash_state && spawn_dist > 0) {
-                route_npc_to_spawn(world, npc);
-            } else if (spawn_dist == 0) {
+            int distance = npc_spawn_distance(npc);
+            if (distance > npc_leash_range(d)) npc->combat.leash_state = 1;
+            if (npc->combat.leash_state && distance > 0) route_npc_to_spawn(world, npc);
+            else if (distance == 0) {
                 npc->combat.leash_state = 0;
                 if (npc->route_mode == RC_NPC_ROUTE_RETURN)
                     rc_npc_route_clear(npc, RC_MOVEMENT_ARRIVED);
@@ -1468,174 +1526,202 @@ static void combat_tick_npc_legacy(struct RcWorld *world, RcNpc *npc) {
             return;
         }
     }
-    // We only support targeting the player for now.
     RcPlayer *p = &world->player;
-    if (npc->target_uid != 0 /* placeholder player uid */) return;
-    if (npc_should_drop_target(world, npc, d)) {
-        npc->target_uid = -1;
-        if (npc->combat.aggro_state == NPC_HUNT_ACTIVE) {
-            npc->combat.aggro_state =
-                (d->hunt.flags & RC_NPC_HUNT_KEEP_HUNTING)
-                ? NPC_HUNT_READY : NPC_HUNT_CONSUMED;
-        }
+    if (npc->target_uid != 0) return;
+    RcCombatActorRef npc_actor = {RC_COMBAT_ACTOR_NPC, npc->uid};
+    RcCombatActorRef player_actor = {RC_COMBAT_ACTOR_PLAYER, 0};
+    if (npc_should_drop_target(world, npc, d)
+            || !combat_can_attack_target(world, npc_actor, player_actor)) {
+        rc_combat_stop_actor(world, npc_actor, RC_COMBAT_STATE_CANCELLED);
         npc->combat.leash_state = 1;
         route_npc_to_spawn(world, npc);
         return;
     }
     if (d->attack_speed <= 0 || d->max_hit <= 0) return;
 
-    int distance = distance_player_to_npc(world, p, npc);
-    RcCombatStyle style = content_select_npc_style(
-        world, npc, p, rc_combat_npc_preferred_style(d->attack_types));
+    RcCombatStyle style = npc->combat.selected_npc_style;
+    if (style == COMBAT_NONE) style = rc_combat_npc_preferred_style(d->attack_types);
+    int range = content_npc_attack_range(world, npc, style, default_npc_attack_range(d, style));
     face_npc_to_player(npc, p);
-    uint16_t enc_max_hit = 0;
-    uint16_t enc_min_hit = 0;
-    uint32_t enc_flags = 0;
-    uint8_t enc_style = (uint8_t)style;
-    if (rc_encounter_select_npc_attack(world, (uint16_t)npc->uid, distance,
-                                       &enc_style, &enc_min_hit,
-                                       &enc_max_hit, &enc_flags) >= 0) {
-        style = (RcCombatStyle)enc_style;
-        // Encounter data can override style/max-hit without adding
-        // boss-specific branches here.
+    if (npc->attack_timer > 0) {
+        if (!npc_can_attack_player_now(world, npc, p, range, style, NULL, NULL))
+            route_npc_to_player(world, npc, range, style);
+        return;
     }
-    int range = content_npc_attack_range(
-        world, npc, style, default_npc_attack_range(d, style));
+    int extra = world->combat_hooks.extra_npc_hit_count
+        ? world->combat_hooks.extra_npc_hit_count(world, npc) : 0;
+    if (extra < 0 || extra >= RC_MAX_PENDING_HITS
+            || p->num_pending_hits > RC_MAX_PENDING_HITS - 1 - extra
+            || world->combat_attack_event_count >= RC_MAX_COMBAT_ATTACK_EVENTS) {
+        reject_launch(world, npc_actor, "pending-hit or attack-event capacity exhausted");
+        return;
+    }
+
+    if (!npc->combat.attack_prepared) {
+        style = content_select_npc_style(world, npc, p, rc_combat_npc_preferred_style(d->attack_types));
+        npc->combat.prepared_min_hit = npc->combat.prepared_max_hit = 0;
+        npc->combat.prepared_attack_flags = 0;
+        uint8_t selected = (uint8_t)style;
+        if (rc_encounter_select_npc_attack(world, npc->uid,
+                distance_player_to_npc(world, p, npc), &selected,
+                &npc->combat.prepared_min_hit, &npc->combat.prepared_max_hit,
+                &npc->combat.prepared_attack_flags) >= 0)
+            style = (RcCombatStyle)selected;
+        npc->combat.selected_npc_style = style;
+        npc->combat.attack_prepared = true;
+    }
+    uint16_t max_hit = npc->combat.prepared_max_hit;
+    uint16_t min_hit = npc->combat.prepared_min_hit;
+    uint32_t flags = npc->combat.prepared_attack_flags;
+    range = content_npc_attack_range(world, npc, style, default_npc_attack_range(d, style));
     npc->combat.selected_npc_style = style;
-    npc->combat.last_npc_style = style;
-    npc->combat.leash_state = 0;
     if (!npc_can_attack_player_now(world, npc, p, range, style, NULL, NULL)) {
         route_npc_to_player(world, npc, range, style);
-        if (npc->attack_timer > 0) npc->attack_timer--;
         return;
     }
     if (npc->route_mode == RC_NPC_ROUTE_CHASE)
         rc_npc_route_clear(npc, RC_MOVEMENT_ARRIVED);
-    if (npc->attack_timer > 0) { npc->attack_timer--; return; }
-
-    RcCombatCalc calc = rc_calc_npc_attack_style(npc->def_id, p, style);
-    if (enc_max_hit > 0) calc.max_hit = enc_max_hit;
-    int dmg = rc_roll_attack(&calc, &world->rng_state);
-    if (dmg > 0 && enc_min_hit > 0 && dmg < enc_min_hit) dmg = enc_min_hit;
-    dmg = content_modify_npc_roll_damage(world, npc, style, dmg);
-    dmg = rc_combat_apply_regular_npc_attack_rules(world, npc, dmg);
-    const RcCombatProfileDef *npc_profile =
-        rc_combat_profile_for_npc(d->id, style);
-    int delay = profile_hit_delay(npc_profile,
-                                  rc_combat_hit_delay_for_style(style));
-    npc->attack_count++;
-    content_after_npc_swing(world, npc, style);
-
-    // Prayer snapshot at queue tick — per FC lesson memory, protection
-    // prayer must be active NOW (queue tick) to block this hit, even
-    // if the player turns it off before impact.
-    rc_queue_hit_meta(p->pending_hits, &p->num_pending_hits,
-                      dmg, delay, style,
-                      npc->uid,
-                      (enc_flags & RC_ENC_ATTACK_PRAYER_IGNORABLE)
-                      ? 0u : p->active_prayers,
-                      world->tick, 0, calc.max_hit);
+    RcCombatCalc calc = rc_calc_npc_attack_style(npc, d, p, style);
+    if (max_hit > 0) calc.max_hit = max_hit;
+    RcCombatRoll roll = rc_roll_attack(&calc, &world->rng_state, false);
+    if (roll.accurate && min_hit > 0 && roll.damage < min_hit) roll.damage = min_hit;
+    roll.damage = content_modify_npc_roll_damage(world, npc, style, roll.damage);
+    roll.damage = rc_combat_apply_regular_npc_attack_rules(world, npc, roll.damage);
+    int delay = profile_hit_delay(rc_combat_profile_for_npc(d->id, style),
+                                   rc_combat_hit_delay_for_style(style));
+    int index = p->num_pending_hits;
+    if (!rc_queue_hit_meta(p->pending_hits, &p->num_pending_hits,
+            roll.damage, delay, style, npc->uid,
+            flags & RC_ENC_ATTACK_PRAYER_IGNORABLE ? 0 : p->active_prayers,
+            world->tick, 0, calc.max_hit)) {
+        reject_launch(world, npc_actor, "pending-hit admission failed");
+        return;
+    }
+    p->pending_hits[index].accurate = roll.accurate;
+    npc->combat.failure_reason = NULL;
+    npc->combat.last_npc_style = style;
+    npc->combat.leash_state = 0;
+    combat_register_attacker(&p->combat, npc_actor);
     emit_npc_attack_event(world, npc, d, p, style, delay);
-
-    int speed = d->attack_speed;
-    npc->attack_timer = content_modify_npc_attack_speed(world, npc, speed);
-    RcPayloadNpcAttack payload = {
-        .npc_id = (uint32_t)npc->uid,
-        .style = (uint8_t)style,
-    };
+    npc->attack_timer = content_modify_npc_attack_speed(world, npc, d->attack_speed);
+    npc->attack_count++;
+    npc->combat.attack_prepared = false;
+    content_after_npc_swing(world, npc, style);
+    RcPayloadNpcAttack payload = {.npc_id = (uint32_t)npc->uid, .style = (uint8_t)style};
     rc_event_fire(world, RC_EVT_NPC_ATTACK, &payload);
 }
-
 void rc_combat_tick_player(struct RcWorld *world) {
-    combat_tick_player_legacy(world);
+    combat_tick_player_attack(world);
     sync_player_combat_state_from_legacy(world, &world->player);
 }
 
 void rc_combat_tick_npc(struct RcWorld *world, RcNpc *npc) {
-    combat_tick_npc_legacy(world, npc);
+    combat_tick_npc_attack(world, npc);
     sync_npc_combat_state_from_legacy(world, npc);
 }
 
-// Resolve pending hits on the player. Fires RC_EVT_PLAYER_DAMAGED
-// per landing hit so subsystems (encounter, prayer debuffs, etc.)
-// can react to the source + style + final (post-protection) damage.
-void rc_resolve_player_hits(struct RcWorld *world) {
+void rc_combat_reset_player_life(RcWorld *world) {
+    if (!world) return;
     RcPlayer *p = &world->player;
-    int total = 0;
-    for (int i = 0; i < p->num_pending_hits; i++) {
-        RcPendingHit *h = &p->pending_hits[i];
-        if (!h->active) continue;
-        if (world->tick < h->apply_tick) continue;
-
-        int scale = rc_encounter_player_protection_scale_pct(
-            world, h->source_idx, h->attack_style,
-            (uint32_t)h->prayer_snapshot);
-        int dmg = scale >= 0
-                  ? (h->damage * scale) / 100
-                  : rc_combat_apply_protection(
-                        h->damage, h->attack_style,
-                        (uint32_t)h->prayer_snapshot,
-                        true /* player defender */);
-        dmg = content_modify_incoming_after_protection(world, h, dmg);
-        dmg = rc_encounter_scale_incoming_damage(world, h->source_idx,
-                                                 h->attack_style, dmg);
-        total += dmg;
-        uint8_t hit_type = dmg <= 0 ? RC_HIT_TYPE_MISS :
-                           (h->max_hit > 0 && dmg >= h->max_hit
-                            ? RC_HIT_TYPE_MAX : RC_HIT_TYPE_NORMAL);
-        rc_combat_actor_record_hit(&p->combat, dmg, h->max_hit,
-                                   h->attack_style, h->source_idx,
-                                   hit_type, h->flags, 4);
-        if (h->source_idx >= 0) {
-            RcCombatActorRef attacker = {
-                .kind = RC_COMBAT_ACTOR_NPC,
-                .uid = h->source_idx,
-            };
-            combat_register_attacker(&p->combat, attacker);
-            if (dmg > 0 && p->auto_retaliate && p->attack_target < 0 &&
-                    p->current_hp - total * 10 > 0) {
-                rc_combat_start_player_vs_npc(world, 0, h->source_idx);
-            }
-        }
-        if (dmg > 0) {
-            p->last_hit = dmg;
-            p->last_hit_timer = 4;
-        }
-        if ((h->flags & RC_HIT_SUPPRESS_ENCOUNTER_EFFECTS) == 0) {
-            content_on_npc_hit_player(world, h, dmg);
-
-            RcPayloadPlayerDamaged payload = {
-                .source_npc_id = h->source_idx >= 0
-                                 ? (uint32_t)h->source_idx
-                                 : UINT32_MAX,
-                .damage = (uint16_t)(dmg & 0xFFFF),
-                .current_hp = p->current_hp - total * 10 > 0
-                            ? (uint16_t)((p->current_hp - total * 10)
-                                         & 0xFFFF)
-                            : 0,
-                .max_hp = (uint16_t)(p->max_hp & 0xFFFF),
-                .style = (uint8_t)h->attack_style,
-            };
-            rc_event_fire(world, RC_EVT_PLAYER_DAMAGED, &payload);
-        }
-        h->active = 0;
-    }
-    int w = 0;
-    for (int r = 0; r < p->num_pending_hits; r++) {
-        if (p->pending_hits[r].active) {
-            if (w != r) p->pending_hits[w] = p->pending_hits[r];
-            w++;
-        }
-    }
-    p->num_pending_hits = w;
-
-    if (total > 0) {
-        p->current_hp -= total * 10;   // hp stored in tenths
-        if (p->current_hp < 0) p->current_hp = 0;
-    }
-    sync_player_combat_state_from_legacy(world, p);
+    memset(p->pending_hits, 0, sizeof(p->pending_hits));
+    p->num_pending_hits = 0;
+    p->attack_target = p->attack_target_def_id = -1;
+    p->facing_entity = -1;
+    p->attack_timer = 0;
+    p->manual_spell_cast = -1;
+    p->combat.special_pending = false;
+    rc_combat_init_player_state(p);
+    p->active_prayers = 0;
+    p->prayer_drain_counter = 0;
+    p->current_prayer_points = p->skills.base_level[SKILL_PRAYER] * 10;
+    p->poison_damage = p->poison_tick_counter = 0;
+    p->venom_damage = p->venom_tick_counter = p->disease_tick_counter = 0;
+    p->freeze_start_tick = p->freeze_expire_tick = 0;
+    p->teleblock_start_tick = p->teleblock_expire_tick = 0;
+    p->food_timer = p->potion_timer = p->combo_timer = 0;
+    p->ward_of_arceuus_timer = p->hp_regen_counter = 0;
+    p->last_hit = p->last_hit_timer = 0;
+    for (int i = 0; i < SKILL_COUNT; i++)
+        p->skills.boosted_level[i] = p->skills.base_level[i];
+    rc_world_state_clear_player_combat(world);
 }
 
+int rc_combat_apply_player_hit(RcWorld *world, const RcPendingHit *hit, int damage) {
+    if (!world || !hit) return 0;
+    RcPlayer *p = &world->player;
+    if (p->is_dead || p->current_hp <= 0) return 0;
+    if (damage < 0) damage = 0;
+    int lost = damage > p->current_hp / 10 ? p->current_hp : damage * 10;
+    p->current_hp -= lost;
+    p->skills.boosted_level[SKILL_HITPOINTS] = (p->current_hp + 9) / 10;
+    uint8_t type = damage <= 0 ? RC_HIT_TYPE_MISS
+        : hit->max_hit > 0 && damage >= hit->max_hit ? RC_HIT_TYPE_MAX : RC_HIT_TYPE_NORMAL;
+    rc_combat_actor_record_hit(&p->combat, damage, hit->max_hit,
+        hit->attack_style, hit->source_idx, type, hit->flags, 4);
+    p->last_hit = damage;
+    p->last_hit_timer = 4;
+    int applied = (lost + 9) / 10;
+    if (!(hit->flags & (RC_HIT_SUPPRESS_ENCOUNTER_EFFECTS | RC_HIT_SOURCE_EXPIRED)))
+        content_on_npc_hit_player(world, hit, applied);
+    RcPayloadPlayerDamaged payload = {
+        .source_npc_id = hit->source_idx >= 0 ? (uint32_t)hit->source_idx : UINT32_MAX,
+        .damage = (uint16_t)(applied > UINT16_MAX ? UINT16_MAX : applied),
+        .damage_tenths = lost,
+        .current_hp = (uint16_t)(p->current_hp > UINT16_MAX ? UINT16_MAX : p->current_hp),
+        .max_hp = (uint16_t)(p->max_hp > UINT16_MAX ? UINT16_MAX : p->max_hp),
+        .style = (uint8_t)hit->attack_style, .flags = hit->flags,
+    };
+    rc_event_fire(world, RC_EVT_PLAYER_DAMAGED, &payload);
+    return applied;
+}
+
+void rc_resolve_player_hits(RcWorld *world) {
+    RcPlayer *p = &world->player;
+    for (int i = 0; i < p->num_pending_hits; i++) {
+        RcPendingHit hit = p->pending_hits[i];
+        if (!hit.active || world->tick < hit.apply_tick) continue;
+        p->pending_hits[i].active = 0;
+        if (p->is_dead || p->current_hp <= 0) continue;
+        RcNpc *source = hit.source_idx >= 0 ? find_npc_by_uid(world, hit.source_idx) : NULL;
+        if (hit.source_idx >= 0 && style_is_melee(hit.attack_style)
+                && (!source || source->is_dead || source->current_hp <= 0)) continue;
+        if (hit.source_idx >= 0 && (!source || source->is_dead || source->current_hp <= 0
+                || (hit.flags & RC_HIT_SOURCE_EXPIRED))) {
+            source = NULL;
+            hit.flags |= RC_HIT_SOURCE_EXPIRED;
+        }
+
+        int scale = source ? rc_encounter_player_protection_scale_pct(world,
+            hit.source_idx, hit.attack_style, (uint32_t)hit.prayer_snapshot) : -1;
+        int damage = scale >= 0 ? (hit.damage * scale) / 100
+            : rc_combat_apply_protection(hit.damage, hit.attack_style,
+                                          (uint32_t)hit.prayer_snapshot, true);
+        if (source) {
+            damage = content_modify_incoming_after_protection(world, &hit, damage);
+            damage = rc_encounter_scale_incoming_damage(world, hit.source_idx,
+                                                         hit.attack_style, damage);
+        }
+        rc_combat_apply_player_hit(world, &hit, damage);
+        if (source && !source->is_dead) {
+            RcCombatActorRef attacker = {RC_COMBAT_ACTOR_NPC, hit.source_idx};
+            combat_register_attacker(&p->combat, attacker);
+            if (p->auto_retaliate && p->attack_target < 0 && p->current_hp > 0
+                    && p->route_idx >= p->route_len && p->movement_step_count == 0
+                    && !p->interaction.active && !p->skill_action
+                    && !world->player_action.active) {
+                if (rc_combat_start_player_vs_npc(world, 0, hit.source_idx)) {
+                    int delay = rc_player_attack_speed(p) / 2;
+                    if (p->attack_timer < delay) p->attack_timer = delay;
+                }
+            }
+        }
+    }
+    int write = 0;
+    for (int i = 0; i < p->num_pending_hits; i++)
+        if (p->pending_hits[i].active) p->pending_hits[write++] = p->pending_hits[i];
+    p->num_pending_hits = write;
+    sync_player_combat_state_from_legacy(world, p);
+}
 static void apply_status_deadline(RcWorld *world, int ticks,
                                   RcTick *start_tick,
                                   RcTick *expire_tick) {
@@ -1690,6 +1776,7 @@ bool rc_player_is_frozen(const RcWorld *world) {
 void rc_combat_tick_player_status(struct RcWorld *world) {
     if (!world) return;
     RcPlayer *p = &world->player;
+    if (p->is_dead || p->current_hp <= 0) return;
     if (p->last_hit_timer > 0) p->last_hit_timer--;
     rc_combat_actor_tick_recent_hits(&p->combat);
     rc_combat_tick_actor_threat(&p->combat);
@@ -1698,8 +1785,10 @@ void rc_combat_tick_player_status(struct RcWorld *world) {
         if (p->poison_tick_counter > 0) {
             p->poison_tick_counter--;
         } else {
-            p->current_hp -= p->poison_damage * 10;
-            if (p->current_hp < 0) p->current_hp = 0;
+            RcPendingHit hit = {.source_idx = RC_HIT_SOURCE_STATUS,
+                .attack_style = COMBAT_NONE, .max_hit = p->poison_damage,
+                .flags = RC_HIT_SUPPRESS_ENCOUNTER_EFFECTS};
+            rc_combat_apply_player_hit(world, &hit, p->poison_damage);
             p->poison_damage--;
             p->poison_tick_counter = p->poison_damage > 0 ? 30 : 0;
         }
@@ -1708,8 +1797,10 @@ void rc_combat_tick_player_status(struct RcWorld *world) {
         if (p->venom_tick_counter > 0) {
             p->venom_tick_counter--;
         } else {
-            p->current_hp -= p->venom_damage * 10;
-            if (p->current_hp < 0) p->current_hp = 0;
+            RcPendingHit hit = {.source_idx = RC_HIT_SOURCE_STATUS,
+                .attack_style = COMBAT_NONE, .max_hit = p->venom_damage,
+                .flags = RC_HIT_SUPPRESS_ENCOUNTER_EFFECTS};
+            rc_combat_apply_player_hit(world, &hit, p->venom_damage);
             if (p->venom_damage < 20) p->venom_damage += 2;
             p->venom_tick_counter = 30;
         }

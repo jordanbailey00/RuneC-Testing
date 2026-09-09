@@ -6,11 +6,15 @@ Runtime schemas: `schema/defs/spells.schema.toml` and
 """
 from __future__ import annotations
 
+import argparse
+import csv
 import json
 import re
 import struct
 import sys
 from pathlib import Path
+
+from content_paths import content_read_path
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -83,7 +87,49 @@ def slugify(s: str) -> str:
 
 
 def combat_effects() -> dict[str, tuple[int, int]]:
-    return {}
+    path = content_read_path("combat/spell_effects.tsv")
+    with path.open() as stream:
+        rows = list(csv.DictReader(stream, delimiter="|"))
+    effects = {}
+    for row in rows:
+        key = slugify(row["name"])
+        value = int(row["max_hit"]), int(row["effect_flags"])
+        if key in effects or not 0 <= value[0] <= 65535 or not 0 < value[1] <= 65535:
+            raise ValueError(f"invalid or duplicate combat spell: {row['name']}")
+        effects[key] = value
+    return effects
+
+
+def update_combat_effects(path: Path) -> int:
+    """Preserve installed spell indices, requirements, and all noncombat records."""
+    data = bytearray(path.read_bytes())
+    if len(data) < 12 or struct.unpack_from("<II", data) != (SPEL_MAGIC, VERSION):
+        raise ValueError("expected a complete SPEL v2 file")
+    count, = struct.unpack_from("<I", data, 8)
+    effects = combat_effects()
+    found = set()
+    offset = 12
+    for _ in range(count):
+        if offset >= len(data):
+            raise ValueError("truncated spell name")
+        size = data[offset]
+        offset += 1
+        if offset + size + 12 > len(data):
+            raise ValueError("truncated spell record")
+        key = slugify(data[offset:offset + size].decode("latin-1"))
+        offset += size
+        if key in effects:
+            if key in found:
+                raise ValueError(f"duplicate installed spell: {key}")
+            struct.pack_into("<HH", data, offset + 7, *effects[key])
+            found.add(key)
+        offset += 12 + data[offset + 11] * 5
+    if offset != len(data):
+        raise ValueError("spell record lengths do not match the file")
+    if found != effects.keys():
+        raise ValueError(f"missing combat spells: {sorted(effects.keys() - found)}")
+    path.write_bytes(data)
+    return len(found)
 
 
 def parse_level(s) -> int:
@@ -125,6 +171,13 @@ def write_bin(path: Path, magic: int, spells: list[dict]):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--update-combat-effects", type=Path)
+    args = parser.parse_args()
+    if args.update_combat_effects:
+        count = update_combat_effects(args.update_combat_effects)
+        print(f"Updated {count} combat spells in {args.update_combat_effects}")
+        return
     items = item_map()
     effects = combat_effects()
     spells = []
@@ -166,6 +219,8 @@ def main():
         if stype == 2:
             teleports.append(s)
 
+    if not spells:
+        raise ValueError("no cached spell definitions; refusing to replace installed data")
     print(f"{len(spells)} spells, {len(teleports)} teleports",
           file=sys.stderr)
     OUT_S.parent.mkdir(parents=True, exist_ok=True)
@@ -181,9 +236,9 @@ def main():
         f"combat max-hit matches: {matched}\n"
         "source: OSRS Wiki infobox_spell cache\n"
         "notes:\n"
-        "  Spell metadata and rune costs are wiki-derived. Combat max-hit\n"
-        "  hints and exact spell effect state machines remain tracked source\n"
-        "  gaps until backed by approved OSRS-native sources.\n"
+        "  Spell metadata and rune costs are wiki-derived. Combat max hits and\n"
+        "  basic effects come from content/combat/spell_effects.tsv. Advanced\n"
+        "  target restrictions, area effects and utility spells remain tracked.\n"
     )
     print(f"  → {OUT_S} ({OUT_S.stat().st_size} bytes)", file=sys.stderr)
     print(f"  → {OUT_T} ({OUT_T.stat().st_size} bytes)", file=sys.stderr)

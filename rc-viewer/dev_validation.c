@@ -6,6 +6,7 @@
 #include "../rc-core/npc.h"
 #include "../rc-core/pathfinding.h"
 #include "../rc-core/spells.h"
+#include "../rc-content/combat/magic.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -23,6 +24,41 @@ static int env_bool_local(const char *key, int fallback) {
 
 int runec_dev_validation_enabled(void) {
     return env_bool_local("RUNEC_DEV_VALIDATION", 1);
+}
+
+int runec_dev_validation_set_spellbook(RcWorld *world, int book) {
+    if (!world || !runec_dev_validation_enabled() ||
+            book < RC_SPELL_BOOK_STANDARD || book > RC_SPELL_BOOK_ARCEUUS)
+        return 0;
+    rc_player_set_spellbook(world, book);
+    return world->player_commands.last_result == RC_COMMAND_RESULT_QUEUED;
+}
+
+static void preserve_player_life(RcWorld *world, int event,
+                                  const void *payload, void *ctx) {
+    (void)event;
+    (void)payload;
+    (void)ctx;
+    RcPlayer *p = &world->player;
+    if (p->current_hp < 10) p->current_hp = 10;
+    p->skills.boosted_level[SKILL_HITPOINTS] = (p->current_hp + 9) / 10;
+    p->combat.hp_current = p->current_hp;
+}
+
+int runec_dev_validation_set_god_mode(RcWorld *world, bool enabled) {
+    if (!world) return 0;
+    if (!enabled)
+        return rc_event_unsubscribe(world, RC_EVT_PLAYER_DAMAGED,
+                                    preserve_player_life, NULL) == 0;
+    if (rc_event_subscribe(world, RC_EVT_PLAYER_DAMAGED,
+                           preserve_player_life, NULL) != 0) return 0;
+    if (world->player.is_dead && !rc_world_respawn_player(world,
+            world->player.x, world->player.y, world->player.plane)) {
+        rc_event_unsubscribe(world, RC_EVT_PLAYER_DAMAGED, preserve_player_life, NULL);
+        return 0;
+    }
+    preserve_player_life(world, 0, NULL, NULL);
+    return 1;
 }
 
 static const RuneCDevTransport g_dev_transports[] = {
@@ -179,7 +215,7 @@ static int find_unnoted_item_id_by_name(const char *name) {
         {"Dragon darts", "Dragon dart", -1},
         {"Amethyst darts", "Amethyst dart", -1},
         {"Sunfire splinter", "Sunfire splinters", -1},
-        {"Granite maul (ornate handle)", NULL, 12848},
+        {"Granite maul (ornate handle)", NULL, 24225},
     };
     for (int i = 0; i < ARRAY_COUNT(aliases); i++) {
         if (!item_name_matches(name, aliases[i].query))
@@ -198,8 +234,11 @@ static int find_unnoted_item_id_by_name(const char *name) {
         const RcItemDef *def = rc_item_def_get(i);
         if (!def || !def->name[0] || !item_name_matches(def->name, name))
             continue;
-        if (!def->noted && !def->placeholder)
-            return def->id;
+        if (!def->noted && !def->placeholder) {
+            // Cache names also identify unusable display/minigame duplicates.
+            if (def->equippable && def->equipable_by_player) return def->id;
+            if (fallback < 0) fallback = def->id;
+        }
         if (fallback < 0 && def->noted && def->linked_id_item >= 0) {
             const RcItemDef *linked = rc_item_def_get(def->linked_id_item);
             if (linked && !linked->noted && !linked->placeholder)
@@ -227,8 +266,14 @@ static void seed_bank_names(RcWorld *world, int tab,
             fprintf(stderr, "combat bank: missing item '%s'\n", names[i]);
             continue;
         }
-        rc_bank_add_item_tab(world, item_id,
+        int slot = rc_bank_add_item_tab(world, item_id,
                              validation_quantity(item_id, quantity), tab);
+        // Validation stock starts charged; ordinary items must be charged in-game.
+        if (slot >= 0 && item_id == 28922)
+            world->player.bank[slot].state_id = 1000;
+        uint32_t charges = rc_content_magic_charge_capacity(item_id);
+        if (slot >= 0 && charges)
+            world->player.bank[slot].state_id = charges;
     }
 }
 
@@ -236,12 +281,21 @@ void runec_dev_validation_seed_bank(RcWorld *world) {
     if (!world || !runec_dev_validation_enabled())
         return;
 
+    static const char *const runes[] = {
+        "Air rune", "Water rune", "Earth rune", "Fire rune", "Mind rune",
+        "Body rune", "Cosmic rune", "Chaos rune", "Nature rune", "Law rune",
+        "Death rune", "Astral rune", "Blood rune", "Soul rune", "Wrath rune",
+        "Mist rune", "Dust rune", "Mud rune", "Smoke rune", "Steam rune",
+        "Lava rune", "Sunfire rune", "Aether rune",
+    };
+    seed_bank_names(world, RUNEC_DEV_BANK_TAB_MAGE, runes, ARRAY_COUNT(runes), 100000);
+
     static const char *const ranged_items[] = {
         "Twisted bow", "Bow of faerdhinen", "Bow of faerdhinen (c)",
         "Crystal bow", "Toxic blowpipe", "Toxic blowpipe (empty)",
         "Zaryte crossbow", "Armadyl crossbow", "Dragon hunter crossbow",
         "Dragon crossbow", "Scorching bow", "Webweaver bow", "Craw's bow",
-        "Venator bow", "Tonalztics of ralos", "Eclipse atlatl",
+        "Venator bow", "Tonalztics of ralos", "Tonalztics of ralos (uncharged)", "Eclipse atlatl",
         "Hunters' sunlight crossbow", "Dark bow", "Magic shortbow (i)",
         "Heavy ballista", "Light ballista", "Dragon knife",
         "Dragon knife(p++)", "Dragon thrownaxe", "Morrigan's javelin",
@@ -270,12 +324,21 @@ void runec_dev_validation_seed_bank(RcWorld *world) {
         "Onyx dragon bolts (e)",
     };
     static const char *const mage_items[] = {
-        "Tumeken's shadow", "Eye of ayak", "Eye of ayak (uncharged)",
+        "Tumeken's shadow", "Tumeken's shadow (uncharged)",
+        "Eye of ayak", "Eye of ayak (uncharged)",
         "Sanguinesti staff", "Sanguinesti staff (uncharged)",
+        "Holy sanguinesti staff", "Holy sanguinesti staff (uncharged)",
+        "Warped sceptre", "Warped sceptre (uncharged)",
+        "Saradomin staff", "Guthix staff", "Zamorak staff",
+        "Iban's staff", "Iban's staff (u)", "Slayer's staff (e)",
         "Harmonised nightmare staff", "Eldritch nightmare staff",
         "Volatile nightmare staff", "Nightmare staff", "Kodai wand",
         "Staff of fire", "Ancient staff", "Trident of the swamp",
-        "Uncharged toxic trident", "Trident of the seas",
+        "Uncharged toxic trident", "Trident of the seas", "Uncharged trident",
+        "Trident of the seas (e)", "Uncharged trident (e)",
+        "Trident of the swamp (e)", "Uncharged toxic trident (e)",
+        "Thammaron's sceptre (u)", "Thammaron's sceptre (au)",
+        "Thammaron's sceptre (a)", "Accursed sceptre (u)", "Accursed sceptre (au)",
         "Thammaron's sceptre", "Accursed sceptre", "Accursed sceptre (a)",
         "Staff of the dead", "Toxic staff of the dead", "Staff of light",
         "Staff of balance", "Purging staff", "Dragon hunter wand",
@@ -389,7 +452,7 @@ void runec_dev_validation_seed_bank(RcWorld *world) {
         "Mystic vigour prayer scroll", "Dexterous prayer scroll",
         "Arcane prayer scroll", "Zulrah's scales", "Revenant ether",
         "Crystal shard", "Sunfire splinter", "Ancient essence",
-        "Vial of blood", "Echo crystal", "Aether rune", "Aether catalyst",
+        "Vial of blood", "Echo crystal", "Aether catalyst",
         "Demon tear", "Demonic tallow", "Barrel of demonic tallow",
         "Burnt page", "Soaked page", "Soiled page", "Desiccated page",
         "Divine rune pouch", "Rune pouch", "Amulet of the damned",
@@ -428,10 +491,7 @@ void runec_dev_validation_seed_bank(RcWorld *world) {
         "Oathplate legs",
     };
     static const char *const special_stacks[] = {
-        "Air rune", "Water rune", "Earth rune", "Fire rune", "Mind rune",
-        "Chaos rune", "Death rune", "Blood rune", "Soul rune",
-        "Wrath rune", "Cosmic rune", "Law rune", "Astral rune",
-        "Nature rune", "Dragon arrows", "Amethyst arrows", "Dragon darts",
+        "Dragon arrows", "Amethyst arrows", "Dragon darts",
         "Amethyst darts", "Dragon javelin", "Atlatl dart",
         "Atlatl dart shaft", "Atlatl dart tips", "Sunlight antler bolts",
         "Moonlight antler bolts", "Dragon bolts", "Opal dragon bolts (e)",

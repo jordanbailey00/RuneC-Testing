@@ -832,9 +832,14 @@ static void resolve_npc_hits(RcWorld *world, RcNpc *npc) {
             w++;
             continue;
         }
-        int damage = npc->is_dead ? 0 :
-                     rc_combat_resolve_hit_damage(
+        if (npc->is_dead || npc->current_hp <= 0) {
+            h->active = 0;
+            continue;
+        }
+        int damage = rc_combat_resolve_hit_damage(
                          h, false /* npc defender */);
+        if (damage > npc->current_hp) damage = npc->current_hp;
+        if (damage < 0) damage = 0;
         uint8_t hit_type = damage <= 0 ? RC_HIT_TYPE_MISS :
                            (h->max_hit > 0 && damage >= h->max_hit
                             ? RC_HIT_TYPE_MAX : RC_HIT_TYPE_NORMAL);
@@ -842,9 +847,14 @@ static void resolve_npc_hits(RcWorld *world, RcNpc *npc) {
                                    h->attack_style, h->source_idx,
                                    hit_type, h->flags, 4);
         h->active = 0;
-        if (damage <= 0) continue;
-
         npc->current_hp -= damage;
+        if (h->accurate && h->defence_drain > 0) {
+            npc->stats[1] -= h->defence_drain;
+            if (npc->stats[1] < 0) npc->stats[1] = 0;
+        }
+        if (h->source_idx == RC_HIT_SOURCE_PLAYER
+                && world->combat_hooks.on_player_hit_npc)
+            world->combat_hooks.on_player_hit_npc(world, npc, h, damage);
         npc->last_hit = damage;
         npc->last_hit_timer = 4;
         if (h->source_idx == RC_HIT_SOURCE_PLAYER) {
@@ -853,8 +863,7 @@ static void resolve_npc_hits(RcWorld *world, RcNpc *npc) {
                 .uid = 0,
             };
             rc_combat_actor_register_attacker(&npc->combat, player_actor);
-            rc_award_player_combat_xp(world, damage);
-            if (!npc->is_dead) {
+            if (!npc->is_dead && npc->current_hp > 0) {
                 rc_combat_start_npc_vs_player(world, npc->uid, 0);
             }
         }
@@ -1011,7 +1020,7 @@ void rc_world_tick(RcWorld *world) {
 
     // Phase 7 — stat regen (skills subsystem, but hp regen baseline
     // runs in base since it's part of the base player model).
-    rc_stat_restore_tick(&world->player.skills);
+    rc_stat_restore_tick(&world->player);
 
     // Phase 8 — deaths / respawns / ground items.
     if (on & RC_SUB_COMBAT)   check_deaths(world);
@@ -1216,25 +1225,12 @@ static int api_option_from_interaction_op(RcInteractionOp op) {
 
 static void api_stop_player_combat(RcWorld *world) {
     if (!world) return;
-    int npc_uid = -1;
-    if (world->player.combat.target.kind == RC_COMBAT_ACTOR_NPC) {
-        npc_uid = world->player.combat.target.uid;
-    } else if (world->player.attack_target >= 0) {
-        npc_uid = world->player.attack_target;
-    }
     RcCombatActorRef actor = {
         .kind = RC_COMBAT_ACTOR_PLAYER,
         .uid = 0,
     };
     rc_combat_stop_actor(world, actor, RC_COMBAT_STATE_CANCELLED);
     world->player.manual_spell_cast = -1;
-    if (npc_uid >= 0) {
-        RcCombatActorRef npc_actor = {
-            .kind = RC_COMBAT_ACTOR_NPC,
-            .uid = npc_uid,
-        };
-        rc_combat_stop_actor(world, npc_actor, RC_COMBAT_STATE_CANCELLED);
-    }
 }
 
 static void api_commit_interaction_admission(RcWorld *world) {
@@ -1636,7 +1632,10 @@ void rc_player_set_autocast_spell(RcWorld *world, int spell_idx,
     }
     const RcSpellDef *spell = rc_spell_def_get(spell_idx);
     if (!spell_is_autocast_candidate(p, spell) ||
-            !rc_player_weapon_can_autocast(p)) {
+            !rc_player_weapon_can_autocast(p) ||
+            (world->combat_hooks.can_autocast_spell &&
+             !world->combat_hooks.can_autocast_spell(p, spell))) {
+        p->combat.failure_reason = "This weapon cannot autocast that spell.";
         return;
     }
     p->autocast_spell = spell_idx;

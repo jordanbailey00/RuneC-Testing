@@ -11,6 +11,7 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 typedef struct {
@@ -261,7 +262,67 @@ static void test_transforms_use_world_var_state(void) {
     rc_npc_use_defs(g_npc_defs, g_npc_def_count, NULL, NULL, 0);
 }
 
-static void test_route_around_blocker_and_status_clocks(void) {
+static void test_direct_step_directions_and_footprints(void) {
+    seed_defs();
+    RcWorld *world = make_world(0);
+    int slot = rc_npc_spawn(world, 0, 3208, 3208, 0);
+    RcNpc *npc = &world->npcs[slot];
+    RcRouteTarget target = rc_route_target_point(3212, 3212);
+    assert(rc_npc_route_request(world, npc, &target, RC_NPC_ROUTE_WANDER, false));
+    rc_npc_movement_tick(world, npc);
+    assert(npc->x == 3209 && npc->y == 3209 && "legal diagonals are one tick");
+    *flags_at(world, 3210, 3210) = COL_LOC;
+    rc_npc_movement_tick(world, npc);
+    assert(npc->x == 3210 && npc->y == 3209 && "blocked diagonal tries X first");
+    *flags_at(world, 3210, 3210) = 0;
+    *flags_at(world, 3211, 3209) = COL_LOC;
+    rc_npc_movement_tick(world, npc);
+    assert(npc->x == 3210 && npc->y == 3210 && "then try Y without cutting corners");
+    *flags_at(world, 3211, 3209) = 0;
+    g_npc_defs[0].size = 2;
+    npc->x = 3208;
+    npc->y = 3208;
+    target = rc_route_target_rectangle(3210, 3210, 1, 1, 1, 1, false, false);
+    assert(rc_npc_route_request(world, npc, &target, RC_NPC_ROUTE_CHASE, false));
+    rc_npc_movement_tick(world, npc);
+    assert(npc->x == 3209 && npc->y == 3208
+           && "large melee approaches a side without walking onto its target");
+    assert(npc->movement_result == RC_MOVEMENT_ARRIVED);
+    npc->x = 3208;
+    npc->y = 3208;
+    target = rc_route_target_point(3212, 3208);
+    *flags_at(world, 3210, 3209) = COL_LOC;
+    assert(rc_npc_route_request(world, npc, &target, RC_NPC_ROUTE_CHASE, false));
+    rc_npc_movement_tick(world, npc);
+    assert(npc->x == 3208 && npc->y == 3208 && "entire leading edge must be clear");
+    *flags_at(world, 3210, 3209) = 0;
+    rc_npc_movement_tick(world, npc);
+    assert(npc->x == 3209 && npc->y == 3208 && "blocked chase resumes without requeueing");
+    assert(!rc_npc_route_request(world, npc, &target, RC_NPC_ROUTE_WANDER, true));
+    target.x = -1;
+    assert(!rc_npc_route_request(world, npc, &target, RC_NPC_ROUTE_CHASE, false));
+    g_npc_defs[0].size = 1;
+    npc->x = 3208;
+    npc->y = 3208;
+    target = rc_route_target_rectangle(3208, 3208, 1, 1, 1, 1, false, false);
+    assert(rc_npc_route_request(world, npc, &target, RC_NPC_ROUTE_CHASE, false));
+    rc_npc_movement_tick(world, npc);
+    assert(abs(npc->x - 3208) + abs(npc->y - 3208) == 1
+           && "an overlapped target requires a cardinal step out");
+    target = rc_route_target_point(npc->x + 1, npc->y);
+    assert(rc_npc_route_request(world, npc, &target, RC_NPC_ROUTE_RETURN, false));
+    npc->wander_timer = 12;
+    rc_npc_movement_tick(world, npc);
+    assert(npc->movement_result == RC_MOVEMENT_ARRIVED && !npc->wander_timer);
+    target = rc_route_target_point(npc->x + 1, npc->y);
+    assert(rc_npc_route_request(world, npc, &target, RC_NPC_ROUTE_CHASE, false));
+    npc->x = target.x;
+    rc_npc_movement_tick(world, npc);
+    assert(npc->movement_result == RC_MOVEMENT_ARRIVED);
+    rc_world_destroy(world);
+}
+
+static void test_direct_route_and_status_clocks(void) {
     seed_defs();
     g_npc_defs[1].regen_ticks = 0;
     g_npc_defs[2].regen_ticks = 0;
@@ -278,6 +339,18 @@ static void test_route_around_blocker_and_status_clocks(void) {
     *flags_at(world, 3201, 3200) = COL_BLOCK_WALK;
     RcRouteTarget target = rc_route_target_point(3202, 3200);
     assert(rc_npc_route_request(world, npc, &target, RC_NPC_ROUTE_WANDER,
+                                false));
+    rc_npc_movement_tick(world, npc);
+    assert(npc->x == 3200 && npc->y == 3200
+           && "ordinary wandering must not search around a blocker");
+    assert(npc->movement_result == RC_MOVEMENT_BLOCKED);
+    assert(rc_npc_route_request(world, npc, &target, RC_NPC_ROUTE_CHASE,
+                                false));
+    for (int i = 0; i < 8; i++) rc_npc_movement_tick(world, npc);
+    assert(npc->x == 3200 && npc->y == 3200
+           && npc->route_mode == RC_NPC_ROUTE_CHASE);
+    // Content must explicitly request obstacle-searching scripted travel.
+    assert(rc_npc_route_request(world, npc, &target, RC_NPC_ROUTE_SCRIPTED,
                                 false));
     for (int i = 0; i < 8 && (npc->x != 3202 || npc->y != 3200); i++) {
         rc_npc_movement_tick(world, npc);
@@ -400,7 +473,8 @@ int main(void) {
     test_spawn_identity_policy_and_slot_reuse();
     test_death_hide_respawn_and_full_reset();
     test_transforms_use_world_var_state();
-    test_route_around_blocker_and_status_clocks();
+    test_direct_step_directions_and_footprints();
+    test_direct_route_and_status_clocks();
     test_hunt_policy_checks_visibility_rate_and_strength();
     test_hunt_line_of_walk_busy_and_keep_policy();
     printf("test_npc_runtime_foundation: NPC foundation contract passed.\n");

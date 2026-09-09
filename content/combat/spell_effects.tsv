@@ -1,0 +1,58 @@
+name|max_hit|effect_flags
+Wind Strike|2|1
+Water Strike|4|1
+Earth Strike|6|1
+Fire Strike|8|1
+Wind Bolt|9|1
+Water Bolt|10|1
+Earth Bolt|11|1
+Fire Bolt|12|1
+Wind Blast|13|1
+Water Blast|14|1
+Earth Blast|15|1
+Fire Blast|16|1
+Wind Wave|17|1
+Water Wave|18|1
+Earth Wave|19|1
+Fire Wave|20|1
+Wind Surge|21|1
+Water Surge|22|1
+Earth Surge|23|1
+Fire Surge|24|1
+Smoke Rush|13|9
+Shadow Rush|14|17
+Blood Rush|15|5
+Ice Rush|16|3
+Smoke Burst|17|9
+Shadow Burst|18|17
+Blood Burst|21|5
+Ice Burst|22|3
+Smoke Blitz|23|9
+Shadow Blitz|24|17
+Blood Blitz|25|5
+Ice Blitz|26|3
+Smoke Barrage|27|9
+Shadow Barrage|28|17
+Blood Barrage|29|5
+Ice Barrage|30|3
+Iban Blast|25|1
+Magic Dart|10|1
+Crumble Undead|15|1
+Saradomin Strike|20|1
+Claws of Guthix|20|17
+Flames of Zamorak|20|17
+Ghostly Grasp|12|3
+Skeletal Grasp|17|3
+Undead Grasp|24|3
+Inferior Demonbane|16|1
+Superior Demonbane|23|1
+Dark Demonbane|30|1
+Bind|0|2
+Snare|3|3
+Entangle|5|3
+Confuse|0|16
+Weaken|0|16
+Curse|0|16
+Vulnerability|0|16
+Enfeeble|0|16
+Stun|0|16

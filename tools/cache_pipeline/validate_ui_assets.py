@@ -12,6 +12,7 @@ import argparse
 import re
 import sys
 from pathlib import Path
+from export_spell_icons import read_catalog
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 UI_ASSET_RE = re.compile(r'UI_ASSET\("([^"]+)"\)')
@@ -27,6 +28,12 @@ def required_asset_names(source: Path) -> list[str]:
             continue
         seen.add(name)
         names.append(name)
+    if '#include "spell_icons.inc"' in text:
+        for _book, _name, sprite in read_catalog(source.with_name("spell_icons.inc")):
+            name = str(sprite)
+            if name not in seen:
+                seen.add(name)
+                names.append(name)
     return names
 
 

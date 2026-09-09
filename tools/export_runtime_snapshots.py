@@ -10,6 +10,7 @@ import shutil
 import struct
 from pathlib import Path
 from typing import Any
+from export_spells import update_combat_effects
 
 ROOT = Path(__file__).resolve().parents[1]
 SNAPSHOT_ROOT = ROOT / "content/runtime_snapshots"
@@ -132,6 +133,8 @@ def write_reports(installed: list[dict[str, Any]]) -> None:
             lines.append("drop tables: " + str(total_rows))
         if report_name == "rdt_gdt.txt":
             lines.append("table rows: " + str(total_rows))
+        if report_name == "spells.txt":
+            lines.append("combat values: content/combat/spell_effects.tsv (applied after snapshot verification)")
         lines.extend(["", "installed files:"])
         for row in sorted(rows, key=lambda r: r["path"]):
             lines.append(
@@ -177,12 +180,14 @@ def main() -> int:
         dst = ROOT / logical
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
+        if logical == "data/defs/spells.bin":
+            update_combat_effects(dst)
         installed.append(
             {
                 "path": logical,
-                "bytes": int(row["bytes"]),
-                "sha256": str(row["sha256"]),
-                "rows": binary_count(src),
+                "bytes": dst.stat().st_size,
+                "sha256": sha256_file(dst),
+                "rows": binary_count(dst),
             }
         )
     write_reports(installed)

@@ -1740,11 +1740,11 @@ item|10023|crush|422|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:falcon_gloves:attack:stan
 item|10024|crush|422|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:falcon_on_gloves:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|10024|crush|422|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:falcon_on_gloves:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|10024|crush|422|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:falcon_on_gloves:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
-item|10033|ranged|-|-|908|-|19461|5186|2|2|163|146|21|15|11|11|5|rsmod:chinchompa_captured:projectile|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|rsmod
+item|10033|ranged|-|-|908|157|19461|5186|2|2|163|146|21|15|11|11|5|curated:b237:chinchompa:throw_impact|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|92|-|-|travel_projectile|source_actor|target_actor|none|target_actor|curated
 item|10033|ranged|7618|-|-|-|-|-|2|2|163|146|21|15|11|11|5|rsmod:chinchompa_captured:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|10033|ranged|7618|-|-|-|-|-|2|2|163|146|21|15|11|11|5|rsmod:chinchompa_captured:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|10033|ranged|7618|-|-|-|-|-|2|2|163|146|21|15|11|11|5|rsmod:chinchompa_captured:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
-item|10034|ranged|-|-|909|-|19461|5186|2|2|163|146|21|15|11|11|5|rsmod:chinchompa_big_captured:projectile|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|rsmod
+item|10034|ranged|-|-|909|157|19461|5186|2|2|163|146|21|15|11|11|5|curated:b237:chinchompa:throw_impact|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|92|-|-|travel_projectile|source_actor|target_actor|none|target_actor|curated
 item|10034|ranged|7618|-|-|-|-|-|2|2|163|146|21|15|11|11|5|rsmod:chinchompa_big_captured:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|10034|ranged|7618|-|-|-|-|-|2|2|163|146|21|15|11|11|5|rsmod:chinchompa_big_captured:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|10034|ranged|7618|-|-|-|-|-|2|2|163|146|21|15|11|11|5|rsmod:chinchompa_big_captured:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
@@ -1843,9 +1843,9 @@ item|11234|ranged|-|1123|1122|-|26379|6622|2|2|163|146|32|15|0|11|5|rsmod:dragon
 item|11234|ranged|7554|-|-|-|-|-|2|2|163|146|32|15|0|11|5|rsmod:dragon_dart_p++:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|11234|ranged|7554|-|-|-|-|-|2|2|163|146|32|15|0|11|5|rsmod:dragon_dart_p++:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|11234|ranged|7554|-|-|-|-|-|2|2|163|146|32|15|0|11|5|rsmod:dragon_dart_p++:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
-item|11235|ranged|426|-|-|-|-|-|3|3|163|146|41|15|5|11|5|rsmod:darkbow:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
-item|11235|ranged|426|-|-|-|-|-|3|3|163|146|41|15|5|11|5|rsmod:darkbow:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
-item|11235|ranged|426|-|-|-|-|-|3|3|163|146|41|15|5|11|5|rsmod:darkbow:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
+item|11235|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:darkbow:attack:stance1|2|163|146|41|25|14|11|10|-|-|-|-|0|-|0|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|none|rsmod
+item|11235|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:darkbow:attack:stance2|2|163|146|41|25|14|11|10|-|-|-|-|0|-|1|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|none|rsmod
+item|11235|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:darkbow:attack:stance4|2|163|146|41|25|14|11|10|-|-|-|-|0|-|3|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|none|rsmod
 item|11259|crush|429|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:ii_magic_butterfly_net:attack:stance3|-|-|-|-|-|-|-|-|-|-|-|-|-|-|2|-|-|-|-|-|none|none|none|none|none|rsmod
 item|11259|slash|440|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:ii_magic_butterfly_net:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|11259|stab|428|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:ii_magic_butterfly_net:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
@@ -2088,12 +2088,12 @@ item|11902|slash|390|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:leafbladed_sword:attack:s
 item|11902|stab|386|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:leafbladed_sword:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|11902|stab|386|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:leafbladed_sword:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|11902|stab|386|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:leafbladed_sword:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
-item|11905|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:tots:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
-item|11905|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:tots:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
-item|11905|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:tots:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
-item|11907|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:tots_charged:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
-item|11907|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:tots_charged:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
-item|11907|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:tots_charged:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
+item|11905|magic|1167|1251|1252|1253|20825|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|11905|magic|1167|1251|1252|1253|20825|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|11905|magic|1167|1251|1252|1253|20825|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|11907|magic|1167|1251|1252|1253|20825|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|11907|magic|1167|1251|1252|1253|20825|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|11907|magic|1167|1251|1252|1253|20825|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
 item|11908|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:tots_uncharged:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|11908|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:tots_uncharged:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|11908|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:tots_uncharged:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
@@ -2101,7 +2101,7 @@ item|11920|crush|400|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:dragon_pickaxe:attack:sta
 item|11920|stab|401|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:dragon_pickaxe:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|11920|stab|401|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:dragon_pickaxe:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|11920|stab|401|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:dragon_pickaxe:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
-item|11959|ranged|-|-|1272|-|19461|5186|2|2|163|146|21|15|11|11|5|rsmod:chinchompa_black:projectile|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|rsmod
+item|11959|ranged|-|-|1272|157|19461|5186|2|2|163|146|21|15|11|11|5|curated:b237:chinchompa:throw_impact|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|92|-|-|travel_projectile|source_actor|target_actor|none|target_actor|curated
 item|11959|ranged|7618|-|-|-|-|-|2|2|163|146|21|15|11|11|5|rsmod:chinchompa_black:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|11959|ranged|7618|-|-|-|-|-|2|2|163|146|21|15|11|11|5|rsmod:chinchompa_black:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|11959|ranged|7618|-|-|-|-|-|2|2|163|146|21|15|11|11|5|rsmod:chinchompa_black:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
@@ -2165,18 +2165,18 @@ item|12658|crush|401|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:ibanstaff_upgraded:attack
 item|12727|crush|2323|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:goblin_rpg:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|12727|crush|2323|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:goblin_rpg:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|12727|crush|2323|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:goblin_rpg:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
-item|12765|ranged|426|-|-|-|-|-|3|3|163|146|41|15|5|11|5|rsmod:darkbow_green:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
-item|12765|ranged|426|-|-|-|-|-|3|3|163|146|41|15|5|11|5|rsmod:darkbow_green:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
-item|12765|ranged|426|-|-|-|-|-|3|3|163|146|41|15|5|11|5|rsmod:darkbow_green:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
-item|12766|ranged|426|-|-|-|-|-|3|3|163|146|41|15|5|11|5|rsmod:darkbow_blue:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
-item|12766|ranged|426|-|-|-|-|-|3|3|163|146|41|15|5|11|5|rsmod:darkbow_blue:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
-item|12766|ranged|426|-|-|-|-|-|3|3|163|146|41|15|5|11|5|rsmod:darkbow_blue:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
-item|12767|ranged|426|-|-|-|-|-|3|3|163|146|41|15|5|11|5|rsmod:darkbow_yellow:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
-item|12767|ranged|426|-|-|-|-|-|3|3|163|146|41|15|5|11|5|rsmod:darkbow_yellow:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
-item|12767|ranged|426|-|-|-|-|-|3|3|163|146|41|15|5|11|5|rsmod:darkbow_yellow:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
-item|12768|ranged|426|-|-|-|-|-|3|3|163|146|41|15|5|11|5|rsmod:darkbow_white:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
-item|12768|ranged|426|-|-|-|-|-|3|3|163|146|41|15|5|11|5|rsmod:darkbow_white:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
-item|12768|ranged|426|-|-|-|-|-|3|3|163|146|41|15|5|11|5|rsmod:darkbow_white:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
+item|12765|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:darkbow_green:attack:stance1|2|163|146|41|25|14|11|10|-|-|-|-|0|-|0|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|none|rsmod
+item|12765|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:darkbow_green:attack:stance2|2|163|146|41|25|14|11|10|-|-|-|-|0|-|1|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|none|rsmod
+item|12765|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:darkbow_green:attack:stance4|2|163|146|41|25|14|11|10|-|-|-|-|0|-|3|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|none|rsmod
+item|12766|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:darkbow_blue:attack:stance1|2|163|146|41|25|14|11|10|-|-|-|-|0|-|0|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|none|rsmod
+item|12766|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:darkbow_blue:attack:stance2|2|163|146|41|25|14|11|10|-|-|-|-|0|-|1|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|none|rsmod
+item|12766|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:darkbow_blue:attack:stance4|2|163|146|41|25|14|11|10|-|-|-|-|0|-|3|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|none|rsmod
+item|12767|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:darkbow_yellow:attack:stance1|2|163|146|41|25|14|11|10|-|-|-|-|0|-|0|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|none|rsmod
+item|12767|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:darkbow_yellow:attack:stance2|2|163|146|41|25|14|11|10|-|-|-|-|0|-|1|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|none|rsmod
+item|12767|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:darkbow_yellow:attack:stance4|2|163|146|41|25|14|11|10|-|-|-|-|0|-|3|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|none|rsmod
+item|12768|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:darkbow_white:attack:stance1|2|163|146|41|25|14|11|10|-|-|-|-|0|-|0|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|none|rsmod
+item|12768|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:darkbow_white:attack:stance2|2|163|146|41|25|14|11|10|-|-|-|-|0|-|1|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|none|rsmod
+item|12768|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:darkbow_white:attack:stance4|2|163|146|41|25|14|11|10|-|-|-|-|0|-|3|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|none|rsmod
 item|12773|slash|1658|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:abyssal_whip_lava:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|12773|slash|1658|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:abyssal_whip_lava:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|12773|slash|1658|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:abyssal_whip_lava:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
@@ -2207,9 +2207,9 @@ item|12809|slash|7055|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:blessed_saradomin_sword_
 item|12848|crush|1665|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:granite_maul_pretty:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|12848|crush|1665|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:granite_maul_pretty:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|12848|crush|1665|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:granite_maul_pretty:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
-item|12899|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:toxic_tots_charged:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
-item|12899|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:toxic_tots_charged:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
-item|12899|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:toxic_tots_charged:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
+item|12899|magic|1167|665|1040|1042|20825|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|12899|magic|1167|665|1040|1042|20825|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|12899|magic|1167|665|1040|1042|20825|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
 item|12900|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:toxic_tots_uncharged:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|12900|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:toxic_tots_uncharged:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|12900|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:toxic_tots_uncharged:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
@@ -2424,9 +2424,9 @@ item|20407|slash|377|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:br_dragon_dagger:attack:s
 item|20407|stab|376|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:br_dragon_dagger:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|20407|stab|376|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:br_dragon_dagger:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|20407|stab|376|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:br_dragon_dagger:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
-item|20408|ranged|426|-|-|-|-|-|3|3|163|146|41|15|5|11|5|rsmod:br_darkbow:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
-item|20408|ranged|426|-|-|-|-|-|3|3|163|146|41|15|5|11|5|rsmod:br_darkbow:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
-item|20408|ranged|426|-|-|-|-|-|3|3|163|146|41|15|5|11|5|rsmod:br_darkbow:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
+item|20408|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:br_darkbow:attack:stance1|2|163|146|41|25|14|11|10|-|-|-|-|0|-|0|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|none|rsmod
+item|20408|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:br_darkbow:attack:stance2|2|163|146|41|25|14|11|10|-|-|-|-|0|-|1|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|none|rsmod
+item|20408|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:br_darkbow:attack:stance4|2|163|146|41|25|14|11|10|-|-|-|-|0|-|3|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|none|rsmod
 item|20431|crush|419|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:br_ancient_staff:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|20431|crush|419|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:br_ancient_staff:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|20431|crush|419|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:br_ancient_staff:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
@@ -2551,15 +2551,15 @@ item|21944|ranged|-|-|1468|-|3135|-|2|2|-|-|-|-|-|-|-|rsmod:dragon_bolts_enchant
 item|21946|ranged|-|-|1468|-|3135|-|2|2|-|-|-|-|-|-|-|rsmod:dragon_bolts_enchanted_diamond:projectile|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|rsmod
 item|21948|ranged|-|-|1468|-|3135|-|2|2|-|-|-|-|-|-|-|rsmod:dragon_bolts_enchanted_dragonstone:projectile|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|rsmod
 item|21950|ranged|-|-|1468|-|3135|-|2|2|-|-|-|-|-|-|-|rsmod:dragon_bolts_enchanted_onyx:projectile|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|rsmod
-item|22288|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:tots_i_charged:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
-item|22288|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:tots_i_charged:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
-item|22288|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:tots_i_charged:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
+item|22288|magic|1167|1251|1252|1253|20825|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|22288|magic|1167|1251|1252|1253|20825|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|22288|magic|1167|1251|1252|1253|20825|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
 item|22290|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:tots_i_uncharged:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|22290|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:tots_i_uncharged:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|22290|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:tots_i_uncharged:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
-item|22292|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:toxic_tots_i_charged:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
-item|22292|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:toxic_tots_i_charged:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
-item|22292|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:toxic_tots_i_charged:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
+item|22292|magic|1167|665|1040|1042|20825|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|22292|magic|1167|665|1040|1042|20825|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|22292|magic|1167|665|1040|1042|20825|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
 item|22294|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:toxic_tots_i_uncharged:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|22294|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:toxic_tots_i_uncharged:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|22294|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:toxic_tots_i_uncharged:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
@@ -2569,9 +2569,9 @@ item|22296|stab|428|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:staff_of_light:attack:stan
 item|22316|crush|7328|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:osb5_sword:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|22316|crush|7328|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:osb5_sword:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|22316|crush|7328|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:osb5_sword:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
-item|22323|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:sanguinesti_staff:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
-item|22323|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:sanguinesti_staff:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
-item|22323|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:sanguinesti_staff:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
+item|22323|magic|1167|1540|1539|1541|35728|8071|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|22323|magic|1167|1540|1539|1541|35728|8071|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|22323|magic|1167|1540|1539|1541|35728|8071|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
 item|22324|slash|390|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:ghrazi_rapier:attack:stance3|-|-|-|-|-|-|-|-|-|-|-|-|-|-|2|-|-|-|-|-|none|none|none|none|none|rsmod
 item|22324|stab|8145|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:ghrazi_rapier:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|22324|stab|8145|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:ghrazi_rapier:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
@@ -2610,9 +2610,9 @@ item|22486|crush|8056|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:scythe_of_vitur_uncharge
 item|22486|slash|8056|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:scythe_of_vitur_uncharged:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|22486|slash|8056|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:scythe_of_vitur_uncharged:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|22486|slash|8056|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:scythe_of_vitur_uncharged:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
-item|22516|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:verzik_special_weapon:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
-item|22516|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:verzik_special_weapon:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
-item|22516|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:verzik_special_weapon:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
+item|22516|magic|1167|1543|1544|1545|20825|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|22516|magic|1167|1543|1544|1545|20825|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|22516|magic|1167|1543|1544|1545|20825|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
 item|22542|crush|245|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:wild_cave_chainmace_uncharged:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|22542|crush|245|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:wild_cave_chainmace_uncharged:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|22542|crush|245|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:wild_cave_chainmace_uncharged:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
@@ -2630,9 +2630,9 @@ item|22550|ranged|426|-|-|-|-|-|3|3|163|146|41|15|5|11|5|rsmod:wild_cave_bow_cha
 item|22552|magic|1058|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:wild_cave_sceptre_uncharged:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|22552|magic|1058|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:wild_cave_sceptre_uncharged:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|22552|magic|1058|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:wild_cave_sceptre_uncharged:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
-item|22555|magic|1058|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:wild_cave_sceptre_charged:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
-item|22555|magic|1058|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:wild_cave_sceptre_charged:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
-item|22555|magic|1058|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:wild_cave_sceptre_charged:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
+item|22555|magic|1167|-|2340|-|47223|10001|-|-|172|124|51|16|-5|64|10|curated:b237:powered_sceptre:travel|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|projectile|none|none|none|none|rsmod
+item|22555|magic|1167|-|2340|-|47223|10001|-|-|172|124|51|16|-5|64|10|curated:b237:powered_sceptre:travel|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|projectile|none|none|none|none|rsmod
+item|22555|magic|1167|-|2340|-|47223|10001|-|-|172|124|51|16|-5|64|10|curated:b237:powered_sceptre:travel|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|projectile|none|none|none|none|rsmod
 item|22610|crush|429|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:vestas_spear:attack:stance3|-|-|-|-|-|-|-|-|-|-|-|-|-|-|2|-|-|-|-|-|none|none|none|none|none|rsmod
 item|22610|slash|440|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:vestas_spear:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|22610|stab|428|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:vestas_spear:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
@@ -3107,9 +3107,9 @@ item|25729|crush|7054|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:clan_vexillum_pink:attac
 item|25729|slash|7045|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:clan_vexillum_pink:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|25729|slash|7046|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:clan_vexillum_pink:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|25729|slash|7046|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:clan_vexillum_pink:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
-item|25731|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:sanguinesti_staff_or:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
-item|25731|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:sanguinesti_staff_or:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
-item|25731|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:sanguinesti_staff_or:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
+item|25731|magic|1167|1900|1899|1901|35728|8071|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|25731|magic|1167|1900|1899|1901|35728|8071|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|25731|magic|1167|1900|1899|1901|35728|8071|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
 item|25733|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:sanguinesti_staff_uncharged_or:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|25733|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:sanguinesti_staff_uncharged_or:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|25733|magic|1167|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:sanguinesti_staff_uncharged_or:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
@@ -3273,9 +3273,9 @@ item|27246|slash|390|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:osmumtens_fang_ornament:a
 item|27246|stab|9471|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:osmumtens_fang_ornament:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|27246|stab|9471|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:osmumtens_fang_ornament:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|27246|stab|9471|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:osmumtens_fang_ornament:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
-item|27275|magic|9493|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:tumekens_shadow:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
-item|27275|magic|9493|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:tumekens_shadow:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
-item|27275|magic|9493|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:tumekens_shadow:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
+item|27275|magic|9493|2125|2126|2127|45244|663|3|3|250|124|56|32|16|40|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|0|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|27275|magic|9493|2125|2126|2127|45244|663|3|3|250|124|56|32|16|40|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|0|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|27275|magic|9493|2125|2126|2127|45244|663|3|3|250|124|56|32|16|40|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|0|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
 item|27277|magic|9493|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:tumekens_shadow_uncharged:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|27277|magic|9493|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:tumekens_shadow_uncharged:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|27277|magic|9493|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:tumekens_shadow_uncharged:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
@@ -3302,9 +3302,9 @@ item|27660|stab|245|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:wild_cave_ursine_charged:a
 item|27662|magic|1058|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:wild_cave_accursed_uncharged:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|27662|magic|1058|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:wild_cave_accursed_uncharged:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|27662|magic|1058|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:wild_cave_accursed_uncharged:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
-item|27665|magic|1058|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:wild_cave_accursed_charged:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
-item|27665|magic|1058|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:wild_cave_accursed_charged:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
-item|27665|magic|1058|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:wild_cave_accursed_charged:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
+item|27665|magic|1167|-|2337|-|47222|10001|-|-|172|124|51|16|-5|64|10|curated:b237:powered_sceptre:travel|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|projectile|none|none|none|none|rsmod
+item|27665|magic|1167|-|2337|-|47222|10001|-|-|172|124|51|16|-5|64|10|curated:b237:powered_sceptre:travel|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|projectile|none|none|none|none|rsmod
+item|27665|magic|1167|-|2337|-|47222|10001|-|-|172|124|51|16|-5|64|10|curated:b237:powered_sceptre:travel|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|projectile|none|none|none|none|rsmod
 item|27679|crush|1058|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:wild_cave_accursed_charged_recol:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|27679|crush|1058|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:wild_cave_accursed_charged_recol:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|27679|crush|1058|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:wild_cave_accursed_charged_recol:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
@@ -3315,9 +3315,9 @@ item|27690|stab|386|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:voidwaker:attack:stance3|-
 item|27788|crush|1058|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:wild_cave_sceptre_charged_recol:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|27788|crush|1058|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:wild_cave_sceptre_charged_recol:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|27788|crush|1058|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:wild_cave_sceptre_charged_recol:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
-item|27853|ranged|426|-|-|-|-|-|3|3|163|146|41|15|5|11|5|rsmod:bh_darkbow_imbue:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
-item|27853|ranged|426|-|-|-|-|-|3|3|163|146|41|15|5|11|5|rsmod:bh_darkbow_imbue:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
-item|27853|ranged|426|-|-|-|-|-|3|3|163|146|41|15|5|11|5|rsmod:bh_darkbow_imbue:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
+item|27853|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:bh_darkbow_imbue:attack:stance1|2|163|146|41|25|14|11|10|-|-|-|-|0|-|0|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|none|rsmod
+item|27853|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:bh_darkbow_imbue:attack:stance2|2|163|146|41|25|14|11|10|-|-|-|-|0|-|1|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|none|rsmod
+item|27853|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:bh_darkbow_imbue:attack:stance4|2|163|146|41|25|14|11|10|-|-|-|-|0|-|3|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|none|rsmod
 item|27855|crush|5865|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:bh_brain_anchor_imbue:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
 item|27855|crush|5865|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:bh_brain_anchor_imbue:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|27855|crush|5865|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:bh_brain_anchor_imbue:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
@@ -3378,12 +3378,14 @@ item|28688|ranged|10656|-|-|-|-|-|2|2|163|146|32|15|0|11|5|rsmod:toxic_blowpipe_
 item|28688|ranged|10656|-|-|-|-|-|2|2|163|146|32|15|0|11|5|rsmod:toxic_blowpipe_loaded_ornament:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|28688|ranged|10656|-|-|-|-|-|2|2|163|146|32|15|0|11|5|rsmod:toxic_blowpipe_loaded_ornament:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
 item|28834|slash|5247|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:mountain_salamander:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
-item|28919|ranged|10922|-|-|-|-|-|2|2|163|146|32|15|0|11|5|rsmod:tonalztics_of_ralos_uncharged:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
-item|28919|ranged|10922|-|-|-|-|-|2|2|163|146|32|15|0|11|5|rsmod:tonalztics_of_ralos_uncharged:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
-item|28919|ranged|10922|-|-|-|-|-|2|2|163|146|32|15|0|11|5|rsmod:tonalztics_of_ralos_uncharged:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
-item|28922|ranged|10922|-|-|-|-|-|2|2|163|146|32|15|0|11|5|rsmod:tonalztics_of_ralos_charged:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
-item|28922|ranged|10922|-|-|-|-|-|2|2|163|146|32|15|0|11|5|rsmod:tonalztics_of_ralos_charged:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
-item|28922|ranged|10922|-|-|-|-|-|2|2|163|146|32|15|0|11|5|rsmod:tonalztics_of_ralos_charged:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
+item|28919|ranged|10922|-|2730|2732|51228|10913|2|2|163|146|32|15|0|11|5|curated:b237:ralos:normal|1|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|28919|ranged|10922|-|2730|2732|51228|10913|2|2|163|146|32|15|0|11|5|curated:b237:ralos:normal|1|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|28919|ranged|10922|-|2730|2732|51228|10913|2|2|163|146|32|15|0|11|5|curated:b237:ralos:normal|1|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|28922|ranged|10923|2734|2729|2732|51229|10911|2|2|163|146|32|15|0|11|5|curated:b237:ralos:normal|2|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|multi_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|28922|ranged|10923|2734|2729|2732|51229|10911|2|2|163|146|32|15|0|11|5|curated:b237:ralos:normal|2|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|multi_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|28922|ranged|10923|2734|2729|2732|51229|10911|2|2|163|146|32|15|0|11|5|curated:b237:ralos:normal|2|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|multi_projectile|source_actor|target_actor|source_actor|target_actor|curated
+special|28919|ranged|10916|2726|2728|2733|51228|10912|2|2|163|146|32|15|0|11|5|curated:b237:ralos:division|1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|Division|-|-|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+special|28922|ranged|10914|2725|2727|2731|51229|10910|2|2|163|146|32|15|0|11|5|curated:b237:ralos:division|2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|Division|-|-|-|-|multi_projectile|source_actor|target_actor|source_actor|target_actor|curated
 item|28988|crush|1711|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:frostmoon_spear:attack:stance4|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|-|-|-|-|none|none|none|none|none|rsmod
 item|28988|slash|1712|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:frostmoon_spear:attack:stance2|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|-|-|-|-|none|none|none|none|none|rsmod
 item|28988|stab|1711|-|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:frostmoon_spear:attack:stance1|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|-|-|-|-|none|none|none|none|none|rsmod
@@ -3433,16 +3435,16 @@ special|1305|any|1058|248|-|-|-|-|-|-|-|-|-|-|-|-|-|rsmod:special:dragon_longswo
 special|4153|any|1667|-|-|-|-|-|-|-|-|-|-|-|-|-|-|b237:special:granite_maul|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|none|none|none|none|none|b237
 special|5680|any|1062|-|-|-|-|-|-|-|-|-|-|-|-|-|-|b237:special:dragon_dagger_p+|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|none|none|none|none|none|b237
 special|5698|any|1062|-|-|-|-|-|-|-|-|-|-|-|-|-|-|b237:special:dragon_dagger_p++|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|none|none|none|none|none|b237
-special|11235|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:special:darkbow:darkbow|2|163|146|41|25|14|11|10|1101|1103|26393|6590|1|-|-|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|target_actor|rsmod
+special|11235|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:special:darkbow:darkbow|2|163|146|41|25|14|11|10|1101|1103|26393|6590|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|rsmod
 special|11785|ranged|427|301|-|-|-|-|-|-|-|-|-|-|-|-|-|b237:special:armadyl_crossbow|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|launch_effect|source_actor|none|source_actor|none|b237
 special|11802|any|7644|1206|-|-|-|-|-|-|-|-|-|-|-|-|-|b237:special:armadyl_godsword|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|launch_effect|source_actor|none|source_actor|none|b237
 special|11804|any|7642|1208|-|-|-|-|-|-|-|-|-|-|-|-|-|b237:special:bandos_godsword|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|launch_effect|source_actor|none|source_actor|none|b237
 special|11806|any|7640|1207|-|-|-|-|-|-|-|-|-|-|-|-|-|b237:special:saradomin_godsword|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|launch_effect|source_actor|none|source_actor|none|b237
 special|11808|any|7638|1205|-|-|-|-|-|-|-|-|-|-|-|-|-|b237:special:zamorak_godsword|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|launch_effect|source_actor|none|source_actor|none|b237
-special|12765|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:special:darkbow_green:darkbow|2|163|146|41|25|14|11|10|1101|1103|26393|6590|1|-|-|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|target_actor|rsmod
-special|12766|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:special:darkbow_blue:darkbow|2|163|146|41|25|14|11|10|1101|1103|26393|6590|1|-|-|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|target_actor|rsmod
-special|12767|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:special:darkbow_yellow:darkbow|2|163|146|41|25|14|11|10|1101|1103|26393|6590|1|-|-|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|target_actor|rsmod
-special|12768|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:special:darkbow_white:darkbow|2|163|146|41|25|14|11|10|1101|1103|26393|6590|1|-|-|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|target_actor|rsmod
+special|12765|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:special:darkbow_green:darkbow|2|163|146|41|25|14|11|10|1101|1103|26393|6590|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|rsmod
+special|12766|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:special:darkbow_blue:darkbow|2|163|146|41|25|14|11|10|1101|1103|26393|6590|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|rsmod
+special|12767|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:special:darkbow_yellow:darkbow|2|163|146|41|25|14|11|10|1101|1103|26393|6590|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|rsmod
+special|12768|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:special:darkbow_white:darkbow|2|163|146|41|25|14|11|10|1101|1103|26393|6590|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|rsmod
 special|12848|any|1667|-|-|-|-|-|-|-|-|-|-|-|-|-|-|b237:special:granite_maul_pretty|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|none|none|none|none|none|b237
 special|12926|ranged|5061|1043|-|-|-|-|-|-|-|-|-|-|-|-|-|b237:special:toxic_blowpipe|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|launch_effect|source_actor|none|source_actor|none|b237
 special|13265|any|3300|1283|-|-|-|-|-|-|-|-|-|-|-|-|-|b237:special:abyssal_dagger|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|launch_effect|source_actor|none|source_actor|none|b237
@@ -3457,7 +3459,7 @@ special|20368|any|7645|1206|-|-|-|-|-|-|-|-|-|-|-|-|-|b237:special:armadyl_godsw
 special|20370|any|7643|1208|-|-|-|-|-|-|-|-|-|-|-|-|-|b237:special:bandos_godsword_ornate|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|launch_effect|source_actor|none|source_actor|none|b237
 special|20372|any|7641|1207|-|-|-|-|-|-|-|-|-|-|-|-|-|b237:special:saradomin_godsword_ornate|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|launch_effect|source_actor|none|source_actor|none|b237
 special|20374|any|7639|1205|-|-|-|-|-|-|-|-|-|-|-|-|-|b237:special:zamorak_godsword_ornate|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|launch_effect|source_actor|none|source_actor|none|b237
-special|20408|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:special:br_darkbow:darkbow|2|163|146|41|25|14|11|10|1101|1103|26393|6590|1|-|-|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|target_actor|rsmod
+special|20408|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:special:br_darkbow:darkbow|2|163|146|41|25|14|11|10|1101|1103|26393|6590|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|rsmod
 special|20784|any|7514|1171|-|-|-|-|-|-|-|-|-|-|-|-|-|b237:special:br_dragon_claws|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|launch_effect|source_actor|none|source_actor|none|b237
 special|21902|ranged|427|-|-|-|-|-|-|-|-|-|-|-|-|-|-|b237:special:dragon_crossbow|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|none|none|none|none|none|b237
 special|24225|any|1667|-|-|-|-|-|-|-|-|-|-|-|-|-|-|b237:special:granite_maul_plus|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|none|none|none|none|none|b237
@@ -3466,16 +3468,16 @@ special|26233|any|9171|1996|-|-|-|-|-|-|-|-|-|-|-|-|-|b237:special:ancient_godsw
 special|26710|any|1378|1292|-|-|-|-|-|-|-|-|-|-|-|-|-|b237:special:dragon_warhammer_ornament|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|launch_effect|source_actor|none|source_actor|none|b237
 special|26712|ranged|9467|344|182|183|2240|731|2|2|-|-|-|-|-|-|-|b237:special:heavy_ballista_ornament|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|b237
 special|27690|any|11240|2834|-|2363|-|-|2|2|-|-|-|-|-|-|-|b237:special:voidwaker|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|target_impact|source_actor|target_actor|source_actor|target_actor|b237
-special|27853|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:special:bh_darkbow_imbue:darkbow|2|163|146|41|25|14|11|10|1101|1103|26393|6590|1|-|-|-|-|-|-|-|multi_projectile|source_actor|target_actor|none|target_actor|rsmod
+special|27853|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|rsmod:special:bh_darkbow_imbue:darkbow|2|163|146|41|25|14|11|10|1101|1103|26393|6590|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|rsmod
 special|27869|any|11240|2834|-|2363|-|-|2|2|-|-|-|-|-|-|-|b237:special:br_voidwaker|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|target_impact|source_actor|target_actor|source_actor|target_actor|b237
 special|28039|any|7514|1171|-|-|-|-|-|-|-|-|-|-|-|-|-|b237:special:bh_dragon_claws_corrupted|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|launch_effect|source_actor|none|source_actor|none|b237
 special|28534|any|7514|1171|-|-|-|-|-|-|-|-|-|-|-|-|-|b237:special:deadman_blighted_dragon_claws|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|launch_effect|source_actor|none|source_actor|none|b237
 special|28688|ranged|5061|1043|-|-|-|-|-|-|-|-|-|-|-|-|-|b237:special:toxic_blowpipe_ornament|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|launch_effect|source_actor|none|source_actor|none|b237
 spell|Bind|magic|1161|177|178|181|3127|703|3|3|180|0|75|16|-29|64|10|b237:bind|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|b237
-spell|Blood Barrage|magic|811|-|-|377|-|-|3|3|172|124|51|16|-5|64|10|b237:ancient:blood_barrage|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|target_impact|source_actor|target_actor|none|target_actor|b237
-spell|Blood Blitz|magic|811|-|374|375|6379|1969|3|3|172|124|51|16|-5|64|10|b237:ancient:blood_blitz|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
-spell|Blood Burst|magic|811|-|-|376|-|-|3|3|172|124|51|16|-5|64|10|b237:ancient:blood_burst|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|target_impact|source_actor|target_actor|none|target_actor|b237
-spell|Blood Rush|magic|811|-|372|373|6380|1968|3|3|172|124|51|16|-5|64|10|b237:ancient:blood_rush|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
+spell|Blood Barrage|magic|1979|-|-|377|-|-|3|3|172|124|51|16|-5|64|10|b237:ancient:blood_barrage|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|target_impact|source_actor|target_actor|none|target_actor|b237
+spell|Blood Blitz|magic|1978|-|374|375|6379|1969|3|3|172|124|51|16|-5|64|10|b237:ancient:blood_blitz|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
+spell|Blood Burst|magic|1979|-|-|376|-|-|3|3|172|124|51|16|-5|64|10|b237:ancient:blood_burst|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|target_impact|source_actor|target_actor|none|target_actor|b237
+spell|Blood Rush|magic|1978|-|372|373|6380|1968|3|3|172|124|51|16|-5|64|10|b237:ancient:blood_rush|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
 spell|Claws of Guthix|magic|811|-|-|1511|-|-|2|2|-|-|-|-|-|-|-|b237:claws_of_guthix:impact_only|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|target_impact|source_actor|target_actor|none|target_actor|b237
 spell|Confuse|magic|1163|102|103|104|3093|669|3|3|144|124|61|16|-15|64|10|b237:confuse|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|b237
 spell|Crumble Undead|magic|1166|145|146|147|3109|685|3|3|124|124|46|16|0|64|5|b237:crumble_undead|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|b237
@@ -3497,23 +3499,23 @@ spell|Flames of Zamorak|magic|811|-|-|78|-|-|2|2|-|-|-|-|-|-|-|b237:flames_of_za
 spell|Ghostly Grasp|magic|8972|1856|-|1857|-|-|2|2|-|-|-|-|-|-|-|b237:arceuus:ghostly_grasp:impact_only|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|target_impact|source_actor|target_actor|source_actor|target_actor|b237
 spell|Greater Corruption|magic|9158|1878|-|1880|-|-|2|2|-|-|-|-|-|-|-|b237:arceuus:greater_corruption:impact_only|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|target_impact|source_actor|target_actor|source_actor|target_actor|b237
 spell|Iban Blast|magic|708|87|88|89|3077|656|3|3|144|124|60|16|-14|64|10|b237:iban_blast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|b237
-spell|Ice Barrage|magic|811|-|368|369|14215|1964|3|3|172|0|51|16|-5|64|10|b237:ancient:ice_barrage|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
-spell|Ice Blitz|magic|811|-|362|363|6384|1960|3|3|172|0|51|16|-5|64|10|b237:ancient:ice_blitz|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
-spell|Ice Burst|magic|811|-|366|367|1204|1962|3|3|172|0|51|16|-5|64|10|b237:ancient:ice_burst|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
-spell|Ice Rush|magic|811|-|360|361|6388|1958|3|3|172|0|51|16|-5|64|10|b237:ancient:ice_rush|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
+spell|Ice Barrage|magic|1979|-|368|369|14215|1964|3|3|172|0|51|16|-5|64|10|b237:ancient:ice_barrage|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
+spell|Ice Blitz|magic|1978|-|362|363|6384|1960|3|3|172|0|51|16|-5|64|10|b237:ancient:ice_blitz|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
+spell|Ice Burst|magic|1979|-|366|367|1204|1962|3|3|172|0|51|16|-5|64|10|b237:ancient:ice_burst|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
+spell|Ice Rush|magic|1978|-|360|361|6388|1958|3|3|172|0|51|16|-5|64|10|b237:ancient:ice_rush|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
 spell|Inferior Demonbane|magic|8977|1865|-|1866|-|-|2|2|-|-|-|-|-|-|-|b237:arceuus:inferior_demonbane:impact_only|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|target_impact|source_actor|target_actor|source_actor|target_actor|b237
 spell|Lesser Corruption|magic|9158|1877|-|1879|-|-|2|2|-|-|-|-|-|-|-|b237:arceuus:lesser_corruption:impact_only|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|target_impact|source_actor|target_actor|source_actor|target_actor|b237
 spell|Magic Dart|magic|1576|-|328|329|5091|1577|3|3|172|124|51|16|-5|64|10|b237:magic_dart|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
 spell|Saradomin Strike|magic|811|-|-|76|-|-|2|2|-|-|-|-|-|-|-|b237:saradomin_strike:impact_only|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|target_impact|source_actor|target_actor|none|target_actor|b237
-spell|Shadow Barrage|magic|811|-|-|383|-|-|3|3|172|124|51|16|-5|64|10|b237:ancient:shadow_barrage|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|target_impact|source_actor|target_actor|none|target_actor|b237
-spell|Shadow Blitz|magic|811|-|380|381|6395|1975|3|3|172|124|51|16|-5|64|10|b237:ancient:shadow_blitz|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
-spell|Shadow Burst|magic|811|-|-|382|-|-|3|3|172|124|51|16|-5|64|10|b237:ancient:shadow_burst|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|target_impact|source_actor|target_actor|none|target_actor|b237
-spell|Shadow Rush|magic|811|-|378|379|6394|1974|3|3|172|124|51|16|-5|64|10|b237:ancient:shadow_rush|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
+spell|Shadow Barrage|magic|1979|-|-|383|-|-|3|3|172|124|51|16|-5|64|10|b237:ancient:shadow_barrage|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|target_impact|source_actor|target_actor|none|target_actor|b237
+spell|Shadow Blitz|magic|1978|-|380|381|6395|1975|3|3|172|124|51|16|-5|64|10|b237:ancient:shadow_blitz|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
+spell|Shadow Burst|magic|1979|-|-|382|-|-|3|3|172|124|51|16|-5|64|10|b237:ancient:shadow_burst|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|target_impact|source_actor|target_actor|none|target_actor|b237
+spell|Shadow Rush|magic|1978|-|378|379|6394|1974|3|3|172|124|51|16|-5|64|10|b237:ancient:shadow_rush|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
 spell|Skeletal Grasp|magic|8972|1859|-|1860|-|-|2|2|-|-|-|-|-|-|-|b237:arceuus:skeletal_grasp:impact_only|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|target_impact|source_actor|target_actor|source_actor|target_actor|b237
-spell|Smoke Barrage|magic|811|-|390|391|6398|1986|3|3|172|124|51|16|-5|64|10|b237:ancient:smoke_barrage|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
-spell|Smoke Blitz|magic|811|-|386|387|6402|1981|3|3|172|124|51|16|-5|64|10|b237:ancient:smoke_blitz|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
-spell|Smoke Burst|magic|811|-|388|389|6399|1984|3|3|172|124|51|16|-5|64|10|b237:ancient:smoke_burst|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
-spell|Smoke Rush|magic|811|-|384|385|6403|1980|3|3|172|124|51|16|-5|64|10|b237:ancient:smoke_rush|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
+spell|Smoke Barrage|magic|1979|-|390|391|6398|1986|3|3|172|124|51|16|-5|64|10|b237:ancient:smoke_barrage|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
+spell|Smoke Blitz|magic|1978|-|386|387|6402|1981|3|3|172|124|51|16|-5|64|10|b237:ancient:smoke_blitz|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
+spell|Smoke Burst|magic|1979|-|388|389|6399|1984|3|3|172|124|51|16|-5|64|10|b237:ancient:smoke_burst|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
+spell|Smoke Rush|magic|1978|-|384|385|6403|1980|3|3|172|124|51|16|-5|64|10|b237:ancient:smoke_rush|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|none|target_actor|b237
 spell|Snare|magic|1161|177|178|180|3127|703|3|3|180|0|75|16|-29|64|10|b237:snare|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|b237
 spell|Stun|magic|1169|173|174|175|3124|700|3|3|144|124|52|16|-6|64|10|b237:stun|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|b237
 spell|Superior Demonbane|magic|8977|1867|-|1868|-|-|2|2|-|-|-|-|-|-|-|b237:arceuus:superior_demonbane:impact_only|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|target_impact|source_actor|target_actor|source_actor|target_actor|b237
@@ -3531,3 +3533,55 @@ spell|Wind Bolt|magic|1162|117|118|119|3084|661|3|3|172|124|51|16|-5|64|10|rsmod
 spell|Wind Strike|magic|1162|90|91|92|3081|659|3|3|172|124|51|16|-5|64|10|rsmod:spell_wind_strike|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|rsmod
 spell|Wind Surge|magic|7855|1455|1456|1457|34618|7856|3|3|172|124|51|16|-5|64|10|rsmod:spell_wind_surge|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|rsmod
 spell|Wind Wave|magic|1167|158|159|160|3115|692|3|3|172|124|51|16|-5|64|10|rsmod:spell_wind_wave|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|rsmod
+special|11235:11212|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|11235:11227|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|11235:11228|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|11235:11229|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|12765:11212|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|12765:11227|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|12765:11228|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|12765:11229|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|12766:11212|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|12766:11227|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|12766:11228|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|12766:11229|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|12767:11212|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|12767:11227|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|12767:11228|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|12767:11229|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|12768:11212|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|12768:11227|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|12768:11228|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|12768:11229|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|20408:11212|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|20408:11227|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|20408:11228|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|20408:11229|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|27853:11212|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|27853:11227|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|27853:11228|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+special|27853:11229|ranged|426|-|-|-|-|-|3|3|163|146|41|5|5|11|5|curated:b237:darkbow:dragon_arrows|2|163|146|41|25|14|11|10|1099|1100|26391|6585|1|-|-|-|96|96|-|-|multi_projectile|source_actor|target_actor|none|target_actor|curated
+item|28547|magic|9493|2125|2126|2127|45244|663|3|3|250|124|56|32|16|40|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|0|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|28547|magic|9493|2125|2126|2127|45244|663|3|3|250|124|56|32|16|40|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|0|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|28547|magic|9493|2125|2126|2127|45244|663|3|3|250|124|56|32|16|40|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|0|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|28585|magic|10501|2567|2569|2568|46982|9942|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|28585|magic|10501|2567|2569|2568|46982|9942|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|28585|magic|10501|2567|2569|2568|46982|9942|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|31113|magic|12397|3366|3367|3368|28450|12398|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|31113|magic|12397|3366|3367|3368|28450|12398|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|31113|magic|12397|3366|3367|3368|28450|12398|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|33314|magic|1167|3722|3724|3726|60395|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|33314|magic|1167|3722|3724|3726|60395|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|33314|magic|1167|3722|3724|3726|60395|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|33318|magic|1167|3722|3724|3726|60395|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|33318|magic|1167|3722|3724|3726|60395|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|33318|magic|1167|3722|3724|3726|60395|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|33322|magic|1167|3721|3723|3725|60394|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|33322|magic|1167|3721|3723|3725|60394|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|33322|magic|1167|3721|3723|3725|60394|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|33323|magic|1167|3721|3723|3725|60394|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|33323|magic|1167|3721|3723|3725|60394|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|33323|magic|1167|3721|3723|3725|60394|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|33326|magic|1167|3721|3723|3725|60394|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|0|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|33326|magic|1167|3721|3723|3725|60394|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|1|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated
+item|33326|magic|1167|3721|3723|3725|60394|5462|3|3|172|124|51|16|-5|64|10|curated:b237:powered_staff:cast|-|-|-|-|-|-|-|-|-|-|-|-|-|-|3|-|92|124|-|-|travel_projectile|source_actor|target_actor|source_actor|target_actor|curated

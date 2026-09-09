@@ -60,17 +60,8 @@ int rc_player_command_submit(RcWorld *world, RcPlayerCommandKind kind,
 }
 
 static void stop_player_combat(RcWorld *world) {
-    int npc_uid = -1;
-    if (world->player.combat.target.kind == RC_COMBAT_ACTOR_NPC)
-        npc_uid = world->player.combat.target.uid;
-    else if (world->player.attack_target >= 0)
-        npc_uid = world->player.attack_target;
     RcCombatActorRef player = {RC_COMBAT_ACTOR_PLAYER, 0};
     rc_combat_stop_actor(world, player, RC_COMBAT_STATE_CANCELLED);
-    if (npc_uid >= 0) {
-        RcCombatActorRef npc = {RC_COMBAT_ACTOR_NPC, npc_uid};
-        rc_combat_stop_actor(world, npc, RC_COMBAT_STATE_CANCELLED);
-    }
 }
 
 static void cancel_player_activity(RcWorld *world,
@@ -243,8 +234,8 @@ static int execute_command(RcWorld *world, const RcPlayerCommand *command) {
         return rc_player_attack_npc(world, a[0]);
     case RC_PLAYER_COMMAND_SET_ATTACK_STYLE:
         rc_player_set_attack_style(world, a[0]); return 1;
-    case RC_PLAYER_COMMAND_TOGGLE_AUTO_RETALIATE:
-        rc_combat_toggle_auto_retaliate(world); return 1;
+    case RC_PLAYER_COMMAND_SET_AUTO_RETALIATE:
+        return rc_combat_set_auto_retaliate(world, a[0] != 0);
     case RC_PLAYER_COMMAND_TOGGLE_SPECIAL:
         rc_combat_toggle_special(world); return 1;
     case RC_PLAYER_COMMAND_SET_PRAYER:

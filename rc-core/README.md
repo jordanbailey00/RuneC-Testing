@@ -215,7 +215,11 @@ world UID.
 alive, dying, hidden, respawned, and removed phases and publishes lifecycle
 events only after each state is complete. NPC policy submits wander, chase, and
 return routes to `rc_npc_movement_tick`, so one footprint-aware step owner moves
-an NPC each cycle. NDEF v5 stores explicit lifecycle, hunt, regeneration, and
+an NPC each cycle. Ordinary travel tries a direct diagonal, then X, then Y,
+without searching obstacle detours. Blocked pursuit can resume when its target
+or collision changes. Obstacle-searching routes require an explicit
+`RC_NPC_ROUTE_SCRIPTED` request; this is not a blanket boss policy. NDEF v5
+stores explicit lifecycle, hunt, regeneration, and
 transform policy; the active definition is resolved from the world's
 varbit/varp state. The viewer may animate and draw these phases/forms but does
 not own them.
@@ -358,6 +362,42 @@ not exist.
 start or absolute ready/expiry tick, so an N-tick delay has the same boundary
 meaning regardless of which phase created it. Pending-hit and command capacity
 failures are observable rather than silently dropping gameplay work.
+
+Combat target selection does not start the opponent's action. A launch checks
+reach and bounded hit/event capacity before committing its resource cost,
+cooldown, XP and attack event. Cancelling one actor does not cancel the other.
+NPCs retain one selected attack while chasing and repeat at their declared
+tick interval. Melee uses shared cardinal/line-of-walk reach; ranged and magic
+use projectile LOS. Area flags supply multi-combat policy, with the explicit
+world override retained for configured encounters and tests.
+
+`rc_combat_set_auto_retaliate` queues the requested boolean, not a toggle.
+Disabling retaliation prevents a new automatic attack but does not cancel an
+existing target. Content supplies ranged weapon/ammo compatibility and the
+resource slot; core validates and consumes that slot through item transactions.
+Weapons not using the ammo slot cannot gain its ammunition bonuses. Unsupported
+charge containers fail explicitly, without spending unrelated ammunition.
+
+Magic preparation accepts either a selected spell or a content-owned native
+weapon attack. Content validates compatibility and prepares the calculation;
+core owns capacity checks, resource payment and launch. Manual casts are one
+shot; autocast retains the target. Pending hits retain spell/weapon identity
+for landed content effects, while attack events expose accuracy and hit count
+without presentation metadata. NPC immobilization uses absolute world ticks.
+
+Rolls use live NPC stats. Accuracy is a separate pending-hit fact from damage.
+Player attack XP captures the launch stance and target-HP cap, retaining
+hundredths; impacts do not award XP again. NPC damage is capped to remaining
+HP. Player hit records retain rolled damage, while damage events report actual
+HP lost (`damage_tenths`) after mutation. Ordinary protection uses the existing
+queue-time snapshot; no universal impact-time prayer rule is implied.
+
+Player respawn clears old hits, statuses and active/dormant NPC targeting.
+NPC removal/new-life reset cancels its pending melee and detaches surviving
+ranged/magic hits from source-dependent effects and retaliation. Those hits
+retain their damage and ordinary protection snapshot. Exact orphaned boss
+effects, per-attack travel timing, NPC bonus data and specialty weapon policy
+remain explicitly scoped in the systems audit; they are not accepted parity.
 
 `rc_world_reset` is the supported in-place rollout reset. It keeps the world's
 immutable game data, allocated NPC storage, enabled subsystem set, streaming

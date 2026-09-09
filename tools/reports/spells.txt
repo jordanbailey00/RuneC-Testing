@@ -6,9 +6,10 @@ authority: runec_owned_reviewed_runtime_snapshot
 snapshot files: 2
 snapshot bytes: 11062
 entries: 259
+combat values: content/combat/spell_effects.tsv (applied after snapshot verification)
 
 installed files:
-  - data/defs/spells.bin bytes=8464 sha256=01d466f3872a66cfd009bddb7424e235e46e3d0de2fb25f3337761f3a7e9df91
+  - data/defs/spells.bin bytes=8464 sha256=8eeef06d64d9a250663e06c203e23347d148db2f8a1d1bd9fee983738227b7aa
   - data/defs/teleports.bin bytes=2598 sha256=f67e2418cd32bc560a94dbed33487d4d8c1cc2fb78f5ddd115bacb6e1897ec34
 
 accepted simplifications:

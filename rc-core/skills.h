@@ -110,11 +110,12 @@ int rc_level_for_xp(int xp);
 
 // Add XP to a skill, update base level if it changed
 void rc_add_xp(RcSkills *skills, RcSkill skill, int xp);
+void rc_add_xp_hundredths(RcSkills *skills, RcSkill skill, int64_t xp);
 
 // Combat level formula
 int rc_combat_level(const RcSkills *skills);
 
 // Stat restore: boosted stats decay toward base (every 60 ticks)
-void rc_stat_restore_tick(RcSkills *skills);
+void rc_stat_restore_tick(RcPlayer *player);
 
 #endif
