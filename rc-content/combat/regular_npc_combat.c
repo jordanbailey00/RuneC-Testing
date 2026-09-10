@@ -360,17 +360,15 @@ static void regular_on_npc_hit_player(RcWorld *world,
             (activity & RC_ACTIVITY_BEHAVIOR_PRAYER_DRAIN) != 0) {
         if (hit->attack_style == COMBAT_MAGIC &&
                 p->current_prayer_points > 0) {
-            p->current_prayer_points -=
-                percent_at_least_one(p->current_prayer_points, 9);
-            if (p->current_prayer_points < 0) p->current_prayer_points = 0;
+            rc_prayer_drain_tenths(world,
+                percent_at_least_one(p->current_prayer_points, 9));
         }
         handled_prayer = true;
     }
     if (!handled_prayer &&
             (activity & RC_ACTIVITY_BEHAVIOR_PRAYER_DRAIN) != 0 &&
             p->current_prayer_points > 0) {
-        p->current_prayer_points -= damage > 5 ? 5 : damage;
-        if (p->current_prayer_points < 0) p->current_prayer_points = 0;
+        rc_prayer_drain_points(world, damage > 5 ? 5 : damage);
     }
 
     bool handled_drain = false;
@@ -752,10 +750,7 @@ static void restore_saradomin_godsword(RcWorld *world, int damage) {
     if (p->current_hp > p->max_hp) p->current_hp = p->max_hp;
     int prayer = (damage + 3) / 4;
     if (prayer < 5) prayer = 5;
-    int cap = p->skills.base_level[SKILL_PRAYER];
-    if (cap <= 0) cap = 99;
-    p->current_prayer_points += prayer;
-    if (p->current_prayer_points > cap) p->current_prayer_points = cap;
+    rc_prayer_restore_points(p, prayer);
 }
 
 static int regular_modify_player_special_damage(RcWorld *world,

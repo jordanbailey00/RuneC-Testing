@@ -76,7 +76,36 @@ typedef enum {
     RC_PLAYER_COMMAND_EXAMINE_INVENTORY,
     RC_PLAYER_COMMAND_EXAMINE_EQUIPMENT,
     RC_PLAYER_COMMAND_EXAMINE_GROUND_ITEM,
+    RC_PLAYER_COMMAND_SELECT_QUICK_PRAYER,
+    RC_PLAYER_COMMAND_TOGGLE_QUICK_PRAYERS,
 } RcPlayerCommandKind;
+
+typedef enum {
+    RC_PRAYER_OK = 0,
+    RC_PRAYER_QUEUED,
+    RC_PRAYER_INVALID,
+    RC_PRAYER_DISABLED,
+    RC_PRAYER_DEAD,
+    RC_PRAYER_EMPTY,
+    RC_PRAYER_LEVEL,
+    RC_PRAYER_DEFENCE,
+    RC_PRAYER_LOCKED,
+    RC_PRAYER_MEMBERS,
+    RC_PRAYER_UNSUPPORTED,
+    RC_PRAYER_MISSING_DATA,
+    RC_PRAYER_NO_SELECTION,
+    RC_PRAYER_REPLACED,
+    RC_PRAYER_CONFLICT,
+    RC_PRAYER_QUEUE_REJECTED,
+    RC_PRAYER_DEPLETED,
+    RC_PRAYER_FORCED_OFF,
+} RcPrayerResult;
+
+typedef struct {
+    uint64_t sequence;
+    RcPrayerResult code;
+    int prayer_id;
+} RcPrayerOutcome;
 
 typedef enum {
     RC_ACTION_CATEGORY_SOFT = 0,
@@ -773,8 +802,12 @@ typedef struct {
 
     // Prayer
     uint32_t active_prayers;
-    int prayer_drain_counter;
-    int current_prayer_points;
+    uint32_t quick_prayers;
+    bool quick_prayers_active;
+    int64_t prayer_drain_counter;
+    int current_prayer_points; // tenths; content APIs name their units
+    RcTick prayer_drain_start_tick;
+    RcPrayerOutcome prayer_outcome;
 
     // Timers
     int food_timer;
@@ -820,6 +853,10 @@ typedef struct {
 
     // Regen
     int hp_regen_counter;
+    int stat_restore_counter;
+    int stat_boost_counter;
+    int rapid_restore_counter;
+    int preserve_timer;
 
     // Run energy
     int run_energy;         // 0-10000
@@ -1161,6 +1198,7 @@ typedef struct RcWorld {
     // only by the base tick dispatcher; subsystem code assumes its
     // subsystem is enabled if it gets called.
     uint32_t enabled;
+    bool members_world;
 
     // Event bus — subsystems subscribe at init, fire episodically.
     // See events.h / README §7.

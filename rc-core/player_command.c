@@ -14,7 +14,7 @@
 static int command_args_valid(RcPlayerCommandKind kind,
                               RcActionCategory category) {
     return kind > RC_PLAYER_COMMAND_NONE
-        && kind <= RC_PLAYER_COMMAND_EXAMINE_GROUND_ITEM
+        && kind <= RC_PLAYER_COMMAND_TOGGLE_QUICK_PRAYERS
         && category >= RC_ACTION_CATEGORY_SOFT
         && category <= RC_ACTION_CATEGORY_STRONG;
 }
@@ -239,7 +239,11 @@ static int execute_command(RcWorld *world, const RcPlayerCommand *command) {
     case RC_PLAYER_COMMAND_TOGGLE_SPECIAL:
         rc_combat_toggle_special(world); return 1;
     case RC_PLAYER_COMMAND_SET_PRAYER:
-        rc_player_set_prayer(world, a[0]); return 1;
+        return rc_prayer_result_accepted(rc_player_set_prayer(world, a[0]));
+    case RC_PLAYER_COMMAND_SELECT_QUICK_PRAYER:
+        return rc_prayer_result_accepted(rc_player_select_quick_prayer(world, a[0]));
+    case RC_PLAYER_COMMAND_TOGGLE_QUICK_PRAYERS:
+        return rc_prayer_result_accepted(rc_player_toggle_quick_prayers(world));
     case RC_PLAYER_COMMAND_SET_SPELLBOOK:
         rc_player_set_spellbook(world, a[0]); return 1;
     case RC_PLAYER_COMMAND_SELECT_SPELL:

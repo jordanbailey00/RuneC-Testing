@@ -124,8 +124,9 @@ static void check_combat_only(void) {
     assert(g_rc_item_normalization_count > 30000);
     assert(g_rc_player_action_count == 13);
     assert(g_rc_prayer_count == 31);
-    assert(g_rc_varbit_count == 0);
-    assert(g_rc_varp_count == 0);
+    // Combat includes Prayer, whose unlock requirements need world variables.
+    assert(g_rc_varbit_count > 0);
+    assert(g_rc_varp_count > 0);
     assert(g_rc_drop_table_count == 0);
     assert(g_rc_spell_count == 201);
     assert(g_rc_monster_mechanic_family_count == 16);

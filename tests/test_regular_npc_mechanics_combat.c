@@ -652,12 +652,12 @@ int main(void) {
     int gen_drain_idx = rc_npc_spawn(w, 19, w->player.x, w->player.y, 0);
     assert(gen_drain_idx >= 0);
     RcNpc *gen_drain = &w->npcs[gen_drain_idx];
-    w->player.current_prayer_points = 20;
+    w->player.current_prayer_points = 200;
     w->player.skills.boosted_level[SKILL_ATTACK] = 10;
     rc_queue_hit(w->player.pending_hits, &w->player.num_pending_hits,
                  7, 0, COMBAT_MAGIC, gen_drain->uid, 0, w->tick);
     rc_resolve_player_hits(w);
-    assert(w->player.current_prayer_points == 15);
+    assert(w->player.current_prayer_points == 150);
     assert(w->player.skills.boosted_level[SKILL_ATTACK] == 9);
 
     rc_world_destroy(w);

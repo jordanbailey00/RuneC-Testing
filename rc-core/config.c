@@ -139,6 +139,7 @@ int rc_world_config_validate(const RcWorldConfig *config,
 
 RcWorldConfig rc_preset_full_game(void) {
     return (RcWorldConfig){
+        .members_world = true,
         .subsystems = RC_SUB_COMBAT | RC_SUB_PRAYER | RC_SUB_EQUIPMENT
                     | RC_SUB_INVENTORY | RC_SUB_CONSUMABLES | RC_SUB_LOOT
                     | RC_SUB_SKILLS | RC_SUB_QUESTS | RC_SUB_DIALOGUE
@@ -189,6 +190,7 @@ RcWorldConfig rc_preset_full_game(void) {
 
 RcWorldConfig rc_preset_combat_only(void) {
     return (RcWorldConfig){
+        .members_world = true,
         .subsystems = RC_SUB_COMBAT | RC_SUB_PRAYER | RC_SUB_EQUIPMENT
                     | RC_SUB_INVENTORY | RC_SUB_CONSUMABLES
                     | RC_SUB_ENCOUNTER,
@@ -199,6 +201,8 @@ RcWorldConfig rc_preset_combat_only(void) {
         .npc_defs_path   = DEFAULT_NPC_DEFS,
         .spawns_path     = DEFAULT_SPAWNS,
         .ground_item_spawns_path = DEFAULT_GROUND_SPAWNS,
+        .varbits_path    = DEFAULT_VARBITS,
+        .varps_path      = DEFAULT_VARPS,
         .items_path      = DEFAULT_ITEMS,
         .normalization_path = DEFAULT_NORM,
         .prayers_path    = DEFAULT_PRAYERS,
@@ -217,6 +221,7 @@ RcWorldConfig rc_preset_combat_only(void) {
 
 RcWorldConfig rc_preset_skilling_only(void) {
     return (RcWorldConfig){
+        .members_world = true,
         .subsystems = RC_SUB_SKILLS | RC_SUB_INVENTORY | RC_SUB_EQUIPMENT
                     | RC_SUB_OBJECTS | RC_SUB_REGIONS | RC_SUB_TRAVERSAL,
         .seed            = 0,
@@ -245,6 +250,7 @@ RcWorldConfig rc_preset_skilling_only(void) {
 
 RcWorldConfig rc_preset_base_only(void) {
     return (RcWorldConfig){
+        .members_world = true,
         .subsystems      = 0,
         .seed            = 0,
         .npc_capacity    = RC_WORLD_NPC_CAPACITY_BASE,

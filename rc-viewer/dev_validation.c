@@ -6,6 +6,7 @@
 #include "../rc-core/npc.h"
 #include "../rc-core/pathfinding.h"
 #include "../rc-core/spells.h"
+#include "../rc-core/varbits.h"
 #include "../rc-content/combat/magic.h"
 
 #include <ctype.h>
@@ -32,6 +33,26 @@ int runec_dev_validation_set_spellbook(RcWorld *world, int book) {
         return 0;
     rc_player_set_spellbook(world, book);
     return world->player_commands.last_result == RC_COMMAND_RESULT_QUEUED;
+}
+
+int runec_dev_validation_seed_prayers(RcWorld *world) {
+    if (!world) return 0;
+    if (!runec_dev_validation_enabled()) return 1;
+    for (int i = 0; i < RC_MAX_PRAYER_DEFS; i++) {
+        const RcPrayerDef *def = rc_prayer_def_get(i);
+        if (def && def->unlock_varbit && !rc_varbit_def_get(def->unlock_varbit)) {
+            fprintf(stderr, "dev prayers: missing unlock varbit %u\n", def->unlock_varbit);
+            return 0;
+        }
+    }
+    for (int i = 0; i < RC_MAX_PRAYER_DEFS; i++) {
+        const RcPrayerDef *def = rc_prayer_def_get(i);
+        if (def && def->unlock_varbit
+                && rc_varbit_set(world, def->unlock_varbit, def->unlock_value) != 0)
+            return 0;
+    }
+    rc_prayer_recharge(&world->player);
+    return 1;
 }
 
 static void preserve_player_life(RcWorld *world, int event,

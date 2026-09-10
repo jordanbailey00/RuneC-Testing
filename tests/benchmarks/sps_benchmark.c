@@ -3,6 +3,7 @@
 #include "../../rc-core/api.h"
 #include "../../rc-core/combat.h"
 #include "../../rc-core/npc.h"
+#include "../../rc-core/prayer.h"
 #include "../world_test_fixture.h"
 
 #include <stdint.h>
@@ -14,6 +15,7 @@
 typedef enum RcBenchMode {
     RC_BENCH_IDLE = 0,
     RC_BENCH_COMBAT = 1,
+    RC_BENCH_PRAYER = 2,
 } RcBenchMode;
 
 static double rc_now_seconds(void) {
@@ -33,7 +35,8 @@ static int rc_parse_positive(const char *arg, const char *value, int fallback) {
 }
 
 static const char *rc_mode_name(RcBenchMode mode) {
-    return mode == RC_BENCH_COMBAT ? "combat" : "idle";
+    return mode == RC_BENCH_PRAYER ? "prayer"
+         : mode == RC_BENCH_COMBAT ? "combat" : "idle";
 }
 
 static int rc_find_bench_npc_def(void) {
@@ -50,7 +53,12 @@ static int rc_find_bench_npc_def(void) {
 
 static RcWorld *rc_make_world(int seed, RcBenchMode mode, int *npc_def_idx) {
     RcWorldConfig cfg = rc_preset_base_only();
-    cfg.subsystems = mode == RC_BENCH_COMBAT ? RC_SUB_COMBAT : 0;
+    cfg.subsystems = mode != RC_BENCH_IDLE ? RC_SUB_COMBAT : 0;
+    if (mode == RC_BENCH_PRAYER) {
+        cfg.subsystems |= RC_SUB_PRAYER;
+        cfg.prayers_path = "data/defs/prayers.bin";
+        cfg.player_actions_path = "data/defs/player_actions.bin";
+    }
     cfg.seed = (uint64_t)seed;
 
     RcWorld *world = rc_world_create_config(&cfg);
@@ -71,7 +79,12 @@ static RcWorld *rc_make_world(int seed, RcBenchMode mode, int *npc_def_idx) {
     }
     rc_player_set_attack_style(world, 0);
 
-    if (mode == RC_BENCH_COMBAT) {
+    if (mode == RC_BENCH_PRAYER) {
+        world->player.current_prayer_points = 1000000000;
+        rc_player_set_prayer(world, RC_PRAYER_PROTECT_FROM_MELEE);
+        rc_player_set_prayer(world, RC_PRAYER_ULTIMATE_STRENGTH);
+    }
+    if (mode != RC_BENCH_IDLE) {
         rc_test_open_mapsquare(world, 3200, 3200, 0);
         if (*npc_def_idx < 0) *npc_def_idx = rc_find_bench_npc_def();
         int npc_idx = rc_npc_spawn(world, *npc_def_idx, 3201, 3200, 0);
@@ -93,7 +106,7 @@ static RcWorld *rc_make_world(int seed, RcBenchMode mode, int *npc_def_idx) {
 
 static void rc_print_usage(const char *argv0) {
     fprintf(stderr,
-            "usage: %s [--mode idle|combat] [--envs N] [--steps N] [--warmup N]\n",
+            "usage: %s [--mode idle|combat|prayer] [--envs N] [--steps N] [--warmup N]\n",
             argv0);
 }
 
@@ -108,6 +121,8 @@ int main(int argc, char **argv) {
             i++;
             if (strcmp(argv[i], "combat") == 0) {
                 mode = RC_BENCH_COMBAT;
+            } else if (strcmp(argv[i], "prayer") == 0) {
+                mode = RC_BENCH_PRAYER;
             } else if (strcmp(argv[i], "idle") == 0) {
                 mode = RC_BENCH_IDLE;
             } else {
@@ -154,9 +169,14 @@ int main(int argc, char **argv) {
     }
     double elapsed = rc_now_seconds() - start;
 
-    for (int env = 0; mode == RC_BENCH_COMBAT && env < envs; env++) {
+    for (int env = 0; mode != RC_BENCH_IDLE && env < envs; env++) {
         if (worlds[env]->npcs[0].current_hp >= 1000000000) {
             fprintf(stderr, "combat benchmark failed: env %d inflicted no damage\n", env);
+            return 1;
+        }
+        if (mode == RC_BENCH_PRAYER && worlds[env]->player.active_prayers
+                != (PRAYER_PROTECT_MELEE | PRAYER_ULTIMATE_STR)) {
+            fprintf(stderr, "prayer benchmark failed: env %d prayers inactive\n", env);
             return 1;
         }
     }

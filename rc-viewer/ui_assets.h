@@ -3,7 +3,7 @@
 
 #include "raylib.h"
 
-#define RUNEC_UI_ASSET_MAX 512
+#define RUNEC_UI_ASSET_MAX 576
 
 typedef struct RuneCUiAssets {
     Texture2D textures[RUNEC_UI_ASSET_MAX];

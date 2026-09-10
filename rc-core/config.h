@@ -54,6 +54,7 @@ typedef struct {
 typedef struct {
     uint32_t subsystems;             // bitmask of RC_SUB_*
     uint32_t seed;                   // deterministic RNG seed
+    bool members_world;              // gameplay availability policy
     int npc_capacity;                // dense active NPC slots for this world
     RcWorldStreamingConfig streaming;
 

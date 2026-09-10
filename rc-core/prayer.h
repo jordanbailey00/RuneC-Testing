@@ -3,7 +3,14 @@
 
 #include "types.h"
 
-#define RC_MAX_PRAYER_DEFS 64
+#define RC_MAX_PRAYER_DEFS 32
+#define RC_PRAYER_POINT_SCALE 10
+
+enum {
+    RC_PRAYER_MEMBERS_ONLY = 1 << 0,
+    RC_PRAYER_OVERHEAD = 1 << 1,
+    RC_PRAYER_EFFECT_UNAVAILABLE = 1 << 2,
+};
 
 enum {
     RC_PRAYER_THICK_SKIN = 0,
@@ -60,7 +67,8 @@ enum {
 
 typedef struct {
     char name[64];
-    uint16_t varbit, groups;
+    uint16_t unlock_varbit, groups;
+    uint8_t unlock_value, defence_level, replaces_id;
     uint8_t id, level, drain, flags, loaded;
     int8_t attack, strength, defence;
     int8_t ranged_attack, ranged_strength;
@@ -78,11 +86,23 @@ void rc_prayer_reset_defs_if_active(const RcPrayerDef *defs);
 const RcPrayerDef *rc_prayer_def_get(int prayer_id);
 uint32_t rc_prayer_bit(int prayer_id);
 
-// Counter-based drain (matches OSRS exactly)
-void rc_prayer_drain_tick(RcPlayer *player);
-
-// Toggle by prayer id, clearing conflicting groups when enabling.
-void rc_prayer_toggle(RcPlayer *player, int prayer_id);
+RcPrayerResult rc_prayer_available(const RcWorld *world, int prayer_id);
+int rc_prayer_resolve(const RcWorld *world, int prayer_id);
+int rc_prayer_result_accepted(RcPrayerResult result);
+const char *rc_prayer_result_message(RcPrayerResult result);
+RcPrayerResult rc_player_set_prayer(RcWorld *world, int prayer_id);
+RcPrayerResult rc_player_select_quick_prayer(RcWorld *world, int prayer_id);
+RcPrayerResult rc_player_toggle_quick_prayers(RcWorld *world);
+void rc_prayer_drain_tick(RcWorld *world);
+void rc_prayer_disable_all(RcWorld *world, RcPrayerResult reason);
+// Content may replace an active set, but cannot bypass eligibility/conflicts.
+RcPrayerResult rc_prayer_set_active(RcWorld *world, uint32_t prayers);
+void rc_prayer_reset(RcPlayer *player);
+int rc_prayer_cap_tenths(const RcPlayer *player);
+void rc_prayer_recharge(RcPlayer *player);
+void rc_prayer_drain_tenths(RcWorld *world, int tenths);
+void rc_prayer_drain_points(RcWorld *world, int points);
+void rc_prayer_restore_points(RcPlayer *player, int points);
 
 // Get prayer bonus for combat (percentage modifier)
 int rc_prayer_attack_bonus(uint32_t active_prayers);

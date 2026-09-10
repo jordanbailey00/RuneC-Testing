@@ -20,6 +20,7 @@ except ImportError as exc:  # pragma: no cover
 
 from rc_cache import RcCacheStore, decode_sprite_group
 from export_spell_icons import read_catalog
+from export_prayer_icons import read_catalog as read_prayer_catalog
 
 try:
     from modern_cache_reader import ModernCacheReader, decompress_container
@@ -236,17 +237,18 @@ def build_sprite_map(graphic_symbols: Path | None = None) -> dict[int, list[str]
     for frame in range(50):
         _add(sprites, 15 + frame, f"magicon_{frame}")
         _add(sprites, 65 + frame, f"magicoff_{frame}")
-    for frame in range(20):
-        _add(sprites, 115 + frame, f"prayeron_{frame}")
-        _add(sprites, 135 + frame, f"prayeroff_{frame}")
-    for frame, sprite_id in enumerate(range(502, 506), start=20):
-        _add(sprites, sprite_id, f"prayeron_{frame}")
-    for frame, sprite_id in enumerate(range(506, 510), start=20):
-        _add(sprites, sprite_id, f"prayeroff_{frame}")
-    _add(sprites, 944, "prayeron_24")
-    _add(sprites, 948, "prayeroff_24")
+    for sprite_id, names in prayer_sprite_map().items():
+        _add(sprites, sprite_id, *names)
     add_graphic_symbol_aliases(sprites, graphic_symbols)
 
+    return sprites
+
+
+def prayer_sprite_map() -> dict[int, list[str]]:
+    sprites = {440: ["headicons_prayer"], 4892: ["prayer_glow"]}
+    for _id, _name, on, off, _head in read_prayer_catalog():
+        _add(sprites, on, str(on))
+        _add(sprites, off, str(off))
     return sprites
 
 
@@ -382,6 +384,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--cache", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--prayers-only", action="store_true")
     parser.add_argument(
         "--graphic-symbols",
         type=Path,
@@ -391,7 +394,7 @@ def main(argv: list[str]) -> int:
 
     args.output.mkdir(parents=True, exist_ok=True)
     reader = select_reader(args.cache)
-    sprites = build_sprite_map(args.graphic_symbols)
+    sprites = prayer_sprite_map() if args.prayers_only else build_sprite_map(args.graphic_symbols)
 
     ok = 0
     failed = 0

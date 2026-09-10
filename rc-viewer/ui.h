@@ -4,6 +4,7 @@
 #include "raylib.h"
 #include "ui_assets.h"
 #include "ui_interfaces.h"
+#include "prayer_ui.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -225,7 +226,8 @@ typedef struct RuneCUiState {
     int hitpoints_max;
     int prayer_points;
     int prayer_points_max;
-    uint32_t active_prayers;
+    RuneCPrayerUiState prayers;
+    int quick_prayer_setup;
     int run_energy;
     int combat_level;
     int skill_current[RUNEC_UI_SKILL_COUNT];

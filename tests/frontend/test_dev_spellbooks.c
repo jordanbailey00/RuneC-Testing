@@ -81,16 +81,27 @@ int main(void) {
     RuneCUiLayout layout;
     ui_layout(1280, 720, &layout);
     RcWorldConfig cfg = rc_preset_base_only();
-    cfg.subsystems = RC_SUB_COMBAT | RC_SUB_INVENTORY | RC_SUB_EQUIPMENT;
+    cfg.subsystems = RC_SUB_COMBAT | RC_SUB_INVENTORY | RC_SUB_EQUIPMENT | RC_SUB_PRAYER;
     cfg.items_path = RC_TEST_SOURCE_DIR "/data/defs/items.bin";
     cfg.spells_path = RC_TEST_SOURCE_DIR "/data/defs/spells.bin";
     cfg.player_actions_path = RC_TEST_SOURCE_DIR "/data/defs/player_actions.bin";
+    cfg.prayers_path = RC_TEST_SOURCE_DIR "/data/defs/prayers.bin";
+    cfg.varbits_path = RC_TEST_SOURCE_DIR "/data/defs/varbits.bin";
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world);
     rc_content_combat_register(world);
     for (int i = 0; i < SKILL_COUNT; i++)
         world->player.skills.base_level[i] = world->player.skills.boosted_level[i] = 99;
     assert(setenv("RUNEC_DEV_VALIDATION", "1", 1) == 0);
+    assert(!runec_dev_validation_seed_prayers(NULL));
+    assert(runec_dev_validation_seed_prayers(world));
+    assert(rc_prayer_available(world, RC_PRAYER_PIETY) == RC_PRAYER_OK);
+    assert(runec_prayer_ui_sync(&ui->prayers, world));
+    for (int i = 0; i < 31; i++) {
+        const RuneCPrayerUiRef *ref = runec_prayer_ui_ref(i);
+        assert(runec_ui_asset(&ui->assets, ref->available_asset));
+        assert(runec_ui_asset(&ui->assets, ref->locked_asset));
+    }
     assert(!runec_dev_validation_set_spellbook(NULL, 0));
     assert(!runec_dev_validation_set_spellbook(world, -1));
     assert(!runec_dev_validation_set_spellbook(world, 4));

@@ -495,10 +495,7 @@ static void apply_attack_effect(RcWorld *world, RcActiveEncounter *a,
             drain_player_skill(&world->player, SKILL_MAGIC, drain);
         }
         if ((flags & RC_ENC_ATTACK_EFFECT_DRAIN_PRAYER) != 0) {
-            world->player.current_prayer_points -= drain;
-            if (world->player.current_prayer_points < 0) {
-                world->player.current_prayer_points = 0;
-            }
+            rc_prayer_drain_points(world, drain);
         }
         if (attack->effect_pct) {
             RcNpc *boss = find_npc_by_uid(world, a->boss_id);
@@ -524,10 +521,7 @@ static void apply_attack_effect(RcWorld *world, RcActiveEncounter *a,
         int drain = (world->player.current_prayer_points *
                      attack->effect_pct) / 100;
         if (drain <= 0 && world->player.current_prayer_points > 0) drain = 1;
-        world->player.current_prayer_points -= drain;
-        if (world->player.current_prayer_points < 0) {
-            world->player.current_prayer_points = 0;
-        }
+        rc_prayer_drain_tenths(world, drain);
     } else if (attack->effect_id == RC_ENC_ATTACK_EFFECT_POISON) {
         if (damage == 0 &&
                 (attack->effect_flags &
@@ -553,7 +547,7 @@ static void apply_attack_effect(RcWorld *world, RcActiveEncounter *a,
             world->player.venom_tick_counter = 30;
         }
     } else if (attack->effect_id == RC_ENC_ATTACK_EFFECT_DEACTIVATE_PRAYERS) {
-        world->player.active_prayers = 0;
+        rc_prayer_disable_all(world, RC_PRAYER_FORCED_OFF);
     }
 }
 

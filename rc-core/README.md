@@ -392,6 +392,19 @@ HP. Player hit records retain rolled damage, while damage events report actual
 HP lost (`damage_tenths`) after mutation. Ordinary protection uses the existing
 queue-time snapshot; no universal impact-time prayer rule is implied.
 
+Prayer points are stored in tenths. `prayer.c` owns all refill, restore, drain
+and active-set writes; content uses `rc_prayer_drain_points`,
+`rc_prayer_drain_tenths`, and `rc_prayer_restore_points` with explicit units.
+Player toggles and quick-prayer requests use the soft command queue and return
+typed admission/execution outcomes. PRAY v2 definitions supply requirements,
+conflicts, supported effects and unlock replacements; v1 requires regeneration,
+not a compatibility fallback. Presets are members worlds; `members_world=false`
+enforces free-world restrictions. Combat's preset loads unlock varbits/varps.
+HP regeneration, drained-stat recovery and boosted-stat decay have separate
+timers for Rapid Heal, Rapid Restore and Preserve. Protect Item, Retribution
+and Redemption are explicitly unavailable pending their downstream rules;
+ordinary NPCs do not gain artificial Prayer pools for Smite.
+
 Player respawn clears old hits, statuses and active/dormant NPC targeting.
 NPC removal/new-life reset cancels its pending melee and detaches surviving
 ranged/magic hits from source-dependent effects and retaliation. Those hits

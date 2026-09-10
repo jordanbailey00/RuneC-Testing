@@ -426,6 +426,7 @@ typedef struct {
     uint64_t interaction_outcome_seen;
     uint64_t traversal_event_seen;
     uint64_t traversal_outcome_seen;
+    uint64_t prayer_outcome_seen;
     uint64_t traversal_generation;
     int scene_right_tracking;
     int scene_right_dragged;
@@ -3762,7 +3763,15 @@ static void sync_ui_player_status(ViewerState *v) {
     v->ui.prayer_points = p->current_prayer_points > 0
                          ? (p->current_prayer_points + 9) / 10 : 0;
     v->ui.prayer_points_max = p->skills.base_level[SKILL_PRAYER];
-    v->ui.active_prayers = p->active_prayers;
+    if (!runec_prayer_ui_sync(&v->ui.prayers, v->world)) {
+        fprintf(stderr, "prayer UI: invalid prayer catalog\n");
+        exit(EXIT_FAILURE);
+    }
+    if (p->prayer_outcome.sequence != v->prayer_outcome_seen) {
+        v->prayer_outcome_seen = p->prayer_outcome.sequence;
+        const char *message = rc_prayer_result_message(p->prayer_outcome.code);
+        if (message[0]) runec_ui_add_chat_message(&v->ui, message);
+    }
     v->ui.run_energy = p->run_energy / 100;
     v->ui.selected_combat_style = combat_view.selected_style_idx;
     v->ui.auto_retaliate = combat_view.auto_retaliate;
@@ -3853,7 +3862,7 @@ static void set_viewer_demo_stats(RcPlayer *p) {
     }
     p->current_hp = 990;
     p->max_hp = 990;
-    p->current_prayer_points = 990;
+    rc_prayer_recharge(p);
 }
 
 static int ground_item_at_tile_plane(const ViewerState *v, int x, int y,
@@ -9088,7 +9097,6 @@ static void draw_health_bar(const RuneCHealthBarState *state,
 
 static void draw_scene(ViewerState *v, int ui_capture) {
     RcPlayer *p = &v->world->player;
-    const RcCombatViewState *combat_view = &v->combat_view;
     int scene_plane = viewer_scene_plane(v);
     float t = v->tick_frac;
     int presented_x = p->x;
@@ -9371,30 +9379,17 @@ static void draw_scene(ViewerState *v, int ui_capture) {
     Vector2 ps = GetWorldToScreen(
         (Vector3){px, py + player_mid_y, pz}, v->camera);
     draw_health_bar(&v->player_overlay.health_bar, player_head);
-    draw_hitsplat_state(v, &v->player_overlay.hitsplats, ps);
-
-    if (combat_view->target.kind == RC_COMBAT_ACTOR_NPC &&
-            combat_view->target.uid >= 0 && combat_view->target_hp_max > 0) {
-        char label[64];
-        snprintf(label, sizeof(label), "Target %d",
-                 combat_view->target.definition_id);
-        RcNpc *target = viewer_find_npc_by_uid(v, combat_view->target.uid);
-        const RcNpcDef *target_def = rc_npc_def_for_npc(v->world, target);
-        if (target_def)
-            snprintf(label, sizeof(label), "%.63s", target_def->name);
-        float pct = (float)combat_view->target_hp_current /
-                    (float)combat_view->target_hp_max;
-        if (pct < 0.0f) pct = 0.0f;
-        if (pct > 1.0f) pct = 1.0f;
-        int x = GetScreenWidth() / 2 - 90;
-        int y = 18;
-        DrawRectangle(x, y, 180, 30, (Color){24, 18, 13, 210});
-        DrawRectangleLines(x, y, 180, 30, (Color){155, 125, 60, 255});
-        DrawText(label, x + 6, y + 4, 12, (Color){255, 152, 31, 255});
-        DrawRectangle(x + 6, y + 20, 168, 5, (Color){64, 16, 14, 230});
-        DrawRectangle(x + 6, y + 20, (int)(168.0f * pct), 5,
-                      (Color){30, 180, 38, 235});
+    const char *overhead = runec_prayer_overhead_asset(v->world->player.active_prayers);
+    if (overhead && !v->world->player.is_dead) {
+        const Texture2D *icon = runec_ui_asset(&v->ui.assets, overhead);
+        if (icon) {
+            int bar_gap = runec_health_bar_visible(&v->player_overlay.health_bar) ? 9 : 0;
+            Vector2 pos = {roundf(player_head.x - icon->width * 0.5f),
+                           roundf(player_head.y - icon->height - bar_gap - 4)};
+            DrawTextureV(*icon, pos, WHITE);
+        }
     }
+    draw_hitsplat_state(v, &v->player_overlay.hitsplats, ps);
 }
 
 static void draw_streaming_telemetry_overlay(ViewerState *v) {
@@ -9550,6 +9545,8 @@ int main(int argc, char **argv) {
     cfg.npc_defs_path = env_path("RUNEC_NPC_DEFS", "data/defs/npc_defs.bin");
     cfg.items_path = env_path("RUNEC_ITEMS", "data/defs/items.bin");
     cfg.prayers_path = env_path("RUNEC_PRAYERS", "data/defs/prayers.bin");
+    cfg.varbits_path = env_path("RUNEC_VARBITS", "data/defs/varbits.bin");
+    cfg.varps_path = env_path("RUNEC_VARPS", "data/defs/varps.bin");
     cfg.spells_path = env_path("RUNEC_SPELLS", "data/defs/spells.bin");
     cfg.combat_profiles_path = env_path("RUNEC_COMBAT_PROFILES",
         combat_visuals_path);
@@ -9624,6 +9621,13 @@ int main(int argc, char **argv) {
     v.prev_player_x = (float)g_player_start_x;
     v.prev_player_y = (float)g_player_start_y;
     set_viewer_demo_stats(&v.world->player);
+    if (!runec_dev_validation_seed_prayers(v.world)
+            || !runec_prayer_ui_sync(&v.ui.prayers, v.world)) {
+        fprintf(stderr, "viewer: prayer definitions/unlocks/UI mapping are incomplete\n");
+        free(v.npc_overlays);
+        rc_world_destroy(v.world);
+        return 1;
+    }
     runec_dev_validation_seed_bank(v.world);
 
     if (viewer_smoke) {
@@ -10032,10 +10036,9 @@ int main(int argc, char **argv) {
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_PRAYER_SLOT) {
             rc_player_set_prayer(v.world, v.ui.last_intent.primary);
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_QUICK_PRAYER_SLOT) {
-            fprintf(stderr, "ui quick-prayer slot hook: %d (%s)\n",
-                    v.ui.last_intent.primary, v.ui.last_intent.text);
+            rc_player_select_quick_prayer(v.world, v.ui.last_intent.primary);
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_QUICK_PRAYER_TOGGLE) {
-            fprintf(stderr, "ui quick-prayer toggle hook\n");
+            rc_player_toggle_quick_prayers(v.world);
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_SELECTED_SPELL) {
             int spell_idx = runec_ui_spell_runtime_id(&v.ui, v.ui.last_intent.primary);
             if (spell_idx >= 0)

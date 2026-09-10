@@ -248,6 +248,17 @@ remain submissions to core. Selection clears only after accepted input, and
 sequenced core interaction messages/failures are appended to chat. The viewer
 does not revalidate targets or implement the resulting action.
 
+The Prayer tab uses the generated B237 `prayer_icons.inc` catalog: 29 visible
+slots with Eagle Eye/Deadeye and Mystic Might/Mystic Vigour replacements.
+Core availability selects locked/available artwork; activation uses a separate
+glow. The orb toggles core-owned quick prayers; its setup menu opens selection
+with a Done control. Player overhead icons and failure/depletion messages
+project core state. The existing testing-only validation mode seeds unlocks,
+not an eligibility bypass. Unsupported effects remain visibly unavailable.
+Regenerate the catalog with `export_prayer_icons.py --dump <B237-dump>` and
+its sprites with `export_sprites_modern.py --cache <B237-cache> --prayers-only`.
+Publish matching PRAY v2 definitions and UI sprite packs with these sources.
+
 The terrain tile under the scene cursor is outlined with four corner brackets
 using the loaded heightmap's real corner heights. An accepted movement click
 immediately runs the existing core pathfinder as a read-only viewer preview and

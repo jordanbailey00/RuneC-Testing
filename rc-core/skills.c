@@ -1,4 +1,5 @@
 #include "skills.h"
+#include "prayer.h"
 #include "player_command.h"
 #include "config.h"
 #include "io.h"
@@ -802,8 +803,8 @@ int rc_combat_level(const RcSkills *skills) {
 void rc_stat_restore_tick(RcPlayer *player) {
     if (!player || player->is_dead || player->current_hp <= 0) return;
     RcSkills *skills = &player->skills;
-    // One minute is 100 game ticks. Prayer does not restore naturally.
-    if (++player->hp_regen_counter >= 100) {
+    bool rapid_heal = (player->active_prayers & (1u << RC_PRAYER_RAPID_HEAL)) != 0;
+    if (++player->hp_regen_counter >= (rapid_heal ? 50 : 100)) {
         player->hp_regen_counter = 0;
         if (player->current_hp < player->max_hp) {
             player->current_hp += 10;
@@ -812,10 +813,30 @@ void rc_stat_restore_tick(RcPlayer *player) {
             player->current_hp -= 10;
             if (player->current_hp < player->max_hp) player->current_hp = player->max_hp;
         }
+    }
+    int restore = 0;
+    if (++player->stat_restore_counter >= 100) {
+        player->stat_restore_counter = 0;
+        restore++;
+    }
+    if ((player->active_prayers & (1u << RC_PRAYER_RAPID_RESTORE))
+            && ++player->rapid_restore_counter >= 100) {
+        player->rapid_restore_counter = 0;
+        restore++;
+    }
+    bool preserve = (player->active_prayers & (1u << RC_PRAYER_PRESERVE)) != 0;
+    if (preserve && player->preserve_timer > 0 && --player->preserve_timer == 0)
+        player->stat_boost_counter = -1;
+    int interval = preserve && player->preserve_timer == 0 ? 150 : 100;
+    bool decay = ++player->stat_boost_counter >= interval;
+    if (decay) player->stat_boost_counter = 0;
+    if (restore || decay) {
         for (int i = 0; i < SKILL_COUNT; i++) {
             if (i == SKILL_HITPOINTS || i == SKILL_PRAYER) continue;
-            if (skills->boosted_level[i] < skills->base_level[i]) skills->boosted_level[i]++;
-            else if (skills->boosted_level[i] > skills->base_level[i]) skills->boosted_level[i]--;
+            int level = skills->boosted_level[i], base = skills->base_level[i];
+            if (level < base && restore)
+                skills->boosted_level[i] = level + restore > base ? base : level + restore;
+            else if (level > base && decay) skills->boosted_level[i]--;
         }
     }
     skills->boosted_level[SKILL_HITPOINTS] = (player->current_hp + 9) / 10;

@@ -531,6 +531,7 @@ int rc_player_effective_strength_level(const RcPlayer *p) {
     int base = p->skills.boosted_level[SKILL_STRENGTH];
     int stance = stance_strength_bonus(p);
     int prayer = rc_prayer_strength_bonus(p->active_prayers);
+    if (base <= 20 && prayer == 5) return base + 1 + stance + 8;
     return (base * (100 + prayer)) / 100 + stance + 8;
 }
 
@@ -565,6 +566,7 @@ int rc_player_effective_ranged_strength_level(const RcPlayer *p) {
     if (!p) return 0;
     int base = p->skills.boosted_level[SKILL_RANGED];
     int prayer = rc_prayer_ranged_strength_bonus(p->active_prayers);
+    if (base <= 20 && prayer == 5) return base + 1 + stance_ranged_attack_bonus(p) + 8;
     return (base * (100 + prayer)) / 100 + stance_ranged_attack_bonus(p) + 8;
 }
 

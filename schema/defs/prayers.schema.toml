@@ -3,8 +3,8 @@ format = "binary"
 path = "data/defs/prayers.bin"
 magic_label = "PRAY"
 magic_u32 = "0x59415250"
-current_version = 1
-accepted_versions = [1]
+current_version = 2
+accepted_versions = [2]
 endianness = "little"
 header = ["u32 magic", "u32 version", "u32 count"]
 producer = "tools/export_prayers.py"
@@ -15,8 +15,11 @@ row_fields = [
   "u8 level",
   "u8 drain",
   "u8 flags",
-  "u16 varbit",
+  "u16 unlock_varbit",
   "u16 groups",
+  "u8 unlock_value",
+  "u8 defence_level",
+  "u8 replaces_id (255 = none)",
   "i8 attack",
   "i8 strength",
   "i8 defence",

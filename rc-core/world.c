@@ -111,6 +111,7 @@ static void init_player_defaults(RcPlayer *p) {
     p->skills.xp[SKILL_HITPOINTS] = 1154;   // XP for level 10
     p->current_hp = 100;                    // tenths-of-HP
     p->max_hp = 100;
+    rc_prayer_reset(p);
 
     // Empty inventory + equipment.
     for (int i = 0; i < RC_INVENTORY_SIZE; i++) {
@@ -205,6 +206,7 @@ RcWorld *rc_world_create_with_data(RcGameData *data,
 
     world->initial_seed = cfg->seed ? cfg->seed : RC_DEFAULT_SEED;
     world->enabled = cfg->subsystems;
+    world->members_world = cfg->members_world;
     world->streaming = cfg->streaming;
     rc_world_streaming_config_sanitize(&world->streaming);
     copy_world_path(world->npc_spawns_path, sizeof(world->npc_spawns_path),
@@ -248,6 +250,7 @@ int rc_world_reset(RcWorld *world) {
     int next_npc_uid = world->next_npc_uid;
     uint32_t initial_seed = world->initial_seed;
     uint32_t enabled = world->enabled;
+    bool members_world = world->members_world;
     RcWorldStreamingConfig streaming = world->streaming;
     char spawns_path[sizeof(world->npc_spawns_path)];
     memcpy(spawns_path, world->npc_spawns_path, sizeof(spawns_path));
@@ -263,6 +266,7 @@ int rc_world_reset(RcWorld *world) {
     world->npc_capacity = npc_capacity;
     world->initial_seed = initial_seed;
     world->enabled = enabled;
+    world->members_world = members_world;
     world->streaming = streaming;
     memcpy(world->npc_spawns_path, spawns_path, sizeof(spawns_path));
     memcpy(world->ground_item_spawns_path, ground_spawns_path,

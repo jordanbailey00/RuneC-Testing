@@ -1631,15 +1631,14 @@ void rc_combat_reset_player_life(RcWorld *world) {
     p->manual_spell_cast = -1;
     p->combat.special_pending = false;
     rc_combat_init_player_state(p);
-    p->active_prayers = 0;
-    p->prayer_drain_counter = 0;
-    p->current_prayer_points = p->skills.base_level[SKILL_PRAYER] * 10;
+    rc_prayer_reset(p);
     p->poison_damage = p->poison_tick_counter = 0;
     p->venom_damage = p->venom_tick_counter = p->disease_tick_counter = 0;
     p->freeze_start_tick = p->freeze_expire_tick = 0;
     p->teleblock_start_tick = p->teleblock_expire_tick = 0;
     p->food_timer = p->potion_timer = p->combo_timer = 0;
     p->ward_of_arceuus_timer = p->hp_regen_counter = 0;
+    p->stat_restore_counter = p->stat_boost_counter = 0;
     p->last_hit = p->last_hit_timer = 0;
     for (int i = 0; i < SKILL_COUNT; i++)
         p->skills.boosted_level[i] = p->skills.base_level[i];

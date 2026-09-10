@@ -915,6 +915,7 @@ static void check_deaths(RcWorld *world) {
     player->is_dead = true;
     player->death_tick = world->tick;
     rc_player_cancel_action(world, RC_ACTION_CANCEL_DEATH);
+    rc_prayer_disable_all(world, RC_PRAYER_DEAD);
     RcPayloadPlayerDeath payload = {
         .tick = world->tick,
         .x = player->x,
@@ -1016,7 +1017,7 @@ void rc_world_tick(RcWorld *world) {
     }
 
     // Phase 6 — prayer drain (prayer subsystem).
-    if (on & RC_SUB_PRAYER)   rc_prayer_drain_tick(&world->player);
+    if (on & RC_SUB_PRAYER)   rc_prayer_drain_tick(world);
 
     // Phase 7 — stat regen (skills subsystem, but hp regen baseline
     // runs in base since it's part of the base player model).
@@ -1562,22 +1563,6 @@ int rc_player_attack_npc(RcWorld *world, int npc_uid) {
     api_commit_interaction_admission(world);
     (void)api_prepare_spatial_interaction(world);
     return 1;
-}
-void rc_player_set_prayer(RcWorld *world, int prayer_id) {
-    if (rc_player_command_should_queue(world)) {
-        (void)queue_player_command(world, RC_PLAYER_COMMAND_SET_PRAYER,
-                                   RC_ACTION_CATEGORY_SOFT,
-                                   prayer_id, 0, 0, 0, 0, 0);
-        return;
-    }
-    if (!world || !rc_player_action_allowed(world->enabled,
-                                            RC_PLAYER_ACTION_SET_PRAYER)) {
-        return;
-    }
-    if (world->player.current_prayer_points <= 0) return;
-    const RcPrayerDef *def = rc_prayer_def_get(prayer_id);
-    if (!def || world->player.skills.base_level[SKILL_PRAYER] < def->level) return;
-    rc_prayer_toggle(&world->player, prayer_id);
 }
 void rc_player_set_spellbook(RcWorld *world, int spellbook) {
     if (rc_player_command_should_queue(world)) {
@@ -2242,9 +2227,7 @@ static void apply_altar_effect(RcWorld *world, const RcObjectDef *def,
     int restores = !action || action[0] == '\0' || action[0] == 'P'
                 || action[0] == 'R' || action[0] == 'W';
     if (restores && (world->enabled & RC_SUB_PRAYER)) {
-        world->player.current_prayer_points =
-            world->player.skills.base_level[SKILL_PRAYER] * 10;
-        world->player.prayer_drain_counter = 0;
+        rc_prayer_recharge(&world->player);
     }
     if (action && action[0] == 'O' && (world->enabled & RC_SUB_SKILLS)) {
         world->player.skill_action = obj_id;

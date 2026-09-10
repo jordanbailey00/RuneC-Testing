@@ -30,7 +30,7 @@ BINARY_SCHEMAS: dict[str, tuple[str, int, tuple[int, ...]]] = {
     "object_defs": ("ODEF", 2, (1, 2)),
     "object_placements": ("OPLI", 1, (1,)),
     "player_actions": ("PACT", 1, (1,)),
-    "prayers": ("PRAY", 1, (1,)),
+    "prayers": ("PRAY", 2, (2,)),
     "quests": ("QEST", 1, (1,)),
     "rdt": ("RDT_", 1, (1,)),
     "recipes": ("RCIP", 1, (1,)),

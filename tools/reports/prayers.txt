@@ -1,12 +1,13 @@
 Prayer definition export
 
-status: READY_WITH_ACCEPTED_SIMPLIFICATIONS
+status: FOUNDATION_WITH_EXPLICIT_UNAVAILABLE_EFFECTS
 runtime: data/defs/prayers.bin
 count: 31
-source: RuneLite PrayerType.java + VarbitID.java; OSRS Wiki
+source: B237 prayer params/enums/varbits; rsmod B233; RuneLite B235; osrs-dps-calc
 scope: standard OSRS prayer book only; Ruinous Powers excluded
 notes:
-  Deadeye and Mystic Vigour replace lower-tier prayers but only
-  conflict with their offence groups, matching current OSRS text.
-  Exact unlock-state ownership remains with future varbit/state
-  consumers; this dataset stores the relevant active varbit IDs.
+  Conflicts use the B237 attack/strength/defence/overhead sets.
+  Unlocks use existing world varbits; PRAY contains no presentation IDs.
+  Protect Item, Retribution and Redemption are explicitly unavailable
+  pending death-item ownership and verified death/low-HP effects.
+  Smite affects only eligible resources or explicit encounter hooks.

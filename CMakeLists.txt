@@ -14,6 +14,8 @@ add_test(NAME test_spell_icon_assets
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_spell_icon_assets.py)
 add_test(NAME test_item_sprite_assets
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_item_sprite_assets.py)
+add_test(NAME test_prayer_icon_assets
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_prayer_icon_assets.py)
 
 # rc-core: generic game backend library (no render deps, no OSRS-specific
 # content). See rc-core/README.md for the engine/content split.
@@ -298,7 +300,7 @@ include(${CMAKE_SOURCE_DIR}/tests/tier1_suites.cmake)
 if(TARGET rc-viewer)
     add_executable(test_dev_spellbooks tests/frontend/test_dev_spellbooks.c
         rc-viewer/dev_validation.c rc-viewer/ui_assets.c rc-viewer/ui_spellbook.c
-        rc-viewer/ui_interfaces.c rc-viewer/context_menu.c)
+        rc-viewer/ui_interfaces.c rc-viewer/context_menu.c rc-viewer/prayer_ui.c)
     target_include_directories(test_dev_spellbooks PRIVATE lib/raylib/include)
     target_link_directories(test_dev_spellbooks PRIVATE lib/raylib/lib)
     target_link_libraries(test_dev_spellbooks rc-core rc-content-link raylib m dl pthread)
@@ -312,3 +314,11 @@ if(TARGET rc-viewer)
     add_test(NAME test_dev_spellbooks COMMAND test_dev_spellbooks)
     set_tests_properties(test_dev_spellbooks PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 endif()
+
+add_executable(test_prayer_ui tests/frontend/test_prayer_ui.c rc-viewer/prayer_ui.c)
+target_link_libraries(test_prayer_ui rc-core m)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(test_prayer_ui PRIVATE -UNDEBUG)
+endif()
+add_test(NAME test_prayer_ui COMMAND test_prayer_ui)
+set_tests_properties(test_prayer_ui PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})

@@ -141,18 +141,12 @@ static int roll_damage(RcWorld *world, int min, int max) {
     return min + rc_rng_range(&world->rng_state, max - min);
 }
 
-static void drain_prayer_percent(RcPlayer *pl, uint8_t pct) {
+static void drain_prayer_percent(RcWorld *world, uint8_t pct) {
+    RcPlayer *pl = &world->player;
     if (pct == 0 || pl->current_prayer_points <= 0) return;
     int drain = (pl->current_prayer_points * pct) / 100;
     if (drain <= 0) drain = 1;
-    pl->current_prayer_points -= drain;
-    if (pl->current_prayer_points < 0) pl->current_prayer_points = 0;
-}
-
-static void drain_prayer_points(RcPlayer *pl, uint8_t points) {
-    if (points == 0 || pl->current_prayer_points <= 0) return;
-    pl->current_prayer_points -= points;
-    if (pl->current_prayer_points < 0) pl->current_prayer_points = 0;
+    rc_prayer_drain_tenths(world, drain);
 }
 
 static bool player_has_equipped_item(const RcPlayer *pl, int item_id) {
@@ -309,12 +303,7 @@ static void prim_drain_prayer_on_hit(RcWorld *world, int enc_idx,
                                      const void *params) {
     (void)enc_idx;
     const RcPrimParamsDrainPrayerOnHit *p = params;
-    RcPlayer *pl = &world->player;
-    if (pl->current_prayer_points >= p->points) {
-        pl->current_prayer_points -= p->points;
-    } else {
-        pl->current_prayer_points = 0;
-    }
+    rc_prayer_drain_points(world, p->points);
 }
 
 // chain_magic_to_nearest_player: KQ Magic Bounce.
@@ -542,7 +531,7 @@ static void prim_attack_counter_special(RcWorld *world, int enc_idx,
                      world->tick);
     }
 
-    drain_prayer_percent(pl, p->drain_prayer_pct);
+    drain_prayer_percent(world, p->drain_prayer_pct);
 }
 
 static void prim_spawn_soul_attackers(RcWorld *world, int enc_idx,
@@ -561,7 +550,7 @@ static void prim_spawn_soul_attackers(RcWorld *world, int enc_idx,
                                 style, 0, "Summoned Soul", "");
         uint32_t prayer = protect_prayer_for_style(style);
         if (prayer && (pl->active_prayers & prayer)) {
-            drain_prayer_points(pl, soul_prayer_drain(pl, p));
+            rc_prayer_drain_points(world, soul_prayer_drain(pl, p));
             continue;
         }
         rc_queue_hit(pl->pending_hits, &pl->num_pending_hits,
@@ -958,7 +947,7 @@ static void prim_shuffle_player_prayers(RcWorld *world, int enc_idx,
         out &= ~PRAYER_PROTECT_MELEE;
         out |= PRAYER_PROTECT_MAGIC;
     }
-    world->player.active_prayers = out;
+    (void)rc_prayer_set_active(world, out);
     world->player.attack_timer += p->duration_attacks ? 1 : 0;
 }
 

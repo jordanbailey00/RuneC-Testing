@@ -100,16 +100,6 @@ static const char *g_tab_icon[RUNEC_UI_TAB_COUNT] = {
     "side_icon_clan",
 };
 
-static const char *g_prayer_names[25] = {
-    "Thick Skin", "Burst of Strength", "Clarity of Thought", "Sharp Eye",
-    "Mystic Will", "Rock Skin", "Superhuman Strength", "Improved Reflexes",
-    "Rapid Restore", "Rapid Heal", "Protect Item", "Hawk Eye",
-    "Mystic Lore", "Steel Skin", "Ultimate Strength", "Incredible Reflexes",
-    "Protect from Magic", "Protect from Missiles", "Protect from Melee",
-    "Eagle Eye", "Mystic Might", "Retribution", "Redemption",
-    "Smite", "Preserve",
-};
-
 static const RuneCUiSpellRef g_spell_icons[] = {
 #define SPELL_ICON(book, name, sprite) {book, name, #sprite},
 #include "spell_icons.inc"
@@ -283,7 +273,7 @@ static const RuneCUiCombatProfile g_combat_profiles[] = {
         COMBAT_STYLE_HIDDEN,
     }},
     {8, {
-        COMBAT_STYLE(0, "Aim and Fire", "Accurate", "prayeron_13"),
+        COMBAT_STYLE(0, "Aim and Fire", "Accurate", "128"),
         COMBAT_STYLE(1, "Kick", "Aggressive", "combaticons_15"),
         COMBAT_STYLE_HIDDEN,
         COMBAT_STYLE_HIDDEN,
@@ -1660,13 +1650,19 @@ static int handle_context_click(RuneCUiState *ui, Vector2 mouse) {
                 ui->last_intent.primary = ui->context_source_slot;
                 ui->last_intent.secondary = op;
             } else if (ui->context_source_kind == RUNEC_UI_CONTEXT_PRAYER) {
-                if (strcmp(action, "Activate") == 0) {
+                if (strcmp(action, "Setup quick-prayers") == 0) {
+                    ui->quick_prayer_setup = 1;
+                    runec_ui_set_active_tab(ui, RUNEC_UI_TAB_PRAYER);
+                } else if (ui->context_source_slot == -1) {
+                    ui->last_intent.kind = RUNEC_UI_INTENT_QUICK_PRAYER_TOGGLE;
+                } else if (strcmp(action, "Activate") == 0 || strcmp(action, "Deactivate") == 0) {
                     ui->last_intent.kind = RUNEC_UI_INTENT_PRAYER_SLOT;
                     ui->last_intent.primary = ui->context_source_slot;
                     copy_text(ui->last_intent.text,
                               sizeof(ui->last_intent.text),
                               ui->context_title);
                 } else if (strcmp(action, "Quick-prayer") == 0) {
+                    ui->quick_prayer_setup = 1;
                     ui->last_intent.kind = RUNEC_UI_INTENT_QUICK_PRAYER_SLOT;
                     ui->last_intent.primary = ui->context_source_slot;
                     copy_text(ui->last_intent.text,
@@ -2040,7 +2036,7 @@ static int decoded_side_hit(const RuneCUiState *ui, const RuneCUiLayout *layout,
     if (!ui || !ui->decoded_ui_enabled || !ui->decoded_ui_ready
             || !CheckCollisionPointRec(mouse, layout->side_content))
         return 0;
-    if (ui->active_tab == RUNEC_UI_TAB_COMBAT)
+    if (ui->active_tab == RUNEC_UI_TAB_COMBAT || ui->active_tab == RUNEC_UI_TAB_PRAYER)
         return 0;
     const char *group = open_group_for_side_content(ui);
     if (!group)
@@ -2479,23 +2475,6 @@ static int decoded_left_click(RuneCUiState *ui,
             ui->last_intent.kind = RUNEC_UI_INTENT_EQUIPMENT_SLOT;
             ui->last_intent.primary = slot;
             ui->last_intent.position = mouse;
-            return 1;
-        }
-    }
-
-    if (hit->group_id == RUNEC_UI_GROUP_PRAYER) {
-        int prayer_num = parse_int_suffix(hit->name, "prayer");
-        if (prayer_num > 0) {
-            int slot = prayer_num - 1;
-            ui->last_intent.kind = RUNEC_UI_INTENT_PRAYER_SLOT;
-            ui->last_intent.primary = slot;
-            ui->last_intent.position = mouse;
-            if (slot >= 0 && slot < (int)(sizeof(g_prayer_names) / sizeof(g_prayer_names[0])))
-                copy_text(ui->last_intent.text, sizeof(ui->last_intent.text),
-                          g_prayer_names[slot]);
-            else
-                snprintf(ui->last_intent.text, sizeof(ui->last_intent.text),
-                         "Prayer %d", prayer_num);
             return 1;
         }
     }
@@ -3128,13 +3107,20 @@ int runec_ui_handle_input(RuneCUiState *ui, int screen_w, int screen_h) {
                 return 1;
             }
         } else if (ui->active_tab == RUNEC_UI_TAB_PRAYER) {
-            int slot = grid_index_at(&layout, mouse, 25, 5, 8, 8, 36, 36, 34, 34);
+            if (ui->quick_prayer_setup && CheckCollisionPointRec(mouse,
+                    side_ref_rect(&layout, (Rectangle){4, 234, 182, 24}))) {
+                ui->quick_prayer_setup = 0;
+                return 1;
+            }
+            int slot = grid_index_at(&layout, mouse, ui->prayers.count, 5, 8, 8, 36, 36, 34, 34);
             if (slot >= 0) {
-                ui->last_intent.kind = RUNEC_UI_INTENT_PRAYER_SLOT;
-                ui->last_intent.primary = slot;
+                int id = ui->prayers.ids[slot];
+                ui->last_intent.kind = ui->quick_prayer_setup
+                    ? RUNEC_UI_INTENT_QUICK_PRAYER_SLOT : RUNEC_UI_INTENT_PRAYER_SLOT;
+                ui->last_intent.primary = id;
                 ui->last_intent.position = mouse;
                 copy_text(ui->last_intent.text, sizeof(ui->last_intent.text),
-                          g_prayer_names[slot]);
+                          runec_prayer_ui_ref(id)->name);
                 return 1;
             }
         } else if (ui->active_tab == RUNEC_UI_TAB_SKILLS) {
@@ -3166,6 +3152,14 @@ int runec_ui_handle_input(RuneCUiState *ui, int screen_w, int screen_h) {
     }
 
     if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) && mouse_over_ui(&layout, mouse)) {
+        if (CheckCollisionPointRec(mouse, layout.prayer_orb)) {
+            const char *actions[] = {
+                ui->prayers.quick_active ? "Deactivate quick-prayers" : "Activate quick-prayers",
+                "Setup quick-prayers"};
+            set_context(ui, mouse, "Quick-prayers", actions, 2);
+            set_context_source(ui, RUNEC_UI_CONTEXT_PRAYER, -1, 0);
+            return 1;
+        }
         if (handle_spell_click(ui, &layout, mouse, 1))
             return 1;
         if (ui->active_tab == RUNEC_UI_TAB_COMBAT) {
@@ -3220,11 +3214,13 @@ int runec_ui_handle_input(RuneCUiState *ui, int screen_w, int screen_h) {
             }
         }
         if (ui->active_tab == RUNEC_UI_TAB_PRAYER) {
-            int slot = grid_index_at(&layout, mouse, 25, 5, 8, 8, 36, 36, 34, 34);
+            int slot = grid_index_at(&layout, mouse, ui->prayers.count, 5, 8, 8, 36, 36, 34, 34);
             if (slot >= 0) {
-                static const char *actions[] = {"Activate", "Quick-prayer", "Examine"};
-                set_context(ui, mouse, g_prayer_names[slot], actions, 3);
-                set_context_source(ui, RUNEC_UI_CONTEXT_PRAYER, slot, 0);
+                int id = ui->prayers.ids[slot];
+                const char *actions[] = {
+                    ui->prayers.active & (1u << id) ? "Deactivate" : "Activate", "Quick-prayer"};
+                set_context(ui, mouse, runec_prayer_ui_ref(id)->name, actions, 2);
+                set_context_source(ui, RUNEC_UI_CONTEXT_PRAYER, id, 0);
                 return 1;
             }
         }
@@ -3673,14 +3669,42 @@ static void draw_equipment(const RuneCUiState *ui, const RuneCUiLayout *layout) 
 }
 
 static void draw_prayer(const RuneCUiState *ui, const RuneCUiLayout *layout) {
-    for (int i = 0; i < 25; i++) {
+    Vector2 mouse = GetMousePosition();
+    int hovered = -1;
+    for (int i = 0; i < ui->prayers.count; i++) {
+        int id = ui->prayers.ids[i];
+        const RuneCPrayerUiRef *ref = runec_prayer_ui_ref(id);
         Rectangle r = grid_cell_rect(layout, i, 5, 8, 8, 36, 36, 34, 34);
-        DrawRectangleRec(r, (Color){16, 13, 10, 95});
-        char name[32];
-        snprintf(name, sizeof(name), "prayer%s_%d",
-                 (ui->active_prayers & (1u << i)) ? "on" : "off", i);
-        if (!draw_asset_centered(ui, name, r, 30, 30, WHITE))
-            draw_centered_text(ui, TextFormat("%d", i + 1), r, 10, OSRS_ORANGE);
+        uint32_t bit = 1u << id;
+        uint32_t selected = ui->quick_prayer_setup ? ui->prayers.quick : ui->prayers.active;
+        if (selected & bit) draw_asset_centered(ui, "prayer_glow", r, 34, 34, WHITE);
+        const char *asset = ui->prayers.available & bit ? ref->available_asset : ref->locked_asset;
+        const Texture2D *tex = runec_ui_asset(&ui->assets, asset);
+        if (tex) draw_asset_centered(ui, asset, r, tex->width, tex->height, WHITE);
+        if (CheckCollisionPointRec(mouse, r)) hovered = id;
+    }
+    if (ui->quick_prayer_setup) {
+        Rectangle done = side_ref_rect(layout, (Rectangle){4, 234, 182, 24});
+        draw_centered_text(ui, "Done", done, 14, OSRS_ORANGE);
+    } else {
+        draw_centered_text(ui, TextFormat("Prayer: %d / %d", ui->prayer_points, ui->prayer_points_max),
+            side_ref_rect(layout, (Rectangle){4, 234, 182, 24}), 14, OSRS_ORANGE);
+    }
+    if (hovered >= 0 && !ui->context_open) {
+        const char *name = runec_prayer_ui_ref(hovered)->name;
+        const char *reason = ui->prayers.reasons[hovered];
+        char title[96];
+        snprintf(title, sizeof(title), "%s (level %d)", name, ui->prayers.levels[hovered]);
+        Font font = runec_ui_font_for_size(&ui->assets, 12);
+        float width = fmaxf(MeasureTextEx(font, title, 12, 0).x,
+                            MeasureTextEx(font, reason, 12, 0).x) + 10;
+        float height = reason[0] ? 36 : 20;
+        Rectangle tip = {fmaxf(2, fminf(mouse.x + 12, GetScreenWidth() - width - 2)),
+                         fminf(mouse.y + 22, GetScreenHeight() - height - 2), width, height};
+        DrawRectangleRec(tip, (Color){28, 23, 17, 245});
+        DrawRectangleLinesEx(tip, 1, OSRS_ORANGE);
+        draw_text_shadow(ui, title, tip.x + 5, tip.y + 3, 12, OSRS_YELLOW);
+        if (reason[0]) draw_text_shadow(ui, reason, tip.x + 5, tip.y + 19, 12, OSRS_ORANGE);
     }
 }
 
@@ -3954,9 +3978,6 @@ static void draw_decoded_dynamic_tab_overlay(const RuneCUiState *ui,
         break;
     case RUNEC_UI_TAB_EQUIPMENT:
         break;
-    case RUNEC_UI_TAB_PRAYER:
-        draw_prayer(ui, layout);
-        break;
     case RUNEC_UI_TAB_SKILLS:
         draw_skills(ui, layout);
         break;
@@ -3983,6 +4004,10 @@ static void draw_side(RuneCUiState *ui, const RuneCUiLayout *layout) {
         draw_combat(ui, layout);
         return;
     }
+    if (ui->active_tab == RUNEC_UI_TAB_PRAYER) {
+        draw_prayer(ui, layout);
+        return;
+    }
 
     if (ui->decoded_ui_enabled && ui->decoded_ui_ready) {
         const char *group = open_group_for_side_content(ui);
@@ -4001,9 +4026,6 @@ static void draw_side(RuneCUiState *ui, const RuneCUiLayout *layout) {
         break;
     case RUNEC_UI_TAB_EQUIPMENT:
         draw_equipment(ui, layout);
-        break;
-    case RUNEC_UI_TAB_PRAYER:
-        draw_prayer(ui, layout);
         break;
     case RUNEC_UI_TAB_SKILLS:
         draw_skills(ui, layout);

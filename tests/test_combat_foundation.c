@@ -70,6 +70,28 @@ static void test_npc_repeat_interval(void) {
     rc_world_destroy(w);
 }
 
+static void test_ordinary_protection_snapshot(void) {
+    RcWorld *w = combat_world();
+    RcNpc *n = &w->npcs[0];
+    assert(rc_combat_start_npc_vs_player(w, n->uid, 0));
+    for (int protected = 0; protected < 2; protected++) {
+        w->player.active_prayers = protected ? PRAYER_PROTECT_MELEE : 0;
+        w->player.current_hp = 1000;
+        n->attack_timer = 0;
+        rc_combat_tick_npc(w, n);
+        assert(w->player.num_pending_hits == 1);
+        RcPendingHit *hit = &w->player.pending_hits[0];
+        assert(hit->prayer_snapshot == w->player.active_prayers);
+        // Isolate protection timing from the random accuracy/damage roll.
+        hit->damage = 10;
+        hit->apply_tick = w->tick;
+        w->player.active_prayers = protected ? 0 : PRAYER_PROTECT_MELEE;
+        rc_resolve_player_hits(w);
+        assert(w->player.current_hp == (protected ? 1000 : 900));
+    }
+    rc_world_destroy(w);
+}
+
 static void test_interaction_cancels_only_player_attack(void) {
     RcWorld *w = combat_world();
     RcNpc *n = &w->npcs[0];
@@ -370,6 +392,8 @@ static void test_damage_owner_regen_and_projectile_lifetime(void) {
     w->player.current_hp += 5;
     w->player.skills.boosted_level[SKILL_ATTACK] += 2;
     w->player.hp_regen_counter = 99;
+    // Boost decay has its own timer; changing HP regeneration must not reset it.
+    w->player.stat_boost_counter = 99;
     rc_stat_restore_tick(&w->player);
     assert(w->player.current_hp == w->player.max_hp);
     assert(w->player.skills.boosted_level[SKILL_ATTACK]
@@ -497,6 +521,7 @@ static void test_projectile_cannot_target_reborn_source(void) {
 }
 
 int main(void) {
+    test_ordinary_protection_snapshot();
     test_selection_and_cancellation_ownership();
     test_npc_repeat_interval();
     test_interaction_cancels_only_player_attack();

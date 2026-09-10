@@ -495,9 +495,9 @@ int main(void) {
     assert(kq->mechanics[m_stat].prim != NULL);
 
     // drain_prayer_on_hit: point drop
-    w->player.current_prayer_points = 50;
+    w->player.current_prayer_points = 500;
     kq->mechanics[m_drain].prim(w, aidx, kq->mechanics[m_drain].param_block);
-    assert(w->player.current_prayer_points == 49);
+    assert(w->player.current_prayer_points == 490);
 
     // chain_magic_to_nearest_player: solo no-op
     kq->mechanics[m_chain].prim(w, aidx, kq->mechanics[m_chain].param_block);
@@ -536,7 +536,7 @@ int main(void) {
     int kq_npc_idx = rc_npc_spawn(w, 2, 3213, 3428, 0);
     assert(kq_npc_idx >= 0);
 
-    w->player.current_prayer_points = 50;
+    w->player.current_prayer_points = 500;
     rc_queue_hit(w->player.pending_hits, &w->player.num_pending_hits,
                  15, 0, COMBAT_RANGED,
                  w->npcs[kq_npc_idx].uid,   // source = KQ uid
@@ -545,7 +545,7 @@ int main(void) {
     // Invoke the player-hit resolver directly to isolate the event path.
     rc_resolve_player_hits(w);
     // KQ TOML declares drain_prayer_on_hit points=1 → prayer 50 → 49.
-    assert(w->player.current_prayer_points == 49);
+    assert(w->player.current_prayer_points == 490);
 
     // ---- 8. Encounter attack table + protection override --------------
     int obor_spec_idx = rc_encounter_find_spec(w, 7416);
@@ -681,7 +681,7 @@ int main(void) {
            == RC_ENC_ATTACK_EFFECT_DRAIN_HEAL);
     RcNpc *corp_boss = &w->npcs[corp_npc_idx];
     corp_boss->current_hp = 1000;
-    w->player.current_prayer_points = 50;
+    w->player.current_prayer_points = 500;
     w->player.skills.boosted_level[SKILL_MAGIC] = 99;
     w->encounter.active[corp_active].last_attack_idx =
         (uint8_t)corp_drain_attack;
@@ -692,7 +692,7 @@ int main(void) {
     };
     rc_event_fire(w, RC_EVT_PLAYER_DAMAGED, &corp_drain_hit);
     int magic_drain = 99 - w->player.skills.boosted_level[SKILL_MAGIC];
-    int prayer_drain = 50 - w->player.current_prayer_points;
+    int prayer_drain = (500 - w->player.current_prayer_points) / RC_PRAYER_POINT_SCALE;
     assert(corp_boss->current_hp == 1010);
     assert(magic_drain + prayer_drain >= 1);
     assert(magic_drain + prayer_drain <= 2);
@@ -924,7 +924,7 @@ int main(void) {
     assert(w->player.pending_hits[1].apply_tick == w->tick + 2);
     assert(w->player.pending_hits[2].apply_tick == w->tick + 4);
     w->player.num_pending_hits = 0;
-    w->player.current_prayer_points = 90;
+    w->player.current_prayer_points = 900;
     w->player.active_prayers = PRAYER_PROTECT_MAGIC;
     int soul_effects_before =
         count_effects(w, RC_ENC_EFFECT_TRAVELLING_SOUL);
@@ -932,28 +932,28 @@ int main(void) {
         w, cerb_active, cerb->mechanics[m_souls].param_block);
     assert(count_effects(w, RC_ENC_EFFECT_TRAVELLING_SOUL)
            == soul_effects_before + 3);
-    assert(w->player.current_prayer_points == 60);
+    assert(w->player.current_prayer_points == 600);
     assert(w->player.num_pending_hits == 2);
     w->player.num_pending_hits = 0;
-    w->player.current_prayer_points = 90;
+    w->player.current_prayer_points = 900;
     w->player.ward_of_arceuus_timer = 100;
     w->player.equipment[EQUIP_SHIELD].item_id = -1;
     cerb->mechanics[m_souls].prim(
         w, cerb_active, cerb->mechanics[m_souls].param_block);
-    assert(w->player.current_prayer_points == 70);
+    assert(w->player.current_prayer_points == 700);
     w->player.num_pending_hits = 0;
-    w->player.current_prayer_points = 90;
+    w->player.current_prayer_points = 900;
     w->player.ward_of_arceuus_timer = 0;
     w->player.equipment[EQUIP_SHIELD].item_id = 12821;
     cerb->mechanics[m_souls].prim(
         w, cerb_active, cerb->mechanics[m_souls].param_block);
-    assert(w->player.current_prayer_points == 75);
+    assert(w->player.current_prayer_points == 750);
     w->player.num_pending_hits = 0;
-    w->player.current_prayer_points = 90;
+    w->player.current_prayer_points = 900;
     w->player.ward_of_arceuus_timer = 100;
     cerb->mechanics[m_souls].prim(
         w, cerb_active, cerb->mechanics[m_souls].param_block);
-    assert(w->player.current_prayer_points == 80);
+    assert(w->player.current_prayer_points == 800);
     w->player.ward_of_arceuus_timer = 0;
     w->player.equipment[EQUIP_SHIELD].item_id = -1;
     w->player.num_pending_hits = 0;

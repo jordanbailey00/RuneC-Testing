@@ -13,6 +13,7 @@ import re
 import sys
 from pathlib import Path
 from export_spell_icons import read_catalog
+from export_prayer_icons import read_catalog as read_prayers
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 UI_ASSET_RE = re.compile(r'UI_ASSET\("([^"]+)"\)')
@@ -34,6 +35,13 @@ def required_asset_names(source: Path) -> list[str]:
             if name not in seen:
                 seen.add(name)
                 names.append(name)
+    if '#include "prayer_icons.inc"' in text:
+        for _id, _name, on, off, _head in read_prayers(source.with_name("prayer_icons.inc")):
+            for sprite in (on, off):
+                name = str(sprite)
+                if name not in seen:
+                    seen.add(name)
+                    names.append(name)
     return names
 
 
