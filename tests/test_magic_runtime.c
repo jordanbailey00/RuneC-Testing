@@ -45,6 +45,198 @@ static void equip(RcWorld *w, int id, uint32_t charges) {
     assert(w->player.equipment[EQUIP_WEAPON].state_id == charges);
 }
 
+static void rune_sources(RcWorld *w) {
+    equip(w, 1381, 0);
+    w->player.equipment[EQUIP_WEAPON] = (RcInvSlot){.item_id = -1};
+    RcSpellDef cost = {.loaded = 1, .rune_count = 2,
+        .runes = {{556, 2}, {555, 1}}};
+    assert(rc_inv_add(w->player.inventory, 4695, 1) >= 0);
+    assert(!w->combat_hooks.player_has_spell_runes(w, &w->player, &cost)
+        && "One mist rune cannot supply two air runes");
+    assert(!w->combat_hooks.player_consume_spell_runes(w, &w->player, &cost));
+    assert(w->player.inventory[0].quantity == 1);
+    assert(rc_inv_add(w->player.inventory, 556, 1) >= 0);
+    assert(w->combat_hooks.player_has_spell_runes(w, &w->player, &cost));
+    assert(w->combat_hooks.player_consume_spell_runes(w, &w->player, &cost));
+    assert(rc_inv_find(w->player.inventory, 4695) < 0);
+    assert(rc_inv_find(w->player.inventory, 556) < 0);
+    cost = (RcSpellDef){.loaded = 1, .rune_count = 1, .runes = {{554, 1}}};
+    w->player.equipment[EQUIP_SHIELD] = (RcInvSlot){.item_id = 20716, .quantity = 1};
+    assert(!w->combat_hooks.player_has_spell_runes(w, &w->player, &cost)
+        && "An empty tome must not grant runes");
+    w->player.equipment[EQUIP_SHIELD] = (RcInvSlot){.item_id = -1};
+    w->player.rune_pouch[0] = (RcInvSlot){.item_id = 554, .quantity = 1};
+    assert(!w->combat_hooks.player_has_spell_runes(w, &w->player, &cost)
+        && "Detached pouch contents must not pay a spell");
+    assert(rc_inv_add(w->player.inventory, 12791, 1) >= 0);
+    assert(w->combat_hooks.player_has_spell_runes(w, &w->player, &cost));
+    assert(w->combat_hooks.player_consume_spell_runes(w, &w->player, &cost));
+    assert(w->player.rune_pouch[0].quantity == 0);
+    w->player.rune_pouch[3] = (RcInvSlot){.item_id = 554, .quantity = 1};
+    assert(!w->combat_hooks.player_has_spell_runes(w, &w->player, &cost)
+        && "A regular pouch cannot expose a fourth slot");
+    w->player.rune_pouch[3] = (RcInvSlot){.item_id = -1};
+    int pouch = rc_inv_find(w->player.inventory, 12791);
+    int rune = rc_inv_add(w->player.inventory, 554, 9);
+    assert(rc_player_use_inventory_item_on_inventory_item(w, rune, pouch));
+    rc_world_tick(w);
+    assert(w->player.rune_pouch[0].quantity == 9);
+    assert(rc_inv_find(w->player.inventory, 554) < 0);
+    RcItemTransaction stale;
+    assert(rc_item_tx_begin(&stale, w).code == RC_ITEM_RESULT_OK);
+    assert(w->combat_hooks.player_consume_spell_runes(w, &w->player, &cost));
+    assert(rc_item_tx_commit(&stale).code == RC_ITEM_RESULT_STALE);
+    assert(w->player.rune_pouch[0].quantity == 8);
+    assert(rc_player_interact_inventory_item(w, pouch, 0));
+    rc_world_tick(w);
+    assert(w->player.rune_pouch[0].quantity == 8);
+    int coin = rc_inv_add(w->player.inventory, 995, 1);
+    assert(rc_player_use_inventory_item_on_inventory_item(w, coin, pouch));
+    rc_world_tick(w);
+    assert(w->player.rune_pouch[0].quantity == 8 && w->player.inventory[coin].quantity == 1);
+    for (int i = 0; i < RC_INVENTORY_SIZE; i++)
+        if (w->player.inventory[i].quantity == 0) w->player.inventory[i] = (RcInvSlot){.item_id = 1205, .quantity = 1};
+    assert(rc_player_interact_inventory_item(w, pouch, 3));
+    rc_world_tick(w);
+    assert(w->player.rune_pouch[0].quantity == 8);
+    for (int i = 0; i < RC_INVENTORY_SIZE; i++)
+        if (i != pouch) w->player.inventory[i] = (RcInvSlot){.item_id = -1};
+    assert(rc_player_interact_inventory_item(w, pouch, 3));
+    rc_world_tick(w);
+    assert(w->player.rune_pouch[0].quantity == 0);
+    assert(w->player.inventory[rc_inv_find(w->player.inventory, 554)].quantity == 8);
+    for (int i = 0; i < 4; i++) w->player.rune_pouch[i] = (RcInvSlot){.item_id = -1};
+    for (int i = 0; i < RC_INVENTORY_SIZE; i++) w->player.inventory[i] = (RcInvSlot){.item_id = -1};
+    assert(rc_inv_add(w->player.inventory, 27281, 1) >= 0);
+    w->player.rune_pouch[3] = (RcInvSlot){.item_id = 554, .quantity = 16001};
+    assert(!rc_content_has_spell_runes(w, &w->player, &cost));
+    w->player.rune_pouch[3].quantity = 1;
+    assert(rc_content_consume_spell_runes(w, &w->player, &cost));
+    assert(w->player.rune_pouch[3].quantity == 0);
+    strcpy(cost.name, "Fire Strike");
+    w->player.equipment[EQUIP_SHIELD] = (RcInvSlot){.item_id = 20714, .quantity = 1, .state_id = 1};
+    assert(rc_content_has_spell_runes(w, &w->player, &cost));
+    assert(w->player.equipment[EQUIP_SHIELD].state_id == 1);
+    assert(rc_content_consume_spell_runes(w, &w->player, &cost));
+    assert(w->player.equipment[EQUIP_SHIELD].item_id == 20716);
+    assert(!rc_content_has_spell_runes(w, &w->player, &cost));
+    cost.runes[0].item_id = 561;
+    w->player.equipment[EQUIP_WEAPON] = (RcInvSlot){.item_id = 22370, .quantity = 1, .state_id = 1};
+    assert(rc_content_consume_spell_runes(w, &w->player, &cost));
+    assert(w->player.equipment[EQUIP_WEAPON].item_id == 22368);
+    assert(!rc_content_has_spell_runes(w, &w->player, &cost));
+}
+
+static int64_t magic_xp(const RcPlayer *p) {
+    return (int64_t)p->skills.xp[SKILL_MAGIC] * 100 + p->skills.xp_hundredths[SKILL_MAGIC];
+}
+
+static void admission_and_xp(RcWorld *w, RcNpc *n) {
+    const int tomes[] = {20714, 25574, 30064};
+    const char *elements[] = {"Fire Surge", "Water Surge", "Earth Surge"};
+    w->player.equipment_bonuses[EQ_MAGIC_DMG] = 0;
+    for (int i = 0; i < 3; i++) {
+        int id = rc_spell_find(elements[i]);
+        const RcSpellDef *spell = rc_spell_def_get(id);
+        RcCombatCalc calc, plain;
+        const char *failure = NULL;
+        int speed = 5;
+        w->player.manual_spell_cast = id;
+        w->player.equipment[EQUIP_SHIELD] = (RcInvSlot){.item_id = -1};
+        assert(rc_content_prepare_magic(w, n, spell, &plain, &speed, &failure));
+        w->player.equipment[EQUIP_SHIELD] = (RcInvSlot){.item_id = tomes[i], .quantity = 1, .state_id = 1};
+        assert(rc_content_prepare_magic(w, n, spell, &calc, &speed, &failure));
+        assert(calc.max_hit == plain.max_hit * 11 / 10);
+        for (int r = 0; r < spell->rune_count; r++)
+            assert(rc_inv_add(w->player.inventory, spell->runes[r].item_id, spell->runes[r].qty) >= 0);
+        assert(rc_content_consume_spell_runes(w, &w->player, spell));
+        assert(w->player.equipment[EQUIP_SHIELD].state_id == 0);
+        w->player.skills.boosted_level[SKILL_MAGIC] = 1;
+        assert(!rc_content_prepare_magic(w, n, spell, &calc, &speed, &failure));
+        w->player.skills.boosted_level[SKILL_MAGIC] = 99;
+    }
+    const char *names[] = {"Crumble Undead", "Inferior Demonbane"};
+    for (int i = 0; i < 2; i++) {
+        const RcSpellDef *spell = rc_spell_def_get(rc_spell_find(names[i]));
+        RcCombatCalc calc;
+        const char *failure = NULL;
+        int speed = 5;
+        w->player.manual_spell_cast = rc_spell_find(names[i]);
+        assert(!rc_content_prepare_magic(w, n, spell, &calc, &speed, &failure));
+        assert(failure && strstr(failure, "target"));
+    }
+    const char *casts[] = {"Wind Strike", "Bind"};
+    for (int i = 0; i < 2; i++) {
+        equip(w, 1381, 0);
+        reset_attack(w, n);
+        int id = rc_spell_find(casts[i]);
+        const RcSpellDef *spell = rc_spell_def_get(id);
+        for (int r = 0; r < spell->rune_count; r++)
+            assert(rc_inv_add(w->player.inventory, spell->runes[r].item_id, spell->runes[r].qty) >= 0);
+        w->player.current_spellbook = spell->book;
+        w->player.manual_spell_cast = id;
+        assert(rc_combat_start_player_vs_npc(w, 0, n->uid));
+        w->player.equipment_bonuses[EQ_MAGIC_ATK] = -10000;
+        n->force_player_max_hit = false;
+        int64_t before = magic_xp(&w->player);
+        rc_combat_tick_player(w);
+        assert(w->combat_attack_event_count == 1 && !w->combat_attack_events[0].accurate);
+        assert(magic_xp(&w->player) - before == (int64_t)spell->xp_q1 * 10);
+        assert(n->pending_hits[0].apply_tick == w->tick + w->combat_attack_events[0].hit_delays[0]);
+        reset_attack(w, n);
+        w->player.manual_spell_cast = id;
+        assert(rc_combat_start_player_vs_npc(w, 0, n->uid));
+        uint32_t rng = w->rng_state;
+        before = magic_xp(&w->player);
+        rc_combat_tick_player(w);
+        assert(!w->combat_attack_event_count && !n->num_pending_hits);
+        assert(w->rng_state == rng && magic_xp(&w->player) == before);
+    }
+    n->force_player_max_hit = true;
+    int id = rc_spell_find("Ice Barrage");
+    w->player.current_spellbook = RC_SPELL_BOOK_STANDARD;
+    assert(rc_spell_available(w, id, 0) == RC_SPELL_WRONG_BOOK);
+    w->player.current_spellbook = RC_SPELL_BOOK_ANCIENT;
+    w->members_world = false;
+    assert(rc_spell_available(w, id, 0) == RC_SPELL_MEMBERS);
+    w->members_world = true;
+    w->player.skills.boosted_level[SKILL_MAGIC] = 1;
+    assert(rc_spell_available(w, id, 0) == RC_SPELL_LEVEL);
+    w->player.skills.boosted_level[SKILL_MAGIC] = 99;
+    assert(rc_spell_available(w, RC_MAX_SPELL_DEFS, 0) == RC_SPELL_INVALID);
+    assert(!rc_spell_result_accepted(RC_SPELL_RUNES));
+    w->player.current_spellbook = RC_SPELL_BOOK_STANDARD;
+    assert(rc_spell_available(NULL, id, 0) == RC_SPELL_INVALID);
+    uint32_t enabled = w->enabled;
+    w->enabled &= ~RC_SUB_COMBAT;
+    assert(rc_spell_available(w, id, 0) == RC_SPELL_DISABLED);
+    w->enabled = enabled;
+    w->player.current_hp = 0;
+    assert(rc_player_select_spell(w, id) == RC_SPELL_DEAD);
+    assert(rc_player_set_spellbook(w, 1) == RC_SPELL_DEAD);
+    assert(rc_player_set_autocast_spell(w, id, 0) == RC_SPELL_DEAD);
+    assert(rc_spell_available(w, id, 0) == RC_SPELL_DEAD);
+    w->player.current_hp = w->player.max_hp;
+    for (int i = 0; i < RC_MAX_PLAYER_COMMANDS; i++)
+        assert(rc_player_set_spellbook(w, RC_SPELL_BOOK_STANDARD) == RC_SPELL_QUEUED);
+    assert(rc_player_select_spell(w, id) == RC_SPELL_QUEUE_FULL);
+    assert(rc_player_set_spellbook(w, 1) == RC_SPELL_QUEUE_FULL);
+    assert(rc_player_set_autocast_spell(w, id, 0) == RC_SPELL_QUEUE_FULL);
+    rc_world_tick(w);
+    assert(!w->player.combat.failure_reason);
+    for (int result = RC_SPELL_OK; result <= RC_SPELL_DEAD; result++)
+        assert(rc_spell_result_accepted(result) || rc_spell_result_message(result)[0]);
+    assert(rc_spell_result_message(-1)[0]);
+    reset_attack(w, n);
+    for (int i = 0; i < RC_INVENTORY_SIZE; i++)
+        w->player.inventory[i] = (RcInvSlot){.item_id = -1};
+    int64_t xp = magic_xp(&w->player);
+    assert(rc_player_cast_spell_on_npc(w, rc_spell_find("Wind Strike"), n->uid));
+    rc_world_tick(w);
+    assert(!n->num_pending_hits && magic_xp(&w->player) == xp);
+    assert(w->player.interaction.last_failure == RC_INTERACTION_FAIL_INVALID_SOURCE);
+}
+
 int main(void) {
     assert(sizeof(RcPendingHit) == 56 && "hit metadata must use existing padding");
     RcWorldConfig cfg = rc_preset_base_only();
@@ -60,15 +252,20 @@ int main(void) {
     for (int i = 0; i < SKILL_COUNT; i++)
         w->player.skills.base_level[i] = w->player.skills.boosted_level[i] = 99;
     w->player.x = w->player.y = 3208;
+    rune_sources(w);
     rc_test_open_mapsquare(w, 3208, 3208, 0);
     int ni = rc_npc_spawn(w, rc_npc_def_find(3014), 3211, 3208, 0);
     assert(ni >= 0);
     RcNpc *n = &w->npcs[ni];
     n->disable_wander = n->force_player_max_hit = true;
+    admission_and_xp(w, n);
     int tested = 0;
     for (int id = 0; rc_spell_def_get(id); id++) {
         const RcSpellDef *spell = rc_spell_def_get(id);
         if (spell->type != RC_SPELL_TYPE_COMBAT || !spell->effect_flags) continue;
+        n->def_id = !strcmp(spell->name, "Crumble Undead") ? rc_npc_def_find(70)
+            : strstr(spell->name, "Demonbane") ? rc_npc_def_find(2005) : rc_npc_def_find(3014);
+        assert(n->def_id >= 0);
         reset_attack(w, n);
         int weapon = !strcmp(spell->name, "Iban Blast") ? 12658 :
                      !strcmp(spell->name, "Magic Dart") ? 4170 :

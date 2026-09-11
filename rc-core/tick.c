@@ -1263,14 +1263,7 @@ static int spellbook_valid(int spellbook) {
 static int spell_usable_on_current_book(const RcPlayer *player,
                                         const RcSpellDef *spell) {
     return player && spell && spell->loaded &&
-           spell->book == player->current_spellbook;
-}
-
-static int spell_is_autocast_candidate(const RcPlayer *player,
-                                       const RcSpellDef *spell) {
-    return spell_usable_on_current_book(player, spell) &&
-           spell->type == RC_SPELL_TYPE_COMBAT &&
-           spell->max_hit > 0;
+           (spell->book == player->current_spellbook || spell->book == RC_SPELL_BOOK_ALL);
 }
 
 static RcInteractionHandlerResult api_default_npc_attack_handler(
@@ -1289,12 +1282,10 @@ static RcInteractionHandlerResult api_default_npc_attack_handler(
             RC_INTERACTION_FAIL_TARGET_MISSING, "NPC target missing");
     }
     if (pending->op == RC_INTERACTION_SPELL_ON) {
-        if (pending->source_spell_id < 0 ||
-                !rc_spell_def_get(pending->source_spell_id)) {
-            return rc_interaction_result_failure(
-                RC_INTERACTION_FAIL_INVALID_SOURCE,
-                "Invalid combat spell");
-        }
+        RcSpellResult available = rc_spell_available(world, pending->source_spell_id, 0);
+        if (available != RC_SPELL_OK || !rc_spell_is_combat(rc_spell_def_get(pending->source_spell_id)))
+            return rc_interaction_result_failure(RC_INTERACTION_FAIL_INVALID_SOURCE,
+                rc_spell_result_message(available == RC_SPELL_OK ? RC_SPELL_UNSUPPORTED : available));
         player->manual_spell_cast = pending->source_spell_id;
         rc_refresh_player_combat_style(player);
         if (!rc_combat_start_player_vs_npc(world, 0, npc->uid)) {
@@ -1407,7 +1398,7 @@ static int interaction_spell_source_valid(const RcWorld *world,
                                           int spell_id) {
     if (!world) return 0;
     const RcSpellDef *spell = rc_spell_def_get(spell_id);
-    return spell && spell->book == world->player.current_spellbook;
+    return spell_usable_on_current_book(&world->player, spell);
 }
 
 static int route_targets_equal(const RcRouteTarget *a,
@@ -1564,68 +1555,49 @@ int rc_player_attack_npc(RcWorld *world, int npc_uid) {
     (void)api_prepare_spatial_interaction(world);
     return 1;
 }
-void rc_player_set_spellbook(RcWorld *world, int spellbook) {
-    if (rc_player_command_should_queue(world)) {
-        (void)queue_player_command(world, RC_PLAYER_COMMAND_SET_SPELLBOOK,
-                                   RC_ACTION_CATEGORY_SOFT,
-                                   spellbook, 0, 0, 0, 0, 0);
-        return;
-    }
-    if (!world || !spellbook_valid(spellbook)) return;
+static RcSpellResult spell_result(RcWorld *world, RcSpellResult result) {
+    if (world && result != RC_SPELL_QUEUED)
+        world->player.combat.failure_reason = result == RC_SPELL_OK ? NULL : rc_spell_result_message(result);
+    return result;
+}
+
+RcSpellResult rc_player_set_spellbook(RcWorld *world, int spellbook) {
+    if (!world || !spellbook_valid(spellbook)) return spell_result(world, RC_SPELL_INVALID);
+    if (world->player.is_dead || world->player.current_hp <= 0) return spell_result(world, RC_SPELL_DEAD);
+    if (rc_player_command_should_queue(world))
+        return spell_result(world, queue_player_command(world, RC_PLAYER_COMMAND_SET_SPELLBOOK,
+            RC_ACTION_CATEGORY_SOFT, spellbook, 0, 0, 0, 0, 0) ? RC_SPELL_QUEUED : RC_SPELL_QUEUE_FULL);
     RcPlayer *p = &world->player;
-    if (p->current_spellbook == spellbook) return;
+    if (p->current_spellbook == spellbook) return spell_result(world, RC_SPELL_OK);
     p->current_spellbook = spellbook;
-    p->selected_spell = -1;
-    p->manual_spell_cast = -1;
-    p->autocast_spell = -1;
+    p->selected_spell = p->manual_spell_cast = p->autocast_spell = -1;
     p->defensive_autocast = false;
     rc_refresh_player_combat_style(p);
+    return spell_result(world, RC_SPELL_OK);
 }
-void rc_player_select_spell(RcWorld *world, int spell_idx) {
-    if (rc_player_command_should_queue(world)) {
-        (void)queue_player_command(world, RC_PLAYER_COMMAND_SELECT_SPELL,
-                                   RC_ACTION_CATEGORY_SOFT,
-                                   spell_idx, 0, 0, 0, 0, 0);
-        return;
-    }
-    if (!world || !rc_player_action_allowed(world->enabled,
-                                            RC_PLAYER_ACTION_SELECT_SPELL)) {
-        return;
-    }
-    const RcSpellDef *spell = rc_spell_def_get(spell_idx);
-    if (!spell_usable_on_current_book(&world->player, spell)) return;
-    world->player.selected_spell = spell_idx;
+
+RcSpellResult rc_player_select_spell(RcWorld *world, int spell_idx) {
+    if (world && (world->player.is_dead || world->player.current_hp <= 0)) return spell_result(world, RC_SPELL_DEAD);
+    if (rc_player_command_should_queue(world))
+        return spell_result(world, queue_player_command(world, RC_PLAYER_COMMAND_SELECT_SPELL,
+            RC_ACTION_CATEGORY_SOFT, spell_idx, 0, 0, 0, 0, 0) ? RC_SPELL_QUEUED : RC_SPELL_QUEUE_FULL);
+    RcSpellResult result = rc_spell_available(world, spell_idx, 0);
+    if (result == RC_SPELL_OK) world->player.selected_spell = spell_idx;
+    return spell_result(world, result);
 }
-void rc_player_set_autocast_spell(RcWorld *world, int spell_idx,
-                                  int defensive) {
-    if (rc_player_command_should_queue(world)) {
-        (void)queue_player_command(world, RC_PLAYER_COMMAND_SET_AUTOCAST,
-                                   RC_ACTION_CATEGORY_SOFT,
-                                   spell_idx, defensive, 0, 0, 0, 0);
-        return;
-    }
-    if (!world || !rc_player_action_allowed(world->enabled,
-                                            RC_PLAYER_ACTION_SELECT_SPELL)) {
-        return;
-    }
-    RcPlayer *p = &world->player;
-    if (spell_idx < 0) {
-        p->autocast_spell = -1;
-        p->defensive_autocast = false;
-        rc_refresh_player_combat_style(p);
-        return;
-    }
-    const RcSpellDef *spell = rc_spell_def_get(spell_idx);
-    if (!spell_is_autocast_candidate(p, spell) ||
-            !rc_player_weapon_can_autocast(p) ||
-            (world->combat_hooks.can_autocast_spell &&
-             !world->combat_hooks.can_autocast_spell(p, spell))) {
-        p->combat.failure_reason = "This weapon cannot autocast that spell.";
-        return;
-    }
-    p->autocast_spell = spell_idx;
-    p->defensive_autocast = defensive != 0;
-    rc_refresh_player_combat_style(p);
+
+RcSpellResult rc_player_set_autocast_spell(RcWorld *world, int spell_idx, int defensive) {
+    if (world && (world->player.is_dead || world->player.current_hp <= 0)) return spell_result(world, RC_SPELL_DEAD);
+    if (rc_player_command_should_queue(world))
+        return spell_result(world, queue_player_command(world, RC_PLAYER_COMMAND_SET_AUTOCAST,
+            RC_ACTION_CATEGORY_SOFT, spell_idx, defensive, 0, 0, 0, 0) ? RC_SPELL_QUEUED : RC_SPELL_QUEUE_FULL);
+    if (!world) return RC_SPELL_INVALID;
+    RcSpellResult result = spell_idx < 0 ? RC_SPELL_OK : rc_spell_available(world, spell_idx, 1);
+    if (result != RC_SPELL_OK) return spell_result(world, result);
+    world->player.autocast_spell = spell_idx < 0 ? -1 : spell_idx;
+    world->player.defensive_autocast = spell_idx >= 0 && defensive != 0;
+    rc_refresh_player_combat_style(&world->player);
+    return spell_result(world, RC_SPELL_OK);
 }
 void rc_player_eat(RcWorld *world, int inv_slot) { (void)world; (void)inv_slot; }
 void rc_player_drink(RcWorld *world, int inv_slot) { (void)world; (void)inv_slot; }

@@ -4,6 +4,7 @@
 #include "npc.h"
 #include "prayer.h"
 #include "ralos.h"
+#include "ammunition.h"
 #include "rng.h"
 #include <string.h>
 
@@ -38,6 +39,20 @@ static const PoweredStaff *powered_staff(int id) {
     for (unsigned i = 0; i < sizeof(powered) / sizeof(powered[0]); i++)
         if (powered[i].charged == id) return &powered[i];
     return NULL;
+}
+
+static unsigned spell_target_attributes(int id) {
+    static const struct { int id; unsigned attributes; } targets[] = {
+#include "../../content/combat/npc_spell_targets.inc"
+    };
+    int low = 0, high = sizeof(targets) / sizeof(targets[0]);
+    while (low < high) {
+        int mid = low + (high - low) / 2;
+        if (targets[mid].id < id) low = mid + 1;
+        else high = mid;
+    }
+    return low < (int)(sizeof(targets) / sizeof(targets[0])) && targets[low].id == id
+        ? targets[low].attributes : 0;
 }
 
 uint32_t rc_content_magic_charge_capacity(int id) {
@@ -111,6 +126,14 @@ int rc_content_prepare_magic(RcWorld *world, const RcNpc *target,
     int level = p->skills.boosted_level[SKILL_MAGIC];
     int max_hit;
     if (spell) {
+        const RcNpcDef *npc = rc_npc_def_for_npc(world, target);
+        unsigned required = !strcmp(spell->name, "Crumble Undead") ? 1
+            : strstr(spell->name, "Demonbane") ? 2 : 0;
+        if (required && (!npc || !(spell_target_attributes(npc->id) & required))) {
+            *failure = required == 1 ? "This target is not a reviewed undead spell target."
+                                     : "This target is not a reviewed demon spell target.";
+            return 0;
+        }
         if (level < spell->level) {
             *failure = "Your Magic level is too low for this spell.";
             return 0;
@@ -159,6 +182,18 @@ int rc_content_prepare_magic(RcWorld *world, const RcNpc *target,
         if (weapon && weapon->id == 24423 && spell->book == RC_SPELL_BOOK_STANDARD
                 && p->manual_spell_cast < 0) *speed = 4;
     } else {
+        if (weapon && weapon->weapon_type == 26) {
+            static const struct { const char *name; int strength; } salamanders[] = {
+                {"Swamp lizard", 56}, {"Orange salamander", 59}, {"Red salamander", 77},
+                {"Black salamander", 92}, {"Tecu salamander", 104},
+            };
+            for (unsigned i = 0; i < sizeof(salamanders) / sizeof(salamanders[0]); i++) {
+                if (strcmp(weapon->name, salamanders[i].name)) continue;
+                if (rc_content_ranged_resource_slot(p, failure) != EQUIP_AMMO) return 0;
+                *calc = rc_calc_magic(p, target, (level * (salamanders[i].strength + 64) + 320) / 640);
+                return 1;
+            }
+        }
         const PoweredStaff *staff = powered_staff(held->item_id);
         if (!staff || (staff->capacity &&
                 (!held->state_id || held->state_id > (uint32_t)staff->capacity))) {
@@ -171,6 +206,12 @@ int rc_content_prepare_magic(RcWorld *world, const RcNpc *target,
         *speed = staff->speed;
     }
     *calc = rc_calc_magic(p, target, max_hit);
+    const RcInvSlot *shield = &p->equipment[EQUIP_SHIELD];
+    if (spell && shield->quantity > 0 && shield->state_id > 0 &&
+        ((shield->item_id == 20714 && !strncmp(spell->name, "Fire ", 5)) ||
+         (shield->item_id == 25574 && !strncmp(spell->name, "Water ", 6)) ||
+         (shield->item_id == 30064 && !strncmp(spell->name, "Earth ", 6))))
+        calc->max_hit = calc->max_hit * 11 / 10;
     if (!spell && (held->item_id == 27275 || held->item_id == 28547)) {
         calc->attack_roll += rc_player_effective_magic_attack_level(p)
                           * 2 * p->equipment_bonuses[EQ_MAGIC_ATK];
@@ -181,6 +222,31 @@ int rc_content_prepare_magic(RcWorld *world, const RcNpc *target,
         calc->max_hit = max_hit + max_hit * bonus / 100;
     }
     return 1;
+}
+
+int rc_content_player_hit_delay(const RcWorld *world, const RcNpc *target,
+                                const RcSpellDef *spell, int hit_index) {
+    const RcPlayer *p = &world->player;
+    const RcNpcDef *npc = rc_npc_def_for_npc(world, target);
+    int size = npc && npc->size > 0 ? npc->size : 1;
+    int dx = p->x - (target->x + size / 2), dy = p->y - (target->y + size / 2);
+    if (dx < 0) dx = -dx;
+    if (dy < 0) dy = -dy;
+    int distance = dx > dy ? dx : dy;
+    const RcItemDef *weapon = rc_item_def_get(p->equipment[EQUIP_WEAPON].item_id);
+    // Discrete server arrival rules, independent of any projectile assets.
+    if (p->combat_style == COMBAT_MAGIC) {
+        if (spell && !strcmp(spell->name, "Crumble Undead")) return 2 + (distance + 3) / 6;
+        if (!spell && weapon && (weapon->id == 27275 || weapon->id == 28547))
+            return 3 + (distance + 1) / 3;
+        return 2 + (distance + 1) / 3;
+    }
+    if (p->combat_style != COMBAT_RANGED || (weapon && weapon->weapon_type == 26)) return 1;
+    if (weapon && strstr(weapon->name, "Dark bow") && hit_index)
+        return 2 + (2 * distance + 5) / 6;
+    if (weapon && (weapon->weapon_type == 23 || weapon->weapon_type == 7))
+        return 2 + distance / 6;
+    return 2 + (distance + 3) / 6;
 }
 
 void rc_content_magic_hit(RcWorld *world, RcNpc *target,

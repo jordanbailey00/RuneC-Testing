@@ -4,6 +4,8 @@
 #include "../../rc-core/combat.h"
 #include "../../rc-core/npc.h"
 #include "../../rc-core/prayer.h"
+#include "../../rc-core/items.h"
+#include "../../rc-content/content.h"
 #include "../world_test_fixture.h"
 
 #include <stdint.h>
@@ -16,6 +18,8 @@ typedef enum RcBenchMode {
     RC_BENCH_IDLE = 0,
     RC_BENCH_COMBAT = 1,
     RC_BENCH_PRAYER = 2,
+    RC_BENCH_MAGIC = 3,
+    RC_BENCH_RANGED = 4,
 } RcBenchMode;
 
 static double rc_now_seconds(void) {
@@ -36,6 +40,7 @@ static int rc_parse_positive(const char *arg, const char *value, int fallback) {
 
 static const char *rc_mode_name(RcBenchMode mode) {
     return mode == RC_BENCH_PRAYER ? "prayer"
+         : mode == RC_BENCH_MAGIC ? "magic" : mode == RC_BENCH_RANGED ? "ranged"
          : mode == RC_BENCH_COMBAT ? "combat" : "idle";
 }
 
@@ -60,6 +65,11 @@ static RcWorld *rc_make_world(int seed, RcBenchMode mode, int *npc_def_idx) {
         cfg.player_actions_path = "data/defs/player_actions.bin";
     }
     cfg.seed = (uint64_t)seed;
+    if (mode == RC_BENCH_MAGIC || mode == RC_BENCH_RANGED) {
+        cfg.subsystems |= RC_SUB_INVENTORY | RC_SUB_EQUIPMENT;
+        cfg.items_path = "data/defs/items.bin";
+        cfg.spells_path = "data/defs/spells.bin";
+    }
 
     RcWorld *world = rc_world_create_config(&cfg);
     if (!world) {
@@ -78,6 +88,22 @@ static RcWorld *rc_make_world(int seed, RcBenchMode mode, int *npc_def_idx) {
         world->player.skills.boosted_level[i] = 99;
     }
     rc_player_set_attack_style(world, 0);
+    if (mode == RC_BENCH_MAGIC || mode == RC_BENCH_RANGED) {
+        rc_content_combat_register(world);
+        world->player.equipment[EQUIP_WEAPON] = (RcInvSlot){.item_id = mode == RC_BENCH_MAGIC ? 1381 : 861, .quantity = 1};
+        if (mode == RC_BENCH_MAGIC) {
+            if (rc_inv_add(world->player.inventory, 558, 1000000000) < 0) {
+                fprintf(stderr, "magic benchmark could not stock mind runes\n");
+                exit(1);
+            }
+            int spell = rc_spell_find("Wind Strike");
+            if (spell < 0) { fprintf(stderr, "magic benchmark missing Wind Strike\n"); exit(1); }
+            rc_player_set_autocast_spell(world, spell, 0);
+        } else {
+            world->player.equipment[EQUIP_AMMO] = (RcInvSlot){.item_id = 892, .quantity = 1000000000};
+        }
+        rc_recalc_bonuses(&world->player);
+    }
 
     if (mode == RC_BENCH_PRAYER) {
         world->player.current_prayer_points = 1000000000;
@@ -106,7 +132,7 @@ static RcWorld *rc_make_world(int seed, RcBenchMode mode, int *npc_def_idx) {
 
 static void rc_print_usage(const char *argv0) {
     fprintf(stderr,
-            "usage: %s [--mode idle|combat|prayer] [--envs N] [--steps N] [--warmup N]\n",
+            "usage: %s [--mode idle|combat|prayer|magic|ranged] [--envs N] [--steps N] [--warmup N]\n",
             argv0);
 }
 
@@ -125,6 +151,10 @@ int main(int argc, char **argv) {
                 mode = RC_BENCH_PRAYER;
             } else if (strcmp(argv[i], "idle") == 0) {
                 mode = RC_BENCH_IDLE;
+            } else if (strcmp(argv[i], "magic") == 0) {
+                mode = RC_BENCH_MAGIC;
+            } else if (strcmp(argv[i], "ranged") == 0) {
+                mode = RC_BENCH_RANGED;
             } else {
                 rc_print_usage(argv[0]);
                 return 2;
@@ -177,6 +207,12 @@ int main(int argc, char **argv) {
         if (mode == RC_BENCH_PRAYER && worlds[env]->player.active_prayers
                 != (PRAYER_PROTECT_MELEE | PRAYER_ULTIMATE_STR)) {
             fprintf(stderr, "prayer benchmark failed: env %d prayers inactive\n", env);
+            return 1;
+        }
+        if ((mode == RC_BENCH_MAGIC && (worlds[env]->player.autocast_spell < 0 ||
+                worlds[env]->player.inventory[0].quantity >= 1000000000)) ||
+            (mode == RC_BENCH_RANGED && worlds[env]->player.equipment[EQUIP_AMMO].quantity >= 1000000000)) {
+            fprintf(stderr, "resource benchmark failed: env %d did not sustain paid attacks\n", env);
             return 1;
         }
     }

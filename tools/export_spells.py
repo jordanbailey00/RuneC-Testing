@@ -77,8 +77,11 @@ def parse_runes(cost: str, items: dict[str, int]):
         qty = int(m.group(1))
         rune = m.group(2).strip()
         iid = items.get(rune.lower())
-        if iid is not None:
-            out.append((iid, min(255, max(1, qty))))
+        if iid is None or not 0 < qty <= 255:
+            raise ValueError(f"unknown rune or invalid quantity: {rune} x{qty}")
+        out.append((iid, qty))
+    if cost and cost.strip() and not out:
+        raise ValueError(f"unrecognized rune cost: {cost}")
     return out
 
 
@@ -152,22 +155,61 @@ def parse_xp_q1(s) -> int:
 
 
 def pack_short(s: str) -> bytes:
-    return (s or "").encode("latin-1", errors="replace")[:255]
+    data = s.encode("latin-1")
+    if not 0 < len(data) < 64 or b"\0" in data:
+        raise ValueError(f"invalid spell name: {s!r}")
+    return data
 
 
 def write_bin(path: Path, magic: int, spells: list[dict]):
-    with path.open("wb") as f:
-        f.write(struct.pack("<III", magic, VERSION, len(spells)))
-        for s in spells:
-            nb = pack_short(s["name"])
-            f.write(struct.pack("<B", len(nb))); f.write(nb)
-            f.write(struct.pack("<BBBBHB",
-                                s["book"], s["type"], s["level"],
-                                s["slv"], s["xp_q1"], s["members"]))
-            f.write(struct.pack("<HH", s["max_hit"], s["effect_flags"]))
-            f.write(struct.pack("<B", len(s["runes"])))
-            for iid, qty in s["runes"]:
-                f.write(struct.pack("<IB", iid, qty))
+    if magic not in (SPEL_MAGIC, TELE_MAGIC) or not 0 < len(spells) <= 512:
+        raise ValueError("invalid spell header or row count")
+    records = {}
+    for s in spells:
+        key = (s["book"], s["name"])
+        if key in records or not (0 <= s["book"] <= 4 and 0 <= s["type"] <= 7
+                and 1 <= s["level"] <= 99 and 0 <= s["slv"] <= 99
+                and 0 <= s["xp_q1"] <= 65535 and s["members"] in (0, 1)
+                and 0 <= s["max_hit"] <= 65535 and 0 <= s["effect_flags"] <= 63):
+            raise ValueError(f"invalid or duplicate spell: {key}")
+        runes = s["runes"]
+        if (len(runes) > 8 or len({iid for iid, _ in runes}) != len(runes)
+                or any(not 0 < iid <= 2147483647 or not 0 < qty <= 255 for iid, qty in runes)):
+            raise ValueError(f"invalid rune requirements: {key}")
+        nb = pack_short(s["name"])
+        records[key] = (bytes((len(nb),)) + nb + struct.pack("<BBBBHBHHB",
+            s["book"], s["type"], s["level"], s["slv"], s["xp_q1"],
+            s["members"], s["max_hit"], s["effect_flags"], len(runes))
+            + b"".join(struct.pack("<IB", iid, qty) for iid, qty in runes))
+    ordered = []
+    if path.exists():
+        old = path.read_bytes()
+        if len(old) < 12 or struct.unpack_from("<II", old) != (magic, VERSION):
+            raise ValueError(f"invalid installed spell table: {path}")
+        offset = 12
+        seen = set()
+        for _ in range(struct.unpack_from("<I", old, 8)[0]):
+            if offset >= len(old) or not 0 < old[offset] < 64:
+                raise ValueError("invalid installed spell name")
+            size = old[offset]
+            offset += 1
+            if offset + size + 12 > len(old):
+                raise ValueError("truncated installed spell record")
+            key = (old[offset + size], old[offset:offset + size].decode("latin-1"))
+            offset += size
+            rune_count = old[offset + 11]
+            if rune_count > 8 or key in seen or key not in records:
+                raise ValueError(f"invalid, duplicate or missing installed spell identity: {key}")
+            seen.add(key)
+            ordered.append(records.pop(key))
+            offset += 12 + rune_count * 5
+        if offset != len(old):
+            raise ValueError("invalid installed spell record lengths")
+    ordered.extend(records[key] for key in sorted(records))
+    payload = struct.pack("<III", magic, VERSION, len(ordered)) + b"".join(ordered)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_bytes(payload)
+    temporary.replace(path)
 
 
 def main():
@@ -213,7 +255,7 @@ def main():
             "members": 1 if r.get("is_members_only") else 0,
             "max_hit": max(0, min(65535, max_hit)),
             "effect_flags": max(0, min(65535, effect_flags)),
-            "runes": parse_runes(j.get("cost") or "", items)[:255],
+            "runes": parse_runes(j.get("cost") or "", items),
         }
         spells.append(s)
         if stype == 2:

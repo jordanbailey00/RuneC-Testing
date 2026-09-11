@@ -51,7 +51,7 @@ int main(void) {
     assert(whip->attack_slash == 82);
     assert(whip->strength_bonus == 82);
     assert(whip->attack_speed == 4);
-    assert(whip->attack_range == -1);
+    assert(whip->attack_range == 1);
     assert((whip->metadata_flags & RC_ITEM_META_CACHE) != 0);
     assert((whip->metadata_flags & RC_ITEM_META_EQUIP_STATS) != 0);
     assert((whip->metadata_flags & RC_ITEM_META_WEAPON) != 0);

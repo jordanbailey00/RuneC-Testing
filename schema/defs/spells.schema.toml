@@ -22,4 +22,5 @@ row_fields = [
   "u8 rune_count",
   "runes[rune_count]: u32 item_id, u8 quantity",
 ]
-compatibility = "Loader accepts versions 1 and 2."
+compatibility = "Loader accepts versions 1 and 2 atomically; invalid data leaves the prior table intact. Exporter preserves installed v2 (book,name) row order."
+validation = "At most 512 rows; unique (book,name), nonempty NUL-free names under 64 bytes; book 0..4, type 0..7, level 1..99, Slayer 0..99, membership flag 0/1, known effect bits; at most 8 unique positive item IDs/quantities; exact payload length. Loaded item data validates cost references. Type 0 is explicitly unsupported, not an executor."

@@ -256,6 +256,7 @@ typedef struct RuneCUiState {
     const Texture2D *spell_icons[RUNEC_UI_SPELL_MAX];
     int spell_runtime_ids[RUNEC_UI_SPELL_MAX];
     unsigned char spell_can_autocast[RUNEC_UI_SPELL_MAX];
+    unsigned char spell_available[RUNEC_UI_SPELL_MAX];
     uint64_t spell_sync_tick;
     int autocast_available;
     int autocast_slot;

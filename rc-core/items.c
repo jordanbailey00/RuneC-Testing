@@ -634,6 +634,8 @@ RcItemActionResult rc_item_tx_begin(RcItemTransaction *tx, RcWorld *world) {
     tx->world = world;
     memcpy(tx->inventory, world->player.inventory, sizeof(tx->inventory));
     memcpy(tx->equipment, world->player.equipment, sizeof(tx->equipment));
+    memcpy(tx->rune_pouch, world->player.rune_pouch, sizeof(tx->rune_pouch));
+    memcpy(tx->original_rune_pouch, tx->rune_pouch, sizeof(tx->rune_pouch));
     tx->inventory_revision = world->player.inventory_revision;
     tx->equipment_revision = world->player.equipment_revision;
     tx->valid = true;
@@ -785,12 +787,16 @@ RcItemActionResult rc_item_tx_commit(RcItemTransaction *tx) {
         return item_result(RC_ITEM_RESULT_CONFLICT, -1, -1);
     RcPlayer *player = &tx->world->player;
     if (player->inventory_revision != tx->inventory_revision
-            || player->equipment_revision != tx->equipment_revision) {
+            || player->equipment_revision != tx->equipment_revision
+            || memcmp(player->rune_pouch, tx->original_rune_pouch,
+                      sizeof(tx->rune_pouch)) != 0) {
         tx->valid = false;
         return item_result(RC_ITEM_RESULT_STALE, -1, -1);
     }
     if (!slots_valid(tx->inventory, RC_INVENTORY_SIZE)
-            || !slots_valid(tx->equipment, RC_EQUIP_COUNT)) {
+            || !slots_valid(tx->equipment, RC_EQUIP_COUNT)
+            || (memcmp(tx->rune_pouch, tx->original_rune_pouch, sizeof(tx->rune_pouch))
+                && !slots_valid(tx->rune_pouch, 4))) {
         tx->valid = false;
         return item_result(RC_ITEM_RESULT_INVALID, -1, -1);
     }
@@ -816,6 +822,10 @@ RcItemActionResult rc_item_tx_commit(RcItemTransaction *tx) {
         equipment_changed = 1;
         tx->equipment[i].generation = tx->equipment[i].item_id >= 0
                                     ? next_item_generation(player) : 0;
+    }
+    if (memcmp(tx->rune_pouch, tx->original_rune_pouch, sizeof(tx->rune_pouch))) {
+        memcpy(player->rune_pouch, tx->rune_pouch, sizeof(tx->rune_pouch));
+        inventory_changed = 1;
     }
     if (inventory_changed) {
         memcpy(player->inventory, tx->inventory, sizeof(tx->inventory));

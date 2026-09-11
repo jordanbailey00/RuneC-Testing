@@ -152,6 +152,7 @@ static void test_magic_attack_queues_delayed_hit_and_npc_retaliates(void) {
     memset(g_rc_spell_defs, 0, sizeof(g_rc_spell_defs));
     g_rc_spell_count = 1;
     strcpy(g_rc_spell_defs[0].name, "Phase 6 Test Spell");
+    g_rc_spell_defs[0].level = 1;
     g_rc_spell_defs[0].type = RC_SPELL_TYPE_COMBAT;
     g_rc_spell_defs[0].max_hit = 13;
     g_rc_spell_defs[0].loaded = 1;

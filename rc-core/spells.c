@@ -1,8 +1,13 @@
 #include "spells.h"
 #include "io.h"
+#include "combat.h"
+#include "combat_formula.h"
+#include "config.h"
 
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <limits.h>
 
 #define SPEL_MAGIC 0x4C455053u
 #define TELE_MAGIC 0x454C4554u
@@ -31,20 +36,18 @@ static int read_name(FILE *f, RcSpellDef *row, const char *path) {
     if (!rc_read_exact(f, &len, sizeof(len), 1, path, "spell name len")) {
         return 0;
     }
-    uint8_t keep = len < sizeof(row->name) ? len : (uint8_t)sizeof(row->name) - 1;
+    if (!len || len >= sizeof(row->name)) return 0;
+    uint8_t keep = len;
     if (keep && !rc_read_exact(f, row->name, 1, keep, path, "spell name")) {
         return 0;
     }
     row->name[keep] = '\0';
-    if (len > keep && !rc_seek(f, len - keep, SEEK_CUR, path, "spell name")) {
-        return 0;
-    }
+    if (strlen(row->name) != len) return 0;
     return 1;
 }
 
 int rc_load_spells_into(const char *path, RcSpellDef *defs, int max_defs,
                         int *out_count) {
-    if (out_count) *out_count = 0;
     if (!path || !defs || max_defs <= 0) return -1;
     FILE *f = rc_asset_fopen(path, "rb");
     if (!f) return -1;
@@ -59,7 +62,13 @@ int rc_load_spells_into(const char *path, RcSpellDef *defs, int max_defs,
         return -1;
     }
 
-    memset(defs, 0, (size_t)max_defs * sizeof(*defs));
+    if (count > (uint32_t)max_defs || count > RC_MAX_SPELL_DEFS) {
+        fprintf(stderr, "spells: %s: row count %u exceeds capacity\n", path, count);
+        rc_asset_close(f);
+        return -1;
+    }
+    RcSpellDef *staged = calloc((size_t)max_defs, sizeof(*staged));
+    if (!staged) { rc_asset_close(f); return -1; }
     int loaded = 0;
     for (uint32_t i = 0; i < count; i++) {
         RcSpellDef row;
@@ -72,44 +81,52 @@ int rc_load_spells_into(const char *path, RcSpellDef *defs, int max_defs,
                                   1, path, "slayer level")
                 || !rc_read_exact(f, &row.xp_q1, sizeof(row.xp_q1), 1, path, "xp")
                 || !rc_read_exact(f, &row.flags, sizeof(row.flags), 1, path, "flags")) {
-            rc_asset_close(f);
-            return -1;
+            goto invalid;
         }
         if (version >= SPEL_V2) {
             if (!rc_read_exact(f, &row.max_hit, sizeof(row.max_hit), 1, path, "max hit")
                     || !rc_read_exact(f, &row.effect_flags, sizeof(row.effect_flags),
                                       1, path, "effect flags")) {
-                rc_asset_close(f);
-                return -1;
+                goto invalid;
             }
         }
         uint8_t rune_count;
         if (!rc_read_exact(f, &rune_count, sizeof(rune_count), 1, path, "rune count")) {
-            rc_asset_close(f);
-            return -1;
+            goto invalid;
         }
-        row.rune_count = rune_count < RC_SPELL_MAX_RUNES
-                       ? rune_count : RC_SPELL_MAX_RUNES;
+        if (rune_count > RC_SPELL_MAX_RUNES || row.book > RC_SPELL_BOOK_ALL
+                || row.type > RC_SPELL_TYPE_SUMMONING || !row.level || row.level > 99
+                || row.slayer_level > 99 || row.flags > 1 || (row.effect_flags & ~63u))
+            goto invalid;
+        for (int j = 0; j < loaded; j++)
+            if (staged[j].book == row.book && !strcmp(staged[j].name, row.name)) goto invalid;
+        row.rune_count = rune_count;
         for (uint8_t r = 0; r < rune_count; r++) {
             uint32_t item_id;
             uint8_t qty;
             if (!rc_read_exact(f, &item_id, sizeof(item_id), 1, path, "rune item")
                     || !rc_read_exact(f, &qty, sizeof(qty), 1, path, "rune qty")) {
-                rc_asset_close(f);
-                return -1;
+                goto invalid;
             }
-            if (r < RC_SPELL_MAX_RUNES) {
-                row.runes[r] = (RcSpellRune){item_id, qty};
-            }
+            if (!item_id || item_id > INT_MAX || !qty) goto invalid;
+            for (int j = 0; j < r; j++) if (row.runes[j].item_id == item_id) goto invalid;
+            row.runes[r] = (RcSpellRune){item_id, qty};
         }
-        if (loaded < max_defs) {
-            row.loaded = 1;
-            defs[loaded++] = row;
-        }
+        row.loaded = 1;
+        staged[loaded++] = row;
     }
+    if (fgetc(f) != EOF || ferror(f)) goto invalid;
     rc_asset_close(f);
+    memcpy(defs, staged, (size_t)max_defs * sizeof(*defs));
+    free(staged);
     if (out_count) *out_count = loaded;
     return loaded;
+invalid:
+    fprintf(stderr, "spells: %s: invalid/truncated row %d (name, fields, or rune requirements); previous definitions retained\n",
+            path, loaded);
+    free(staged);
+    rc_asset_close(f);
+    return -1;
 }
 
 int rc_load_spells(const char *path) {
@@ -144,4 +161,45 @@ int rc_spell_find(const char *name) {
         if (strcmp(defs[i].name, name) == 0) return i;
     }
     return -1;
+}
+
+int rc_spell_is_combat(const RcSpellDef *spell) {
+    return spell && spell->loaded && spell->type == RC_SPELL_TYPE_COMBAT
+        && (spell->max_hit || (spell->effect_flags & (RC_SPELL_EFFECT_FREEZE | RC_SPELL_EFFECT_DRAIN)));
+}
+
+RcSpellResult rc_spell_available(const RcWorld *world, int spell_idx, int autocast) {
+    if (!world) return RC_SPELL_INVALID;
+    if (!(world->enabled & RC_SUB_COMBAT)) return RC_SPELL_DISABLED;
+    const RcSpellDef *spell = rc_spell_def_get(spell_idx);
+    if (!spell) return RC_SPELL_INVALID;
+    const RcPlayer *p = &world->player;
+    if (p->is_dead || p->current_hp <= 0) return RC_SPELL_DEAD;
+    if (spell->book != p->current_spellbook && spell->book != RC_SPELL_BOOK_ALL)
+        return RC_SPELL_WRONG_BOOK;
+    if (spell->type == RC_SPELL_TYPE_UNSUPPORTED) return RC_SPELL_UNSUPPORTED;
+    if ((spell->flags & 1) && !world->members_world) return RC_SPELL_MEMBERS;
+    if (p->skills.boosted_level[SKILL_MAGIC] < spell->level ||
+        p->skills.boosted_level[SKILL_SLAYER] < spell->slayer_level) return RC_SPELL_LEVEL;
+    if (autocast && (!rc_spell_is_combat(spell) || !spell->max_hit ||
+        !rc_player_weapon_can_autocast(p) || (world->combat_hooks.can_autocast_spell &&
+        !world->combat_hooks.can_autocast_spell(p, spell)))) return RC_SPELL_WEAPON;
+    if (!rc_combat_has_spell_runes(world, p, spell)) return RC_SPELL_RUNES;
+    return RC_SPELL_OK;
+}
+
+int rc_spell_result_accepted(RcSpellResult result) {
+    return result == RC_SPELL_OK || result == RC_SPELL_QUEUED;
+}
+
+const char *rc_spell_result_message(RcSpellResult result) {
+    static const char *const messages[] = {
+        "", "", "That spell is unavailable.", "Magic actions are disabled.",
+        "That spell belongs to another spellbook.", "Your Magic or Slayer level is too low for this spell.",
+        "This spell requires a members world.", "You do not have enough runes or valid source charges to cast this spell.",
+        "This weapon cannot autocast that spell.", "This spell has no supported action.",
+        "The command queue is full; spell action rejected.",
+        "You cannot use spells while dead.",
+    };
+    return (unsigned)result < sizeof(messages) / sizeof(messages[0]) ? messages[result] : messages[RC_SPELL_INVALID];
 }

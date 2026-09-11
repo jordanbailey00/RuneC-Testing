@@ -704,6 +704,14 @@ static int regular_player_special_energy_cost(const RcWorld *world,
     return def->cost;
 }
 
+static int regular_player_resource_slot(const RcPlayer *player, const char **failure) {
+    const RcItemDef *weapon = rc_item_def_get(player->equipment[EQUIP_WEAPON].item_id);
+    if (player->combat_style != COMBAT_RANGED &&
+        (!weapon || weapon->weapon_type != 26 || player->manual_spell_cast >= 0 || player->autocast_spell >= 0))
+        return RC_RANGED_RESOURCE_NONE;
+    return rc_content_ranged_resource_slot(player, failure);
+}
+
 static int regular_player_ranged_resource_cost(const RcPlayer *player, bool special) {
     int weapon_id = player->equipment[EQUIP_WEAPON].item_id;
     const RcItemDef *weapon = rc_item_def_get(weapon_id);
@@ -714,11 +722,12 @@ static int regular_player_ranged_resource_cost(const RcPlayer *player, bool spec
 }
 
 static int regular_prepare_player_hits(RcWorld *world, const RcNpc *target,
-                                       const RcCombatCalc *base, bool special,
+                                       RcCombatCalc *base, bool special,
                                        RcPendingHit *hits, int capacity,
                                        const char **failure) {
     if (world->player.combat_style != COMBAT_RANGED) return 0;
     const RcItemDef *weapon = rc_item_def_get(world->player.equipment[EQUIP_WEAPON].item_id);
+    rc_content_ranged_calc(world, target, base);
     if (!weapon || !strstr(weapon->name, "Dark bow"))
         return rc_content_ralos_hits(world, target, base, special, hits, capacity, failure);
     int count = regular_player_ranged_resource_cost(&world->player, special);
@@ -801,320 +810,6 @@ static void regular_after_player_special_launch(RcWorld *world,
         restore_saradomin_godsword(world, damage);
 }
 
-enum {
-    RUNE_AIR = 556,
-    RUNE_WATER = 555,
-    RUNE_EARTH = 557,
-    RUNE_FIRE = 554,
-    RUNE_NATURE = 561,
-    RUNE_MIST = 4695,
-    RUNE_DUST = 4696,
-    RUNE_SMOKE = 4697,
-    RUNE_STEAM = 4694,
-    RUNE_MUD = 4698,
-    RUNE_LAVA = 4699,
-    RUNE_SUNFIRE = 28929,
-};
-
-enum {
-    RUNE_MASK_AIR    = 1u << 0,
-    RUNE_MASK_WATER  = 1u << 1,
-    RUNE_MASK_EARTH  = 1u << 2,
-    RUNE_MASK_FIRE   = 1u << 3,
-    RUNE_MASK_NATURE = 1u << 4,
-};
-
-typedef struct {
-    int combo_id;
-    int rune1;
-    int rune2;
-} RcRuneCombo;
-
-typedef struct {
-    int item_id;
-    int remaining;
-} RcRuneReq;
-
-static const RcRuneCombo g_rune_combos[] = {
-    {RUNE_MIST, RUNE_AIR, RUNE_WATER},
-    {RUNE_DUST, RUNE_AIR, RUNE_EARTH},
-    {RUNE_MUD, RUNE_WATER, RUNE_EARTH},
-    {RUNE_SMOKE, RUNE_AIR, RUNE_FIRE},
-    {RUNE_STEAM, RUNE_WATER, RUNE_FIRE},
-    {RUNE_LAVA, RUNE_EARTH, RUNE_FIRE},
-};
-
-static uint32_t rune_mask_for_item(int item_id) {
-    switch (item_id) {
-        case RUNE_AIR: return RUNE_MASK_AIR;
-        case RUNE_WATER: return RUNE_MASK_WATER;
-        case RUNE_EARTH: return RUNE_MASK_EARTH;
-        case RUNE_FIRE: return RUNE_MASK_FIRE;
-        case RUNE_NATURE: return RUNE_MASK_NATURE;
-        default: return 0;
-    }
-}
-
-static uint32_t unlimited_rune_mask_for_item(int item_id) {
-    const RcItemDef *def = rc_item_def_get(item_id);
-    if (!def || !def->name[0]) return 0;
-    const char *name = def->name;
-    uint32_t mask = 0;
-    if (contains_ci(name, "devil's element")) {
-        return RUNE_MASK_AIR | RUNE_MASK_WATER |
-               RUNE_MASK_EARTH | RUNE_MASK_FIRE;
-    }
-    if (contains_ci(name, "kodai wand")) mask |= RUNE_MASK_WATER;
-    if (contains_ci(name, "tome of water")) mask |= RUNE_MASK_WATER;
-    if (contains_ci(name, "tome of earth")) mask |= RUNE_MASK_EARTH;
-    if (contains_ci(name, "tome of fire")) mask |= RUNE_MASK_FIRE;
-    if (contains_ci(name, "bryophyta")) mask |= RUNE_MASK_NATURE;
-
-    bool staff = contains_ci(name, "staff") || contains_ci(name, "wand");
-    if (!staff) return mask;
-    if (contains_ci(name, "mist")) mask |= RUNE_MASK_AIR | RUNE_MASK_WATER;
-    if (contains_ci(name, "dust")) mask |= RUNE_MASK_AIR | RUNE_MASK_EARTH;
-    if (contains_ci(name, "mud")) mask |= RUNE_MASK_WATER | RUNE_MASK_EARTH;
-    if (contains_ci(name, "smoke")) mask |= RUNE_MASK_AIR | RUNE_MASK_FIRE;
-    if (contains_ci(name, "steam")) mask |= RUNE_MASK_WATER | RUNE_MASK_FIRE;
-    if (contains_ci(name, "lava")) mask |= RUNE_MASK_EARTH | RUNE_MASK_FIRE;
-    if (contains_ci(name, "staff of air") ||
-            contains_ci(name, "air battlestaff") ||
-            contains_ci(name, "mystic air staff")) {
-        mask |= RUNE_MASK_AIR;
-    }
-    if (contains_ci(name, "staff of water") ||
-            contains_ci(name, "water battlestaff") ||
-            contains_ci(name, "mystic water staff")) {
-        mask |= RUNE_MASK_WATER;
-    }
-    if (contains_ci(name, "staff of earth") ||
-            contains_ci(name, "earth battlestaff") ||
-            contains_ci(name, "mystic earth staff")) {
-        mask |= RUNE_MASK_EARTH;
-    }
-    if (contains_ci(name, "staff of fire") ||
-            contains_ci(name, "fire battlestaff") ||
-            contains_ci(name, "mystic fire staff")) {
-        mask |= RUNE_MASK_FIRE;
-    }
-    return mask;
-}
-
-static bool has_unlimited_rune_source(const RcPlayer *p, int rune_id) {
-    if (!p) return false;
-    uint32_t rune = rune_mask_for_item(rune_id);
-    if (!rune) return false;
-    uint32_t worn = unlimited_rune_mask_for_item(p->equipment[EQUIP_WEAPON].item_id)
-                  | unlimited_rune_mask_for_item(p->equipment[EQUIP_SHIELD].item_id);
-    return (worn & rune) != 0;
-}
-
-static int pouch_quantity(const RcPlayer *p, int item_id) {
-    int total = 0;
-    if (!p || item_id < 0) return 0;
-    for (int i = 0; i < 4; i++) {
-        if (p->rune_pouch[i].item_id == item_id &&
-                p->rune_pouch[i].quantity > 0) {
-            total += p->rune_pouch[i].quantity;
-        }
-    }
-    return total;
-}
-
-static int local_inventory_quantity(const RcInvSlot *inv, int item_id) {
-    if (!inv || item_id < 0) return 0;
-    int total = 0;
-    for (int i = 0; i < RC_INVENTORY_SIZE; i++) {
-        if (inv[i].item_id == item_id && inv[i].quantity > 0)
-            total += inv[i].quantity;
-    }
-    return total;
-}
-
-static int resource_quantity(const RcPlayer *p, int item_id) {
-    return local_inventory_quantity(p ? p->inventory : NULL, item_id) +
-           pouch_quantity(p, item_id);
-}
-
-static int rune_substitute_quantity(const RcPlayer *p, int rune_id) {
-    if (rune_id == RUNE_FIRE)
-        return resource_quantity(p, RUNE_SUNFIRE);
-    return 0;
-}
-
-static int rune_resource_quantity(const RcPlayer *p, int rune_id) {
-    return resource_quantity(p, rune_id) + rune_substitute_quantity(p, rune_id);
-}
-
-static int remove_from_pouch(RcPlayer *p, int item_id, int quantity) {
-    if (!p || item_id < 0 || quantity <= 0) return 0;
-    int removed_total = 0;
-    for (int i = 0; i < 4 && quantity > 0; i++) {
-        RcInvSlot *slot = &p->rune_pouch[i];
-        if (slot->item_id != item_id || slot->quantity <= 0) continue;
-        int removed = quantity < slot->quantity ? quantity : slot->quantity;
-        slot->quantity -= removed;
-        quantity -= removed;
-        removed_total += removed;
-        if (slot->quantity <= 0) {
-            slot->item_id = -1;
-            slot->quantity = 0;
-        }
-    }
-    return removed_total;
-}
-
-static int consume_resource(RcPlayer *p, int item_id, int quantity) {
-    if (!p || item_id < 0 || quantity <= 0) return 0;
-    int left = quantity;
-    for (int slot = 0; slot < RC_INVENTORY_SIZE && left > 0; slot++) {
-        if (p->inventory[slot].item_id != item_id) continue;
-        left -= rc_inv_remove_quantity(p->inventory, slot, left);
-    }
-    if (left > 0)
-        left -= remove_from_pouch(p, item_id, left);
-    return quantity - left;
-}
-
-static int consume_rune_resource(RcPlayer *p, int rune_id, int quantity) {
-    if (!p || quantity <= 0) return 0;
-    int left = quantity;
-    left -= consume_resource(p, rune_id, left);
-    if (left > 0 && rune_id == RUNE_FIRE)
-        left -= consume_resource(p, RUNE_SUNFIRE, left);
-    return quantity - left;
-}
-
-static int rune_req_index(RcRuneReq *reqs, int count, int item_id) {
-    for (int i = 0; i < count; i++) {
-        if (reqs[i].item_id == item_id)
-            return i;
-    }
-    return -1;
-}
-
-static bool validate_or_consume_spell_runes(RcPlayer *p,
-                                            const RcSpellDef *spell,
-                                            bool consume) {
-    if (!p || !spell) return false;
-    RcRuneReq reqs[RC_SPELL_MAX_RUNES];
-    int req_count = 0;
-    for (int i = 0; i < spell->rune_count && i < RC_SPELL_MAX_RUNES; i++) {
-        int item_id = (int)spell->runes[i].item_id;
-        int qty = (int)spell->runes[i].qty;
-        if (item_id < 0 || qty <= 0) continue;
-        int idx = rune_req_index(reqs, req_count, item_id);
-        if (idx >= 0) {
-            reqs[idx].remaining += qty;
-        } else {
-            reqs[req_count++] = (RcRuneReq){item_id, qty};
-        }
-    }
-
-    for (unsigned i = 0; i < sizeof(g_rune_combos) / sizeof(g_rune_combos[0]); i++) {
-        const RcRuneCombo *combo = &g_rune_combos[i];
-        int r1 = rune_req_index(reqs, req_count, combo->rune1);
-        int r2 = rune_req_index(reqs, req_count, combo->rune2);
-        if (r1 < 0 || r2 < 0 || reqs[r1].remaining <= 0 ||
-                reqs[r2].remaining <= 0) {
-            continue;
-        }
-        if (has_unlimited_rune_source(p, combo->rune1) ||
-                has_unlimited_rune_source(p, combo->rune2)) {
-            continue;
-        }
-        int need = reqs[r1].remaining < reqs[r2].remaining
-                 ? reqs[r1].remaining : reqs[r2].remaining;
-        if (resource_quantity(p, combo->combo_id) < need) continue;
-        if (consume)
-            consume_resource(p, combo->combo_id, need);
-        reqs[r1].remaining -= need;
-        reqs[r2].remaining -= need;
-    }
-
-    bool search_combos = false;
-    for (int i = 0; i < req_count; i++) {
-        if (reqs[i].remaining <= 0) continue;
-        if (has_unlimited_rune_source(p, reqs[i].item_id)) {
-            reqs[i].remaining = 0;
-            continue;
-        }
-        if (rune_resource_quantity(p, reqs[i].item_id) >= reqs[i].remaining) {
-            if (consume)
-                consume_rune_resource(p, reqs[i].item_id, reqs[i].remaining);
-            reqs[i].remaining = 0;
-            continue;
-        }
-        search_combos = true;
-    }
-
-    if (search_combos) {
-        for (unsigned i = 0; i < sizeof(g_rune_combos) / sizeof(g_rune_combos[0]); i++) {
-            const RcRuneCombo *combo = &g_rune_combos[i];
-            int r1 = rune_req_index(reqs, req_count, combo->rune1);
-            int r2 = rune_req_index(reqs, req_count, combo->rune2);
-            int rem1 = r1 >= 0 ? reqs[r1].remaining : 0;
-            int rem2 = r2 >= 0 ? reqs[r2].remaining : 0;
-            int need = rem1 > rem2 ? rem1 : rem2;
-            if (need <= 0 || resource_quantity(p, combo->combo_id) < need)
-                continue;
-            if (consume)
-                consume_resource(p, combo->combo_id, need);
-            if (r1 >= 0) reqs[r1].remaining -= need;
-            if (r2 >= 0) reqs[r2].remaining -= need;
-        }
-    }
-
-    for (int i = 0; i < req_count; i++) {
-        if (reqs[i].remaining > 0)
-            return false;
-    }
-    return true;
-}
-
-static int regular_player_has_spell_runes(const RcWorld *world,
-                                          const RcPlayer *player,
-                                          const RcSpellDef *spell) {
-    (void)world;
-    return validate_or_consume_spell_runes((RcPlayer *)player, spell, false);
-}
-
-static int regular_player_consume_spell_runes(RcWorld *world,
-                                              RcPlayer *player,
-                                              const RcSpellDef *spell) {
-    if (!validate_or_consume_spell_runes(player, spell, false))
-        return 0;
-    RcItemTransaction tx;
-    RcItemActionResult result = rc_item_tx_begin(&tx, world);
-    if (result.code != RC_ITEM_RESULT_OK) return 0;
-
-    RcPlayer staged = {0};
-    memcpy(staged.inventory, tx.inventory, sizeof(staged.inventory));
-    memcpy(staged.equipment, player->equipment, sizeof(staged.equipment));
-    memcpy(staged.rune_pouch, player->rune_pouch, sizeof(staged.rune_pouch));
-    if (!validate_or_consume_spell_runes(&staged, spell, true)) return 0;
-    if (!strcmp(spell->name, "Iban Blast")) {
-        RcInvSlot *weapon = &tx.equipment[EQUIP_WEAPON];
-        uint32_t capacity = rc_content_magic_charge_capacity(weapon->item_id);
-        if (!capacity || !weapon->state_id || weapon->state_id > capacity) return 0;
-        weapon->state_id--;
-    }
-
-    for (int i = 0; i < RC_INVENTORY_SIZE; i++) {
-        if (memcmp(&tx.inventory[i], &staged.inventory[i],
-                   sizeof(tx.inventory[i])) == 0) {
-            continue;
-        }
-        tx.inventory[i] = staged.inventory[i];
-        tx.inventory_touched |= 1u << i;
-    }
-    result = rc_item_tx_commit(&tx);
-    if (result.code != RC_ITEM_RESULT_OK) return 0;
-    memcpy(player->rune_pouch, staged.rune_pouch,
-           sizeof(player->rune_pouch));
-    return 1;
-}
 
 void rc_content_combat_register(struct RcWorld *world) {
     if (!world) return;
@@ -1132,7 +827,8 @@ void rc_content_combat_register(struct RcWorld *world) {
             regular_modify_incoming_after_protection,
         .player_special_energy_cost = regular_player_special_energy_cost,
         .player_ranged_resource_cost = regular_player_ranged_resource_cost,
-        .player_ranged_resource_slot = rc_content_ranged_resource_slot,
+        .player_ranged_resource_slot = regular_player_resource_slot,
+        .player_hit_delay = rc_content_player_hit_delay,
         .prepare_player_hits = regular_prepare_player_hits,
         .consume_weapon_charge = rc_content_magic_consume_charge,
         .prepare_player_magic = rc_content_prepare_magic,
@@ -1140,9 +836,10 @@ void rc_content_combat_register(struct RcWorld *world) {
         .on_player_hit_npc = rc_content_magic_hit,
         .modify_player_special_damage = regular_modify_player_special_damage,
         .after_player_special_launch = regular_after_player_special_launch,
-        .player_has_spell_runes = regular_player_has_spell_runes,
-        .player_consume_spell_runes = regular_player_consume_spell_runes,
+        .player_has_spell_runes = rc_content_has_spell_runes,
+        .player_consume_spell_runes = rc_content_consume_spell_runes,
     };
     rc_combat_register_content_hooks(world, &hooks);
     rc_content_ralos_register(world);
+    rc_content_runes_register(world);
 }

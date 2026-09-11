@@ -292,6 +292,8 @@ static void seed_bank_names(RcWorld *world, int tab,
         // Validation stock starts charged; ordinary items must be charged in-game.
         if (slot >= 0 && item_id == 28922)
             world->player.bank[slot].state_id = 1000;
+        if (slot >= 0 && (item_id == 20714 || item_id == 25574 || item_id == 30064 || item_id == 22370))
+            world->player.bank[slot].state_id = 100;
         uint32_t charges = rc_content_magic_charge_capacity(item_id);
         if (slot >= 0 && charges)
             world->player.bank[slot].state_id = charges;
@@ -350,6 +352,7 @@ void runec_dev_validation_seed_bank(RcWorld *world) {
         "Sanguinesti staff", "Sanguinesti staff (uncharged)",
         "Holy sanguinesti staff", "Holy sanguinesti staff (uncharged)",
         "Warped sceptre", "Warped sceptre (uncharged)",
+        "Bryophyta's staff", "Bryophyta's staff (uncharged)",
         "Saradomin staff", "Guthix staff", "Zamorak staff",
         "Iban's staff", "Iban's staff (u)", "Slayer's staff (e)",
         "Harmonised nightmare staff", "Eldritch nightmare staff",

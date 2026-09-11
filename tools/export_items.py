@@ -578,6 +578,98 @@ def pack_weapon(wp: dict) -> bytes:
     return bytes(buf)
 
 
+def reviewed_attack_range(name: str, weapon_type: int, current: int) -> int:
+    name = name.lower()
+    if weapon_type == WEAPON_TYPES["salamander"]:
+        return 1
+    if weapon_type == WEAPON_TYPES["polearm"]:
+        return 2
+    if weapon_type not in {7, 9, 11, 12, 16, 23, 25, 28}:
+        return 1
+    if "twisted bow" in name or "dark bow" in name:
+        return 10
+    if "shortbow" in name:
+        return 7
+    if "longbow" in name or "comp bow" in name:
+        return 10
+    if "dart" in name:
+        return 3
+    if "knife" in name:
+        return 4
+    if "chinchompa" in name or "ballista" in name:
+        return 9
+    if "trident" in name:
+        return 7
+    if "tumeken" in name:
+        return 8
+    if "crossbow" in name:
+        if name == "crossbow":
+            return 10
+        if "phoenix" in name:
+            return 5
+        if "armadyl" in name or "zaryte" in name or "karil" in name:
+            return 8
+        if "dorgeshuun" in name:
+            return 6
+        if "hunter" in name and "dragon hunter" not in name:
+            return 8
+        return 7
+    return current
+
+
+def update_installed_weapon_ranges(path: Path) -> int:
+    """Patch only the range byte of supported IDEF v3 weapon records."""
+    data = bytearray(path.read_bytes())
+    if len(data) < 12 or struct.unpack_from("<II", data) != (IDEF_MAGIC, IDEF_VERSION):
+        raise ValueError("weapon ranges require IDEF v3")
+    count, = struct.unpack_from("<I", data, 8)
+    offset, changed = 12, 0
+    for _ in range(count):
+        if offset + 4 > len(data):
+            raise ValueError("truncated item record size")
+        size, = struct.unpack_from("<I", data, offset)
+        offset += 4
+        end = offset + size
+        if size < 8 or end > len(data):
+            raise ValueError("truncated item record")
+        record = memoryview(data)[offset:end]
+        flags, = struct.unpack_from("<H", record, 4)
+        name_len = record[7]
+        name = bytes(record[8:8 + name_len]).decode("latin-1")
+        pos = 8 + name_len + 60 + 7
+        for _ in range(11):
+            if pos >= size:
+                raise ValueError(f"truncated item fields for {name}")
+            pos += 1 + record[pos]
+        if flags & F_HAS_EQUIPMENT:
+            if pos + 3 > size:
+                raise ValueError(f"truncated equipment fields for {name}")
+            pos += 3 + 2 * record[pos + 1] + 28
+        if flags & F_HAS_WEAPON:
+            if pos + 5 > size:
+                raise ValueError(f"truncated weapon fields for {name}")
+            old, = struct.unpack_from("<b", record, pos + 4)
+            new = reviewed_attack_range(name, record[pos + 1], old)
+            if new != old:
+                struct.pack_into("<b", data, offset + pos + 4, new)
+                changed += 1
+            stance_count = record[pos + 3]
+            pos += 5
+            for _ in range(stance_count):
+                if pos >= size:
+                    raise ValueError(f"truncated weapon stances for {name}")
+                pos += 1 + record[pos]
+        if pos != size:
+            raise ValueError(f"invalid item record length for {name}")
+        offset = end
+    if offset != len(data):
+        raise ValueError("trailing item data")
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_bytes(data)
+    temporary.replace(path)
+    return changed
+
+
 def build_record(rec: dict, model_links: dict[int, list[int]]) -> bytes | None:
     """One IDEF record. Returns bytes or None if record should be skipped."""
     if rec.get("incomplete"):
@@ -676,6 +768,8 @@ def build_record(rec: dict, model_links: dict[int, list[int]]) -> bytes | None:
     if eq:
         buf += pack_equipment(eq)
     if wp:
+        wp = dict(wp, attack_range=reviewed_attack_range(rec.get("name", ""),
+            WEAPON_TYPES[wp["weapon_type"]], int_or(wp.get("attack_range"), -1)))
         buf += pack_weapon(wp)
     return bytes(buf)
 
@@ -718,6 +812,8 @@ def update_installed_weapon_metadata(path: Path, cache_dir: Path) -> None:
 
 def main():
     p = argparse.ArgumentParser()
+    p.add_argument("--update-weapon-ranges", type=Path,
+                   help="repair only supported weapon range bytes in an IDEF v3 install")
     p.add_argument("--update-weapon-metadata", type=Path,
                    help="update only reviewed weapon rows in an existing IDEF v3 install")
     p.add_argument("--output", type=Path)
@@ -736,6 +832,9 @@ def main():
                    help="fail instead of emitting cache-only non-equipment item defs")
     p.add_argument("--limit", type=int, default=0, help="debug: cap records")
     args = p.parse_args()
+    if args.update_weapon_ranges:
+        print(f"Updated {update_installed_weapon_ranges(args.update_weapon_ranges)} weapon ranges")
+        return
     if args.update_weapon_metadata:
         update_installed_weapon_metadata(args.update_weapon_metadata, args.cache_dir)
         return

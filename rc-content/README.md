@@ -87,6 +87,20 @@ rc-content/
   - `content/combat/spell_effects.tsv` supplies reviewed combat values to both
     spell export and snapshot-based rebuilds without changing spell indices,
     rune costs or unrelated definitions
+  - restricted targets use the reviewed subset in
+    `content/combat/npc_spell_targets.inc`; unknown eligibility rejects
+  - owns supported spell/weapon gameplay arrival delays; attack events carry
+    per-hit timing, never projectile assets
+- `combat/runes.c`
+  - one staged payment algorithm for inventory, combination/substitute runes,
+    carried regular/divine pouches, finite tomes, Bryophyta and Iban charges
+  - pouch deposit/empty and payment use core item transactions; no detached
+    pouch supplies, empty-tome supplies or partial payment on failure
+- `combat/ammunition.c`
+  - compatible ammo/fuel slots, supported atlatl damage and chinchompa fuse
+    inputs; salamander fuel applies across melee/ranged/magic modes
+  - Ava/recovery, secondary targets and unsupported internal containers remain
+    explicit audit follow-ups, not complete weapon-content parity
 - `combat/ralos.c`
   - owns Tonalztics charge actions, independent hits and B237-era Division
   - for this item family, the existing stack `state_id` encodes remaining

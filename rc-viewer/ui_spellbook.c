@@ -35,6 +35,7 @@ int runec_ui_sync_spellbook(RuneCUiState *ui, const RcWorld *world) {
     ui->autocast_slot = -1;
     ui->defensive_autocast = p->defensive_autocast;
     for (int i = 0; i < ui->spell_count; i++) {
+        ui->spell_available[i] = rc_spell_available(world, ui->spell_runtime_ids[i], 0) == RC_SPELL_OK;
         const RcSpellDef *spell = rc_spell_def_get(ui->spell_runtime_ids[i]);
         ui->spell_can_autocast[i] = ui->autocast_available && spell
             && spell->type == RC_SPELL_TYPE_COMBAT && spell->max_hit > 0

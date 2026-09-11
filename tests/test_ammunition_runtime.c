@@ -6,10 +6,16 @@
 #include "world_test_fixture.h"
 #include "../rc-content/content.h"
 #include "../rc-content/combat/ammunition.h"
+#include "../rc-content/combat/magic.h"
 
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+
+static int invalid_delay(const RcWorld *world, const RcNpc *npc, const RcSpellDef *spell, int hit) {
+    (void)world; (void)npc; (void)spell; (void)hit;
+    return 256;
+}
 
 static void check_pair(RcPlayer *p, int weapon, int ammo, int expected) {
     assert(rc_item_def_get(weapon) && "weapon must exist in installed B237 data");
@@ -134,11 +140,73 @@ int main(void) {
             rc_combat_tick_player(w);
             assert(npc->num_pending_hits == arrows);
             assert(w->combat_attack_events[0].hit_count == arrows);
+            for (int h = 0; h < arrows; h++)
+                assert(npc->pending_hits[h].apply_tick == w->tick + w->combat_attack_events[0].hit_delays[h]);
+            if (arrows == 2) assert(npc->pending_hits[1].apply_tick >= npc->pending_hits[0].apply_tick);
             assert(p->equipment[EQUIP_AMMO].item_id == -1);
             assert(p->special_energy == (special ? 4500 : 10000));
             if (special)
                 for (int i = 0; i < arrows; i++) assert(npc->pending_hits[i].damage >= 8);
         }
+    }
+    check_pair(p, 20997, 11212, EQUIP_AMMO);
+    rc_recalc_bonuses(p);
+    p->attack_style_idx = 3;
+    rc_refresh_player_combat_style(p);
+    assert(rc_player_attack_range(p) == 10);
+    p->equipment[EQUIP_WEAPON] = (RcInvSlot){.item_id = 33330, .quantity = 1};
+    rc_recalc_bonuses(p);
+    assert(rc_player_attack_range(p) == 1 && "staff melee cannot use its casting reach");
+    for (int mode = 0; mode < 3; mode++) {
+        check_pair(p, 10148, 10145, EQUIP_AMMO);
+        p->attack_style_idx = mode;
+        rc_recalc_bonuses(p);
+        assert(rc_player_attack_range(p) == 1);
+        npc->x = p->x + 1;
+        npc->num_pending_hits = w->combat_attack_event_count = 0;
+        p->attack_timer = 0;
+        assert(rc_combat_start_player_vs_npc(w, 0, npc->uid));
+        rc_combat_tick_player(w);
+        assert(w->combat_attack_event_count == 1 && p->equipment[EQUIP_AMMO].quantity == 9);
+    }
+    check_pair(p, 29000, 28991, EQUIP_AMMO);
+    p->attack_style_idx = 0;
+    rc_recalc_bonuses(p);
+    p->equipment_bonuses[EQ_STR] = 64;
+    p->skills.boosted_level[SKILL_STRENGTH] = 1;
+    RcCombatCalc low = rc_calc_ranged(p, npc, true);
+    rc_content_ranged_calc(w, npc, &low);
+    p->skills.boosted_level[SKILL_STRENGTH] = 99;
+    RcCombatCalc high = rc_calc_ranged(p, npc, true);
+    rc_content_ranged_calc(w, npc, &high);
+    assert(low.max_hit == 2 && high.max_hit == 22);
+    assert(low.attack_roll == high.attack_roll);
+    check_pair(p, 11235, 11212, EQUIP_AMMO);
+    p->attack_style_idx = 0;
+    rc_recalc_bonuses(p);
+    npc->x = p->x + 3;
+    assert(rc_content_player_hit_delay(w, npc, NULL, 0) == 3);
+    assert(rc_content_player_hit_delay(w, npc, NULL, 1) == 3);
+    npc->x = p->x + 6;
+    assert(rc_content_player_hit_delay(w, npc, NULL, 0) == 3);
+    assert(rc_content_player_hit_delay(w, npc, NULL, 1) == 4);
+    npc->num_pending_hits = w->combat_attack_event_count = 0;
+    p->attack_timer = 0;
+    w->combat_hooks.player_hit_delay = invalid_delay;
+    rng = w->rng_state;
+    assert(rc_combat_start_player_vs_npc(w, 0, npc->uid));
+    rc_combat_tick_player(w);
+    assert(w->rng_state == rng && !npc->num_pending_hits && !w->combat_attack_event_count);
+    assert(p->equipment[EQUIP_AMMO].quantity == 10 && p->combat.failure_reason);
+    w->combat_hooks.player_hit_delay = rc_content_player_hit_delay;
+    check_pair(p, 10034, -1, EQUIP_WEAPON);
+    rc_recalc_bonuses(p);
+    npc->x = p->x + 8;
+    for (int fuse = 0; fuse < 3; fuse++) {
+        p->attack_style_idx = fuse;
+        RcCombatCalc calc = {.attack_roll = 400, .defence_roll = 100};
+        rc_content_ranged_calc(w, npc, &calc);
+        assert(calc.attack_roll == 200 + fuse * 100);
     }
     rc_world_destroy(w);
     puts("ammunition: B237 compatibility, UI-independent launch and resource ownership passed");

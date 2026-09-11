@@ -2,6 +2,9 @@
 #define RC_COMBAT_H
 
 #include "types.h"
+struct RcSpellDef;
+int rc_combat_has_spell_runes(const RcWorld *world, const RcPlayer *player,
+                              const struct RcSpellDef *spell);
 
 // Equipment bonus array indices used by RuneC item definitions, 14 slots.
 #define EQ_STAB_ATK       0

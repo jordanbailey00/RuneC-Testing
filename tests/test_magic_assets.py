@@ -17,6 +17,46 @@ from frontend_validation.validate_combat_visuals import (
 
 
 class MagicAssets(unittest.TestCase):
+    def test_export_rejects_bad_costs_and_preserves_spell_identity(self):
+        row = dict(name="Test spell", book=0, type=1, level=1, slv=0,
+                   xp_q1=55, members=0, max_hit=2, effect_flags=1, runes=[(556, 1)])
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "spells.bin"
+            export_spells.write_bin(path, export_spells.SPEL_MAGIC, [row])
+            original = path.read_bytes()
+            for change in (dict(name="x" * 64), dict(book=5), dict(type=8),
+                           dict(level=0), dict(effect_flags=64), dict(runes=[(556, 0)]),
+                           dict(runes=[(556, 1)] * 2), dict(runes=[(i, 1) for i in range(1, 10)])):
+                with self.assertRaises(ValueError):
+                    export_spells.write_bin(path, export_spells.SPEL_MAGIC, [dict(row, **change)])
+                self.assertEqual(path.read_bytes(), original)
+            with self.assertRaises(ValueError):
+                export_spells.write_bin(path, export_spells.SPEL_MAGIC, [row, row])
+            second = dict(row, name="A new spell")
+            export_spells.write_bin(path, export_spells.SPEL_MAGIC, [second, row])
+            rebuilt = path.read_bytes()
+            self.assertEqual(rebuilt[12:len(original)], original[12:])
+            export_spells.write_bin(path, export_spells.SPEL_MAGIC, [row, second])
+            self.assertEqual(path.read_bytes(), rebuilt)
+            for malformed in (b"", original[:12], original[:15], original[:-1], original + b"extra"):
+                path.write_bytes(malformed)
+                with self.assertRaises(ValueError):
+                    export_spells.write_bin(path, export_spells.SPEL_MAGIC, [row])
+                self.assertEqual(path.read_bytes(), malformed)
+            for magic, rows in ((0, [row]), (export_spells.SPEL_MAGIC, []),
+                                (export_spells.SPEL_MAGIC, [row] * 513)):
+                with self.assertRaises(ValueError):
+                    export_spells.write_bin(path, magic, rows)
+            path.write_bytes(rebuilt)
+            with self.assertRaisesRegex(ValueError, "missing installed"):
+                export_spells.write_bin(path, export_spells.SPEL_MAGIC, [second])
+            self.assertEqual(path.read_bytes(), rebuilt)
+        for cost in ("<sup>1</sup>[[File:Unknown rune.png", "<sup>0</sup>[[File:Air rune.png",
+                     "<sup>256</sup>[[File:Air rune.png", "not a recognized cost"):
+            with self.assertRaises(ValueError):
+                export_spells.parse_runes(cost, {"air rune": 556})
+        self.assertEqual(export_spells.parse_runes("<sup>2</sup>[[File:Air rune.png", {"air rune": 556}), [(556, 2)])
+
     def test_ancient_casts_use_their_own_animation_families(self):
         with (ROOT / "content/combat_visuals/visuals.tsv").open() as stream:
             spells = {r["key"]: r for r in csv.DictReader(stream, delimiter="|")

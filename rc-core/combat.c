@@ -246,44 +246,37 @@ static int player_ranged_resource_slot(const RcWorld *world,
     return EQUIP_AMMO;
 }
 
-static int inventory_quantity(const RcInvSlot *inv, int item_id) {
-    if (!inv || item_id < 0) return 0;
-    int total = 0;
-    for (int i = 0; i < RC_INVENTORY_SIZE; i++) {
-        if (inv[i].item_id == item_id && inv[i].quantity > 0) {
-            total += inv[i].quantity;
-        }
-    }
-    return total;
-}
-
-static int fallback_player_has_spell_runes(const RcPlayer *p,
+static int inventory_has_spell_runes(const RcPlayer *p,
                                            const RcSpellDef *spell) {
-    if (!p || !spell) return 0;
+    if (!p || !spell || spell->rune_count > RC_SPELL_MAX_RUNES) return 0;
+    RcInvSlot staged[RC_INVENTORY_SIZE];
+    memcpy(staged, p->inventory, sizeof(staged));
     for (int i = 0; i < spell->rune_count; i++) {
         int item_id = (int)spell->runes[i].item_id;
         int qty = (int)spell->runes[i].qty;
-        if (qty > 0 && inventory_quantity(p->inventory, item_id) < qty) {
-            return 0;
-        }
+        if (item_id <= 0 || qty <= 0) return 0;
+        for (int j = 0; j < RC_INVENTORY_SIZE && qty; j++)
+            if (staged[j].item_id == item_id && !staged[j].state_id)
+                qty -= rc_inv_remove_quantity(staged, j, qty);
+        if (qty) return 0;
     }
     return 1;
 }
 
-static int content_player_has_spell_runes(const RcWorld *world,
+int rc_combat_has_spell_runes(const RcWorld *world,
                                           const RcPlayer *p,
                                           const RcSpellDef *spell) {
     if (!world || !p || !spell) return 0;
     if (world->combat_hooks.player_has_spell_runes) {
         return world->combat_hooks.player_has_spell_runes(world, p, spell);
     }
-    return fallback_player_has_spell_runes(p, spell);
+    return inventory_has_spell_runes(p, spell);
 }
 
-static int fallback_player_consume_spell_runes(RcWorld *world,
+static int inventory_consume_spell_runes(RcWorld *world,
                                                const RcSpellDef *spell) {
     RcPlayer *p = world ? &world->player : NULL;
-    if (!p || !spell || !fallback_player_has_spell_runes(p, spell)) return 0;
+    if (!p || !spell || !inventory_has_spell_runes(p, spell)) return 0;
     RcItemTransaction tx;
     RcItemActionResult result = rc_item_tx_begin(&tx, world);
     for (int i = 0; i < spell->rune_count; i++) {
@@ -303,7 +296,7 @@ static int content_player_consume_spell_runes(RcWorld *world, RcPlayer *p,
         return world->combat_hooks.player_consume_spell_runes(world, p,
                                                               spell);
     }
-    return fallback_player_consume_spell_runes(world, spell);
+    return inventory_consume_spell_runes(world, spell);
 }
 
 static const RcSpellDef *player_selected_combat_spell(const RcPlayer *p) {
@@ -311,10 +304,8 @@ static const RcSpellDef *player_selected_combat_spell(const RcPlayer *p) {
     int spell_idx = p->manual_spell_cast >= 0
                   ? p->manual_spell_cast : p->autocast_spell;
     const RcSpellDef *spell = rc_spell_def_get(spell_idx);
-    if (!spell || spell->type != RC_SPELL_TYPE_COMBAT ||
-            (spell->max_hit == 0 && !(spell->effect_flags &
-                (RC_SPELL_EFFECT_FREEZE | RC_SPELL_EFFECT_DRAIN))) ||
-            spell->book != p->current_spellbook) {
+    if (!rc_spell_is_combat(spell) ||
+            (spell->book != p->current_spellbook && spell->book != RC_SPELL_BOOK_ALL)) {
         return NULL;
     }
     return spell;
@@ -393,7 +384,7 @@ static void emit_player_attack_event(
     int weapon_id,
     bool use_special,
     const RcPlayerAttackProfiles *profiles,
-    int hit_delay, RcCombatStyle style, int stance_idx, bool accurate, int hit_count
+    const int *delays, const RcPendingHit *hits, RcCombatStyle style, int stance_idx, int hit_count
 ) {
     if (!world || !p || !target || !profiles) return;
     int target_x, target_y;
@@ -405,7 +396,7 @@ static void emit_player_attack_event(
     if (!event) return;
     memset(event, 0, sizeof(*event));
     event->active = true;
-    event->accurate = accurate;
+    event->accurate = hits[0].accurate;
     event->hit_count = hit_count;
     event->source_kind = RC_COMBAT_ACTOR_PLAYER;
     event->target_kind = RC_COMBAT_ACTOR_NPC;
@@ -420,7 +411,11 @@ static void emit_player_attack_event(
     event->target_x = target_x;
     event->target_y = target_y;
     event->plane = p->plane;
-    event->hit_delay = hit_delay;
+    event->hit_delay = delays[0];
+    for (int i = 0; i < hit_count; i++) {
+        event->hit_delays[i] = delays[i];
+        event->hit_accurate[i] = hits[i].accurate;
+    }
     event->weapon_item_id = weapon_id;
     event->ammo_item_id = profiles->ammo_id;
     event->spell_idx = spell_idx;
@@ -1365,7 +1360,7 @@ static void combat_tick_player_attack(RcWorld *world) {
     RcCombatCalc magic_calc = {0};
     int resource_slot = RC_RANGED_RESOURCE_NONE;
     const char *resource_failure = NULL;
-    if (style == COMBAT_RANGED) {
+    if (style == COMBAT_RANGED || world->combat_hooks.player_ranged_resource_slot) {
         resource_slot = player_ranged_resource_slot(world, &resource_failure);
         if (resource_slot < RC_RANGED_RESOURCE_NONE || resource_slot >= RC_EQUIP_COUNT
                 || (resource_slot >= 0 && (p->equipment[resource_slot].item_id < 0
@@ -1383,9 +1378,12 @@ static void combat_tick_player_attack(RcWorld *world) {
             clear_failed_player_spell_attack(p);
             return;
         }
-        if (spell && !content_player_has_spell_runes(world, p, spell)) {
-            reject_launch(world, player_actor, "You do not have enough runes to cast this spell.");
-            clear_failed_player_spell_attack(p);
+        RcSpellResult available = spell ? rc_spell_available(world,
+            p->manual_spell_cast >= 0 ? p->manual_spell_cast : p->autocast_spell,
+            p->manual_spell_cast < 0) : RC_SPELL_OK;
+        if (available != RC_SPELL_OK) {
+            reject_launch(world, player_actor, rc_spell_result_message(available));
+            if (available == RC_SPELL_RUNES) clear_failed_player_spell_attack(p);
             return;
         }
         if (world->combat_hooks.prepare_player_magic) {
@@ -1443,12 +1441,22 @@ static void combat_tick_player_attack(RcWorld *world) {
     }
     int hit_index = target->num_pending_hits;
     int total_damage = 0;
+    int delays[4];
+    for (int i = 0; i < count; i++) {
+        delays[i] = world->combat_hooks.player_hit_delay
+            ? world->combat_hooks.player_hit_delay(world, target, spell, i) : delay;
+        if (delays[i] < 0 || delays[i] > UINT8_MAX) {
+            world->rng_state = rng_before;
+            reject_launch(world, player_actor, "invalid hit arrival delay; attack not launched");
+            return;
+        }
+    }
     for (int i = 0; i < count; i++) {
         RcPendingHit *hit = &prepared[i];
         hit->damage = rc_combat_apply_regular_npc_player_damage_rules(world, target, hit->damage);
         hit->damage = rc_encounter_scale_player_damage(world, target->uid, style, hit->damage);
         rc_queue_hit_meta(target->pending_hits, &target->num_pending_hits,
-                         hit->damage, delay, style, RC_HIT_SOURCE_PLAYER,
+                         hit->damage, delays[i], style, RC_HIT_SOURCE_PLAYER,
                          0, world->tick, 0, hit->max_hit);
         target->pending_hits[hit_index + i].accurate = hit->accurate;
         target->pending_hits[hit_index + i].defence_drain = hit->defence_drain;
@@ -1459,7 +1467,7 @@ static void combat_tick_player_attack(RcWorld *world) {
     int ammo_cost = world->combat_hooks.player_ranged_resource_cost
         ? world->combat_hooks.player_ranged_resource_cost(p, special) : 1;
     bool paid = true;
-    if (style == COMBAT_RANGED && resource_slot >= 0)
+    if (resource_slot >= 0)
         paid = ammo_cost > 0 && equipment_consume(world, resource_slot, ammo_cost);
     else if (style == COMBAT_MAGIC && spell)
         paid = content_player_consume_spell_runes(world, p, spell);
@@ -1474,6 +1482,7 @@ static void combat_tick_player_attack(RcWorld *world) {
     }
 
     p->combat.failure_reason = NULL;
+    if (spell) rc_add_xp_hundredths(&p->skills, SKILL_MAGIC, (int64_t)spell->xp_q1 * 10);
     rc_encounter_player_attack_committed(world, target->uid);
     if (special) {
         p->special_energy -= special_cost;
@@ -1485,7 +1494,7 @@ static void combat_tick_player_attack(RcWorld *world) {
     int xp_damage = total_damage < target->current_hp ? total_damage : target->current_hp;
     rc_award_player_combat_xp(world, xp_damage, xp_mask);
     emit_player_attack_event(world, p, target, spell, spell_idx, weapon_id,
-                              special, &profiles, delay, style, stance, prepared[0].accurate, count);
+                              special, &profiles, delays, prepared, style, stance, count);
     if (p->manual_spell_cast >= 0) {
         p->attack_target = -1;
         p->attack_target_def_id = -1;

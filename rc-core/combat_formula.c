@@ -474,7 +474,9 @@ int rc_player_attack_range(const RcPlayer *p) {
             (p->manual_spell_cast >= 0 || p->autocast_spell >= 0)) return 10;
     const RcItemDef *weapon = equipped_weapon_def(p);
     int range = 1;
-    if (weapon && weapon->attack_range > 1) {
+    if (p && p->combat_style != COMBAT_RANGED && p->combat_style != COMBAT_MAGIC)
+        return weapon && weapon->weapon_type == RC_WEAPON_TYPE_POLEARM ? 2 : 1;
+    if (weapon && weapon->attack_range > 0) {
         range = weapon->attack_range;
     } else if (p && p->combat_style == COMBAT_MAGIC) {
         range = 10;
@@ -484,7 +486,7 @@ int rc_player_attack_range(const RcPlayer *p) {
     if (p && p->attack_stance == RC_ATTACK_STANCE_LONGRANGE && range > 1) {
         range += 2;
     }
-    return range;
+    return range > 10 ? 10 : range;
 }
 
 // ---- Effective level helpers ------------------------------------------

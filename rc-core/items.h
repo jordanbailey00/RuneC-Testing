@@ -91,6 +91,8 @@ typedef struct {
     RcWorld *world;
     RcInvSlot inventory[RC_INVENTORY_SIZE];
     RcInvSlot equipment[RC_EQUIP_COUNT];
+    RcInvSlot rune_pouch[4];
+    RcInvSlot original_rune_pouch[4];
     uint32_t inventory_revision;
     uint32_t equipment_revision;
     uint32_t inventory_touched;

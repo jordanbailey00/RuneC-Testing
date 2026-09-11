@@ -79,6 +79,7 @@ static void add_defs(void) {
     RcSpellDef *spell = &g_rc_spell_defs[0];
     memset(spell, 0, sizeof(*spell));
     strcpy(spell->name, "Fire Blast");
+    spell->level = 59;
     spell->type = RC_SPELL_TYPE_COMBAT;
     spell->max_hit = 16;
     spell->rune_count = 2;

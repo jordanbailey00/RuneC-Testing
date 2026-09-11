@@ -74,6 +74,7 @@ static void add_magic_defs(void) {
     RcSpellDef *spell = &g_rc_spell_defs[0];
     memset(spell, 0, sizeof(*spell));
     strcpy(spell->name, "Phase 10 Fire Spell");
+    spell->level = 1;
     spell->type = RC_SPELL_TYPE_COMBAT;
     spell->max_hit = 20;
     spell->rune_count = 2;
@@ -83,6 +84,7 @@ static void add_magic_defs(void) {
 }
 
 static void add_osrs_rune_source_defs(void) {
+    add_item(12791, "Rune pouch");
     RcItemDef *fire = add_item(OSRS_FIRE_RUNE, "Fire rune");
     fire->stackable = true;
     RcItemDef *air = add_item(OSRS_AIR_RUNE, "Air rune");
@@ -103,6 +105,7 @@ static void add_osrs_rune_source_defs(void) {
     RcSpellDef *spell = &g_rc_spell_defs[0];
     memset(spell, 0, sizeof(*spell));
     strcpy(spell->name, "Phase 10 OSRS Fire Spell");
+    spell->level = 1;
     spell->type = RC_SPELL_TYPE_COMBAT;
     spell->book = RC_SPELL_BOOK_STANDARD;
     spell->max_hit = 20;
@@ -290,6 +293,7 @@ static void test_osrs_rune_sources_cover_staff_pouch_and_combos(void) {
 
     world = make_osrs_rune_world(&npc_idx);
     world->player.inventory[0] = (RcInvSlot){OSRS_AIR_RUNE, 2};
+    world->player.inventory[1] = (RcInvSlot){12791, 1};
     world->player.rune_pouch[0] = (RcInvSlot){OSRS_FIRE_RUNE, 2};
     tick_manual_spell(world, npc_idx);
     assert(world->npcs[npc_idx].num_pending_hits == 1);

@@ -63,7 +63,7 @@ requirements = { magic = 75 }
 ids = [33330, 33332]
 names = ["Iban's staff", "Iban's staff (u) (o)"]
 attack_speed = 5
-attack_range = 10
+attack_range = 1
 weapon_type = "staff"
 [weapon.equipment]
 slot = "weapon"

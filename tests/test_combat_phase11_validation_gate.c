@@ -62,6 +62,7 @@ static void add_resource_defs(void) {
     RcSpellDef *spell = &g_rc_spell_defs[0];
     memset(spell, 0, sizeof(*spell));
     strcpy(spell->name, "Phase 11 Fire Spell");
+    spell->level = 1;
     spell->type = RC_SPELL_TYPE_COMBAT;
     spell->max_hit = 20;
     spell->rune_count = 2;

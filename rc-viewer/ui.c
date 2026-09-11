@@ -3725,7 +3725,7 @@ static void draw_spellbook(const RuneCUiState *ui, const RuneCUiLayout *layout) 
         const Texture2D *icon = ui->spell_icons[slot];
         if (icon)
             DrawTexturePro(*icon, (Rectangle){0, 0, icon->width, icon->height},
-                           r, (Vector2){0}, 0, WHITE);
+                           r, (Vector2){0}, 0, ui->spell_available[slot] ? WHITE : GRAY);
         if (CheckCollisionPointRec(mouse, r)) {
             hover_name = ui->spells[slot]->name;
             DrawRectangleLinesEx(r, 1, OSRS_ORANGE);

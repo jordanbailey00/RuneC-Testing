@@ -139,12 +139,17 @@ int main(void) {
             int spell_id = runec_ui_spell_runtime_id(ui, slot);
             if (spell_id >= 0) {
                 mapped[spell_id] = 1;
+                const RcSpellDef *spell = rc_spell_def_get(spell_id);
+                for (int i = 0; i < RC_INVENTORY_SIZE; i++)
+                    world->player.inventory[i] = (RcInvSlot){.item_id = -1};
+                for (int i = 0; i < spell->rune_count; i++)
+                    assert(rc_inv_add(world->player.inventory, spell->runes[i].item_id, spell->runes[i].qty * 10) >= 0);
+                int before = world->player.selected_spell;
+                RcSpellResult available = rc_spell_available(world, spell_id, 0);
                 rc_player_select_spell(world, spell_id);
                 rc_world_tick(world);
-                if (world->player.selected_spell != spell_id)
-                    fprintf(stderr, "Book %d could not select %s (definition %d, book %d)\n",
-                        book, ui->spells[slot]->name, spell_id, rc_spell_def_get(spell_id)->book);
-                assert(world->player.selected_spell == spell_id);
+                assert(world->player.selected_spell == (available == RC_SPELL_OK ? spell_id : before));
+                if (available != RC_SPELL_OK) assert(world->player.combat.failure_reason);
             }
             for (int action = 0; action < (ui->spell_can_autocast[slot] ? 3 : 1); action++) {
                 assert(handle_spell_click(ui, &layout, mouse, 1));

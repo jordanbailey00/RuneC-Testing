@@ -1332,6 +1332,22 @@ RcGameData *rc_game_data_load(const RcWorldConfig *cfg,
             rc_game_data_release(data);
             return NULL;
         }
+        if (data->item_def_count > 0) {
+            for (int i = 0; i < loaded; i++) {
+                const RcSpellDef *spell = &data->spell_defs[i];
+                for (int r = 0; r < spell->rune_count; r++) {
+                    uint32_t id = spell->runes[r].item_id;
+                    // Utility costs can include non-stackable ingredients such as orbs.
+                    if (id >= RC_MAX_ITEM_DEFS || !data->item_defs[id].loaded ||
+                        data->item_defs[id].noted) {
+                        snprintf(report->message, sizeof(report->message),
+                            "spell %s has missing or invalid rune item %u", spell->name, id);
+                        rc_game_data_release(data);
+                        return NULL;
+                    }
+                }
+            }
+        }
         memcpy(g_rc_spell_defs, data->spell_defs, sizeof(g_rc_spell_defs));
         g_rc_spell_count = data->spell_count;
         rc_spell_use_defs(data->spell_defs, data->spell_count);

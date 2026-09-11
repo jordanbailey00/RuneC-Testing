@@ -95,8 +95,8 @@ static void equip_weapon(RcWorld *world, int item_id) {
 static void ensure_fake_weapons(void) {
     fake_weapon(TEST_SLASH_SWORD, "Phase 4 slash sword", 18, 4, 1,
                 80, 0, 0);
-    fake_weapon(TEST_BOW, "Phase 4 bow", 25, 5, 1, 0, 80, 0);
-    fake_weapon(TEST_POWERED_STAFF, "Phase 4 powered staff", 16, 4, 1,
+    fake_weapon(TEST_BOW, "Phase 4 bow", 25, 5, 7, 0, 80, 0);
+    fake_weapon(TEST_POWERED_STAFF, "Phase 4 powered staff", 16, 4, 10,
                 0, 0, 80);
     fake_weapon(TEST_STAFF, "Phase 4 staff", 22, 5, 1, 0, 0, 80);
     fake_weapon(TEST_BONUS_TRAP_BOW, "Phase 4 weird bow", 25, 5, 1,
@@ -118,6 +118,7 @@ static void add_phase4_spell(void) {
     g_rc_spell_count = 1;
     RcSpellDef *spell = &g_rc_spell_defs[0];
     strcpy(spell->name, "Phase 4 Fire Spell");
+    spell->level = 1;
     spell->book = RC_SPELL_BOOK_STANDARD;
     spell->type = RC_SPELL_TYPE_COMBAT;
     spell->max_hit = 16;

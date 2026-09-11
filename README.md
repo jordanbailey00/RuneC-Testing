@@ -311,6 +311,11 @@ Run the SPS benchmark:
 bash tests/benchmarks/run_sps_benchmark.sh
 ```
 
+Use `--mode magic` or `--mode ranged` for sustained spell/ammunition payment
+workloads, for example `--envs 32 --steps 200000 --warmup 2000`. These modes
+use installed item/spell definitions and content hooks and fail if attacks or
+resource consumption stop. They measure headless throughput, not viewer FPS.
+
 ## Engine API
 
 `rc-core` exposes a small C API centered on world creation, queued player

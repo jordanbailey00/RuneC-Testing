@@ -245,11 +245,11 @@ static int execute_command(RcWorld *world, const RcPlayerCommand *command) {
     case RC_PLAYER_COMMAND_TOGGLE_QUICK_PRAYERS:
         return rc_prayer_result_accepted(rc_player_toggle_quick_prayers(world));
     case RC_PLAYER_COMMAND_SET_SPELLBOOK:
-        rc_player_set_spellbook(world, a[0]); return 1;
+        return rc_spell_result_accepted(rc_player_set_spellbook(world, a[0]));
     case RC_PLAYER_COMMAND_SELECT_SPELL:
-        rc_player_select_spell(world, a[0]); return 1;
+        return rc_spell_result_accepted(rc_player_select_spell(world, a[0]));
     case RC_PLAYER_COMMAND_SET_AUTOCAST:
-        rc_player_set_autocast_spell(world, a[0], a[1]); return 1;
+        return rc_spell_result_accepted(rc_player_set_autocast_spell(world, a[0], a[1]));
     case RC_PLAYER_COMMAND_MOVE_INVENTORY:
         return rc_item_result_accepted(
             rc_player_move_inventory_item_expected(

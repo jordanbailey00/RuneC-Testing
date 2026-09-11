@@ -637,6 +637,8 @@ typedef struct {
     int action_key_id;
     char action_key_name[64];
     int hit_delay;
+    uint8_t hit_delays[4];
+    uint8_t hit_accurate[4];
     int weapon_item_id;
     int ammo_item_id;
     int spell_idx;
@@ -1120,9 +1122,11 @@ typedef struct {
     int (*player_ranged_resource_cost)(const RcPlayer *player, bool special);
     int (*player_ranged_resource_slot)(const RcPlayer *player,
                                       const char **failure_reason);
+    int (*player_hit_delay)(const struct RcWorld *world, const RcNpc *target,
+                            const struct RcSpellDef *spell, int hit_index);
     // Zero leaves ordinary single-hit rolling to core; negative rejects launch.
     int (*prepare_player_hits)(struct RcWorld *world, const RcNpc *target,
-                               const struct RcCombatCalc *calc, bool special,
+                               struct RcCombatCalc *calc, bool special,
                                RcPendingHit *hits, int capacity,
                                const char **failure_reason);
     int (*consume_weapon_charge)(struct RcWorld *world, int weapon_id);

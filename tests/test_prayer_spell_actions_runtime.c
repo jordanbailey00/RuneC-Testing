@@ -447,7 +447,7 @@ int main(void) {
 
     rc_player_select_spell(world, fire_blast);
     rc_world_tick(world);
-    assert(world->player.selected_spell == fire_blast);
+    assert(world->player.selected_spell == -1 && "selection without resources must reject");
     rc_refresh_player_combat_style(&world->player);
     assert(world->player.combat_style != COMBAT_MAGIC);
     const RcSpellDef *fire_blast_def = rc_spell_def_get(fire_blast);
@@ -458,6 +458,10 @@ int main(void) {
         world->player.inventory[i].quantity =
             fire_blast_def->runes[i].qty + 1;
     }
+    world->player.skills.boosted_level[SKILL_MAGIC] = 99;
+    rc_player_select_spell(world, fire_blast);
+    rc_world_tick(world);
+    assert(world->player.selected_spell == fire_blast);
 
     int jad_def = rc_npc_def_find(3127);
     assert(jad_def >= 0);

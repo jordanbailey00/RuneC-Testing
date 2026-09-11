@@ -11,15 +11,18 @@ enum {
     RC_SPELL_BOOK_ANCIENT = 1,
     RC_SPELL_BOOK_LUNAR = 2,
     RC_SPELL_BOOK_ARCEUUS = 3,
+    RC_SPELL_BOOK_ALL = 4,
 };
 
 enum {
+    RC_SPELL_TYPE_UNSUPPORTED = 0,
     RC_SPELL_TYPE_COMBAT = 1,
     RC_SPELL_TYPE_TELEPORT = 2,
     RC_SPELL_TYPE_UTILITY = 3,
     RC_SPELL_TYPE_SKILLING = 4,
     RC_SPELL_TYPE_CURSE = 5,
     RC_SPELL_TYPE_CHARGING = 6,
+    RC_SPELL_TYPE_SUMMONING = 7,
 };
 
 enum {
@@ -54,5 +57,16 @@ void rc_spell_use_defs(const RcSpellDef *defs, int count);
 void rc_spell_reset_defs_if_active(const RcSpellDef *defs);
 const RcSpellDef *rc_spell_def_get(int spell_idx);
 int rc_spell_find(const char *name);
+
+struct RcWorld;
+typedef enum {
+    RC_SPELL_OK, RC_SPELL_QUEUED, RC_SPELL_INVALID, RC_SPELL_DISABLED,
+    RC_SPELL_WRONG_BOOK, RC_SPELL_LEVEL, RC_SPELL_MEMBERS, RC_SPELL_RUNES,
+    RC_SPELL_WEAPON, RC_SPELL_UNSUPPORTED, RC_SPELL_QUEUE_FULL, RC_SPELL_DEAD,
+} RcSpellResult;
+RcSpellResult rc_spell_available(const struct RcWorld *world, int spell_idx, int autocast);
+int rc_spell_result_accepted(RcSpellResult result);
+const char *rc_spell_result_message(RcSpellResult result);
+int rc_spell_is_combat(const RcSpellDef *spell);
 
 #endif

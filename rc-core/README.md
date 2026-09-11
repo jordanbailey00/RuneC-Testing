@@ -385,6 +385,24 @@ shot; autocast retains the target. Pending hits retain spell/weapon identity
 for landed content effects, while attack events expose accuracy and hit count
 without presentation metadata. NPC immobilization uses absolute world ticks.
 
+Spell selection/autocast/book APIs return `RcSpellResult`; queued admission is
+not execution. `rc_spell_available` checks the bound world's definitions,
+book, supported type, levels, membership, weapon and resource inputs. The
+source-owning handler still validates its actual target/executor. Rejections
+carry a reason; dead actors and full queues are separate outcomes.
+Accepted spellbook casts award stored base Magic XP once after payment,
+including splashes; damage XP remains separate. Native powered shots receive
+no spellbook base XP. Existing item transactions now snapshot/commit pouch
+contents with inventory/equipment, rejecting stale state. Core-only modular
+worlds retain inventory-only spell payment; a registered content owner is
+authoritative and never falls back after rejecting a payment.
+
+Content can supply bounded individual gameplay hit delays. Core reserves and
+pays the full batch, queues those arrival ticks and emits each hit's delay and
+accuracy for clients. A real one-tile weapon range stays one; melee staff reach
+is distinct from spell casting, and long-range cannot exceed ten tiles.
+Secondary-target batches and fired-ammo recovery are not implemented here.
+
 Rolls use live NPC stats. Accuracy is a separate pending-hit fact from damage.
 Player attack XP captures the launch stance and target-HP cap, retaining
 hundredths; impacts do not award XP again. NPC damage is capped to remaining

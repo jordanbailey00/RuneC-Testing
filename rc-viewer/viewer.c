@@ -7525,8 +7525,18 @@ static void viewer_spawn_projectile_instance(
     }
     proj->impact_spotanim_height = viewer_projectile_impact_height(
         proj, visual, (RcCombatStyle)event->style);
+    bool accurate = event->accurate;
+    if (event->source_kind == RC_COMBAT_ACTOR_PLAYER && sequence_index < 4) {
+        int delay = event->hit_delays[sequence_index];
+        proj->hit_delay = delay;
+        proj->duration_ticks = proj->client_delay = delay > 0 ? delay : 1;
+        proj->projectile_end_time = proj->duration_ticks * 30;
+        if (proj->projectile_start_time >= proj->projectile_end_time)
+            proj->projectile_start_time = proj->projectile_end_time - 1;
+        accurate = event->hit_accurate[sequence_index];
+    }
     if (event->source_kind == RC_COMBAT_ACTOR_PLAYER &&
-            event->style == COMBAT_MAGIC && !event->accurate) {
+            event->style == COMBAT_MAGIC && !accurate) {
         proj->impact_spotanim_id = 85;
         proj->impact_spotanim_height = 124;
     }

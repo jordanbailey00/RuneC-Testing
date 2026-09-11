@@ -100,6 +100,16 @@ int main(void) {
         assert(found && "rune missing from testing bank");
     }
     assert(find_item_by_name("Amethyst arrows") == 21326);
+    const int finite_sources[] = {20714, 25574, 30064, 22370};
+    for (unsigned i = 0; i < sizeof(finite_sources) / sizeof(finite_sources[0]); i++) {
+        bool found = false;
+        for (int slot = 0; slot < RC_BANK_SIZE; slot++) {
+            if (world->player.bank[slot].item_id != finite_sources[i]) continue;
+            found = true;
+            assert(world->player.bank[slot].state_id == 100);
+        }
+        assert(found && "finite rune source missing from test bank");
+    }
     assert(find_item_by_name("Granite maul (ornate handle)") == 24225);
 
     int tab_seen[5] = {0};

@@ -94,6 +94,7 @@ static void add_test_spell(void) {
     g_rc_spell_count = 1;
     RcSpellDef *spell = &g_rc_spell_defs[0];
     strcpy(spell->name, "Headless Strike");
+    spell->level = 1;
     spell->book = RC_SPELL_BOOK_STANDARD;
     spell->type = RC_SPELL_TYPE_COMBAT;
     spell->max_hit = 4;

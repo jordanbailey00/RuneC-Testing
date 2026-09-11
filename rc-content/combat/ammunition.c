@@ -1,6 +1,9 @@
 #include "ammunition.h"
 
 #include "items.h"
+#include "combat.h"
+#include "prayer.h"
+#include "npc.h"
 #include <string.h>
 
 enum { ARROW, BOLT, JAVELIN, OGRE, TRAINING, KEBBIT, RACK, ANTLER, ATLATL, TAR, BONE };
@@ -134,4 +137,31 @@ int rc_content_ranged_resource_slot(const RcPlayer *player, const char **failure
     }
     *failure = "That item is not supported ammunition for this weapon.";
     return RC_RANGED_RESOURCE_INVALID;
+}
+
+void rc_content_ranged_calc(const RcWorld *world, const RcNpc *target, RcCombatCalc *calc) {
+    const RcPlayer *p = &world->player;
+    const RcItemDef *weapon = rc_item_def_get(p->equipment[EQUIP_WEAPON].item_id);
+    if (!weapon) return;
+    if (!strcmp(weapon->name, "Eclipse atlatl")) {
+        int level = p->skills.boosted_level[SKILL_STRENGTH];
+        int prayer = rc_prayer_ranged_strength_bonus(p->active_prayers);
+        int effective = prayer == 5 && level <= 20 ? level + 1 : level * (100 + prayer) / 100;
+        effective += 8 + (p->attack_stance == RC_ATTACK_STANCE_ACCURATE ? 3 : 0);
+        calc->max_hit = (effective * (p->equipment_bonuses[EQ_STR] + 64) + 320) / 640;
+        if (calc->max_hit < 0) calc->max_hit = 0;
+    }
+    if (weapon->weapon_type == 7) {
+        const RcNpcDef *def = rc_npc_def_for_npc(world, target);
+        int size = def && def->size > 0 ? def->size : 1;
+        int dx = p->x - (target->x + size / 2), dy = p->y - (target->y + size / 2);
+        if (dx < 0) dx = -dx;
+        if (dy < 0) dy = -dy;
+        int distance = dx > dy ? dx : dy;
+        int factor = p->attack_style_idx == 0 ? (distance < 4 ? 4 : distance < 7 ? 3 : 2)
+            : p->attack_style_idx == 1 ? (distance < 4 || distance >= 7 ? 3 : 4)
+            : (distance < 4 ? 2 : distance < 7 ? 3 : 4);
+        calc->attack_roll = calc->attack_roll * factor / 4;
+        calc->hit_chance = rc_hit_chance(calc->attack_roll, calc->defence_roll);
+    }
 }
