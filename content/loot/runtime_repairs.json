@@ -1,0 +1,39 @@
+{
+  "format": "runec-loot-runtime-repairs-v1",
+  "status": "Identity and delivery repairs only; inherited inverse-rarity probabilities remain unverified legacy data, not an exact-roll migration.",
+  "tables": [
+    {
+      "name": "Guard",
+      "source": "https://oldschool.runescape.wiki/?oldid=15321511",
+      "source_table": 397,
+      "npc_ids": [3010, 3011, 3254, 3269, 3270, 3271, 3272, 3273, 3274, 5418, 11911, 11912, 11913, 11914, 11915, 11916, 11917, 11922, 11923, 11924, 11937, 11938, 11939, 11942, 11943, 11944, 11945, 11946, 11947],
+      "item_ids": {"617": 995},
+      "remove": [
+        [[2832, 1, 1], [617, 30, 30], [6649, 1, 1]],
+        [[617, 5, 5, 7], [1446, 1, 1, 128], [2801, 1, 1, 128]],
+        []
+      ],
+      "add_tertiary": [[2801, 1, 1, 128]],
+      "notes": [
+        "Bind only the ordinary-city Guard variants listed by the source, including hist3010, hist3011 and hist3272 still present in B237; never every NPC named Guard.",
+        "The old name-joined source combined duplicate city tables, pickpocket coins and quest rewards. Remove those rows and deduplicate identical outcomes.",
+        "Use real currency 995, not same-named quest currency 617. Exclude F2P-only five-coin outcomes and alternate body-talisman rate from this members baseline.",
+        "Clue keys need active clue steps; journal is unrelated quest content. Neither belongs in ordinary death rewards. Diary/combat-achievement modifiers, F2P-specific tables, clue limits and exact seed/main probabilities remain part of the open loot migration."
+      ]
+    },
+    {
+      "name": "King Black Dragon",
+      "source": "https://oldschool.runescape.wiki/?oldid=15337413",
+      "source_table": 239,
+      "npc_ids": [239, 2642],
+      "item_ids": {"1515": 1516, "444": 445},
+      "remove": [[[19812, 1, 1]], [[23083, 1, 1, 65], [33251, 1, 1, 25]], []],
+      "add_tertiary": [],
+      "notes": [
+        "The 150 yew logs and 100 gold ore are noted; unnoted logs exceed the ground-pile capacity and reject the whole death reward atomically.",
+        "Do not grant a clue-step key or Konar-task key unconditionally. King's barrage is absent from the pinned ordinary KBD drop section.",
+        "This does not approve the old pre-roll/main/rare/tertiary grouping or quest modifiers; their exact migration remains open."
+      ]
+    }
+  ]
+}

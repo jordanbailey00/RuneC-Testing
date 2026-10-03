@@ -1,4 +1,5 @@
 #include "world_state.h"
+#include "items.h"
 
 #include "npc.h"
 #include "combat.h"
@@ -319,43 +320,20 @@ static RcTick elapsed_ground_ticks(
     return world->tick > start ? world->tick - start : 0;
 }
 
-static void reconcile_ground_item(RcGroundItem *item, RcTick elapsed) {
-    if (!item || !item->active || elapsed == 0) return;
-    if (item->visibility == RC_GROUND_VIS_PRIVATE
-            && item->reveal_timer > 0) {
-        if (elapsed >= (RcTick)item->reveal_timer) {
-            item->reveal_timer = 0;
-            item->visibility = RC_GROUND_VIS_PUBLIC;
-            item->owner_uid = RC_GROUND_OWNER_NONE;
-            item->version++;
-        } else {
-            item->reveal_timer -= (int)elapsed;
-        }
-    }
-    if (item->despawn_timer > 0) {
-        if (elapsed >= (RcTick)item->despawn_timer) {
-            item->despawn_timer = 0;
-            item->active = false;
-            item->quantity = 0;
-            item->version++;
-        } else {
-            item->despawn_timer -= (int)elapsed;
-        }
-    }
-}
-
 static void apply_static_ground_state(
     RcWorld *world, RcGroundItem *item,
     const struct RcDormantGroundItemState *state) {
     int version = item->version + 1;
     RcGroundItem restored = state->item;
-    reconcile_ground_item(&restored, elapsed_ground_ticks(world, state));
+    rc_ground_item_advance(&restored, elapsed_ground_ticks(world, state));
     item->quantity = restored.quantity;
     item->state_id = restored.state_id;
     item->owner_uid = restored.owner_uid;
     item->original_owner_uid = restored.original_owner_uid;
     item->reveal_timer = restored.reveal_timer;
     item->despawn_timer = restored.despawn_timer;
+    item->respawn_timer = restored.respawn_timer;
+    item->arrival_timer = restored.arrival_timer;
     item->visibility = restored.visibility;
     item->active = restored.active;
     item->version = version > 0 ? version : 1;
@@ -406,7 +384,7 @@ int rc_world_state_restore_ground_items(RcWorld *world,
             continue;
         }
         RcGroundItem restored_item = state->item;
-        reconcile_ground_item(
+        rc_ground_item_advance(
             &restored_item, elapsed_ground_ticks(world, state));
         if (!restored_item.active) {
             remove_ground_state(world, i);

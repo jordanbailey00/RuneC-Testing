@@ -193,7 +193,8 @@ static void check_full_game(void) {
     assert(g_rc_item_normalization_count > 30000);
     assert(g_rc_varbit_count == 18571);
     assert(g_rc_varp_count == 5546);
-    assert(g_rc_drop_table_count == 1052);
+    assert(g_rc_drop_table_count == 1246);  /* Includes rejected definitions and reviewed variant bindings. */
+    assert(rc_drop_table_for_npc(414)->rejection_flags == RC_DROP_UNPUBLISHED_RATE);
     assert(g_rc_rdt_entry_count == 19);
     assert(g_rc_gdt_entry_count == 11);
     assert(g_rc_mrdt_entry_count == 4);

@@ -1,13 +1,17 @@
 #include "drops.h"
 #include "io.h"
 #include "rng.h"
+#include "items.h"
+#include "npc.h"
+#include "config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 #define DROP_MAGIC 0x504F5244u
-#define DROP_VERSION 1u
+#define DROP_VERSION 2u
 
 RcDropTable *g_rc_drop_tables = NULL;
 RcDropEntry *g_rc_drop_entries = NULL;
@@ -125,7 +129,13 @@ static int read_header(FILE *f, const char *path, uint32_t magic,
             || !rc_read_exact(f, count, sizeof(*count), 1, path, "count")) {
         return 0;
     }
-    return got_magic == magic && version == DROP_VERSION;
+    uint32_t expected = magic == DROP_MAGIC ? DROP_VERSION : 1u;
+    if (got_magic != magic || version != expected) {
+        fprintf(stderr, "%s: expected magic=%08x version=%u, got %08x/%u; rebuild data\n",
+                path, magic, expected, got_magic, version);
+        return 0;
+    }
+    return 1;
 }
 
 static int append_entry(RcDropEntry **rows, int *count, int *cap,
@@ -144,13 +154,19 @@ static int append_entry(RcDropEntry **rows, int *count, int *cap,
 static int read_entry(FILE *f, const char *path, RcDropEntry *row,
                       int has_rarity) {
     row->rarity_inv = has_rarity ? 0 : 1;
-    return rc_read_exact(f, &row->item_id, sizeof(row->item_id), 1, path,
+    int ok = rc_read_exact(f, &row->item_id, sizeof(row->item_id), 1, path,
                          "item id")
         && rc_read_exact(f, &row->qmin, sizeof(row->qmin), 1, path, "qmin")
         && rc_read_exact(f, &row->qmax, sizeof(row->qmax), 1, path, "qmax")
         && (!has_rarity
             || rc_read_exact(f, &row->rarity_inv, sizeof(row->rarity_inv), 1,
                              path, "rarity"));
+    if (ok && (row->item_id >= RC_MAX_ITEM_DEFS || (!row->qmin && row->item_id)
+            || row->qmin > row->qmax || row->rarity_inv > INT_MAX)) {
+        fprintf(stderr, "%s: invalid drop item, quantity or rarity\n", path);
+        return 0;
+    }
+    return ok;
 }
 
 int rc_load_drops_into(const char *path, RcDropData *data) {
@@ -159,7 +175,7 @@ int rc_load_drops_into(const char *path, RcDropData *data) {
     if (!f) return -1;
 
     uint32_t count;
-    if (!read_header(f, path, DROP_MAGIC, &count)) {
+    if (!read_header(f, path, DROP_MAGIC, &count) || count > RC_MAX_NPC_ID) {
         rc_asset_close(f);
         return -1;
     }
@@ -172,11 +188,23 @@ int rc_load_drops_into(const char *path, RcDropData *data) {
         return -1;
     }
 
+    unsigned char seen[RC_MAX_NPC_ID] = {0};
     for (uint32_t i = 0; i < count; i++) {
         RcDropTable *table = &tables[i];
         uint8_t n;
         if (!rc_read_exact(f, &table->npc_id, sizeof(table->npc_id), 1, path,
                            "npc id")) {
+            free(tables); free(entries); rc_asset_close(f); return -1;
+        }
+        if (table->npc_id >= RC_MAX_NPC_ID || seen[table->npc_id]) {
+            fprintf(stderr, "%s: duplicate or invalid NPC drop table %u\n", path, table->npc_id);
+            free(tables); free(entries); rc_asset_close(f); return -1;
+        }
+        seen[table->npc_id] = 1;
+        if (!rc_read_exact(f, &table->rejection_flags, sizeof(table->rejection_flags),
+                           1, path, "loot rejection flags")
+                || table->rejection_flags & ~(RC_DROP_UNPUBLISHED_RATE | RC_DROP_OUTDATED_SOURCE)) {
+            fprintf(stderr, "%s: invalid loot rejection flags for NPC %u\n", path, table->npc_id);
             free(tables); free(entries); rc_asset_close(f); return -1;
         }
         for (int kind = RC_DROP_ALWAYS; kind <= RC_DROP_TERTIARY; kind++) {
@@ -199,6 +227,15 @@ int rc_load_drops_into(const char *path, RcDropData *data) {
                            "rare table weight")) {
             free(tables); free(entries); rc_asset_close(f); return -1;
         }
+        if (table->rejection_flags && (table->count[0] || table->count[1]
+                || table->count[2] || table->rare_table_weight)) {
+            fprintf(stderr, "%s: rejected NPC %u must not contain fallback rewards\n", path, table->npc_id);
+            free(tables); free(entries); rc_asset_close(f); return -1;
+        }
+    }
+    if (fgetc(f) != EOF || ferror(f)) {
+        fprintf(stderr, "%s: unexpected trailing drop data\n", path);
+        free(tables); free(entries); rc_asset_close(f); return -1;
     }
     rc_asset_close(f);
 
@@ -305,7 +342,7 @@ static int load_shared_into(const char *path, uint32_t magic,
     if (!f) return -1;
 
     uint32_t count;
-    if (!read_header(f, path, magic, &count)) {
+    if (!read_header(f, path, magic, &count) || count > RC_MAX_ITEM_DEFS) {
         rc_asset_close(f);
         return -1;
     }
@@ -320,6 +357,10 @@ static int load_shared_into(const char *path, uint32_t magic,
             rc_asset_close(f);
             return -1;
         }
+    }
+    if (fgetc(f) != EOF || ferror(f)) {
+        fprintf(stderr, "%s: unexpected trailing shared drop data\n", path);
+        free(rows); rc_asset_close(f); return -1;
     }
     rc_asset_close(f);
     free(*dst);
@@ -375,7 +416,7 @@ const RcDropTable *rc_drop_table_for_npc(int npc_id) {
         return NULL;
     }
     int idx = g_active_drop_table_by_npc[npc_id];
-    return idx >= 0 ? &g_active_drop_tables[idx] : NULL;
+    return idx >= 0 && idx < g_active_drop_table_count ? &g_active_drop_tables[idx] : NULL;
 }
 
 const RcDropEntry *rc_drop_entries_for(const RcDropTable *table, int kind,
@@ -384,8 +425,10 @@ const RcDropEntry *rc_drop_entries_for(const RcDropTable *table, int kind,
     if (!table || kind < RC_DROP_ALWAYS || kind > RC_DROP_TERTIARY) {
         return NULL;
     }
+    if (!g_active_drop_entries || table->first[kind] > (uint32_t)g_active_drop_entry_count
+            || table->count[kind] > (uint32_t)g_active_drop_entry_count - table->first[kind])
+        return NULL;
     if (count) *count = table->count[kind];
-    if (!g_active_drop_entries) return NULL;
     return &g_active_drop_entries[table->first[kind]];
 }
 
@@ -456,9 +499,25 @@ static int append_loot(RcLootDrop *out, int max, int count,
 }
 
 int rc_roll_npc_loot(RcWorld *world, int npc_id, RcLootDrop *out, int max) {
-    if (!world || !out || max <= 0) return 0;
+    if (!world || !out || max <= 0) return RC_LOOT_ROLL_INVALID;
     const RcDropTable *table = rc_drop_table_for_npc(npc_id);
-    if (!table) return 0;
+    if (!table) return RC_LOOT_ROLL_NO_TABLE;
+    if (table->rejection_flags) return RC_LOOT_ROLL_UNVERIFIED;
+    int required = table->count[RC_DROP_ALWAYS]
+                 + (table->count[RC_DROP_MAIN] > 0)
+                 + table->count[RC_DROP_TERTIARY];
+    if (required > max) return RC_LOOT_ROLL_CAPACITY;
+    for (int kind = 0; kind < 3; kind++) {
+        int count;
+        const RcDropEntry *rows = rc_drop_entries_for(table, kind, &count);
+        if (count != table->count[kind] || (count && !rows))
+            return RC_LOOT_ROLL_INVALID;
+        for (int i = 0; i < count; i++)
+            if (!rc_item_def_get((int)rows[i].item_id)
+                    || !rows[i].qmin || rows[i].qmax < rows[i].qmin
+                    || !rows[i].rarity_inv)
+                return RC_LOOT_ROLL_INVALID;
+    }
 
     int total = 0;
     int n = 0;
@@ -485,4 +544,65 @@ int rc_roll_npc_loot(RcWorld *world, int npc_id, RcLootDrop *out, int max) {
         }
     }
     return total;
+}
+
+void rc_set_npc_loot_hook(RcWorld *world, RcNpcLootHook hook, void *ctx) {
+    if (!world) return;
+    world->npc_loot_hook = hook;
+    world->npc_loot_ctx = ctx;
+}
+
+void rc_npc_prepare_loot(RcWorld *world, RcNpc *npc) {
+    if (!world || !npc || !(world->enabled & RC_SUB_LOOT)
+            || !npc->is_dead || npc->loot_prepared) return;
+    npc->loot_prepared = true;
+    if (!npc->player_loot_credit) return;
+    const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
+    if (!def) return;
+    RcLootReceipt receipt = {.npc_uid = npc->uid, .npc_def_id = def->id,
+        .x = npc->x, .y = npc->y, .plane = npc->plane, .tick = world->tick};
+    RcLootPolicy policy = world->npc_loot_hook
+        ? world->npc_loot_hook(world, npc, receipt.grants, RC_MAX_LOOT_DROPS,
+                              &receipt.count, world->npc_loot_ctx)
+        : RC_LOOT_GENERIC;
+    if (policy == RC_LOOT_SUPPRESS) receipt.count = 0;
+    else if (receipt.count < 0 || receipt.count > RC_MAX_LOOT_DROPS
+            || policy < RC_LOOT_GENERIC || policy > RC_LOOT_AUGMENT)
+        receipt.result = RC_LOOT_ROLL_INVALID;
+    else if (policy == RC_LOOT_GENERIC || policy == RC_LOOT_AUGMENT) {
+        if (policy == RC_LOOT_GENERIC) receipt.count = 0;
+        RcLootDrop rolls[RC_MAX_LOOT_DROPS];
+        int n = rc_roll_npc_loot(world, def->id, rolls,
+                                 RC_MAX_LOOT_DROPS - receipt.count);
+        if (n < 0) receipt.result = n;
+        else for (int i = 0; i < n; i++)
+            receipt.grants[receipt.count++] = (RcGroundGrant){
+                .item_id = rolls[i].item_id, .quantity = rolls[i].quantity};
+    }
+    if (!receipt.result && receipt.count) {
+        RcGroundPolicy ground = {.reveal_ticks = 100, .lifetime_ticks = 200,
+            .delay_ticks = npc->death_timer, .untradeable_lifetime_ticks = 300};
+        RcGroundGrantResult result = rc_ground_grant(world, receipt.grants,
+            receipt.count, receipt.x, receipt.y, receipt.plane,
+            RC_GROUND_OWNER_LOCAL_PLAYER, ground);
+        if (result != RC_GROUND_GRANT_OK)
+            receipt.result = RC_LOOT_DELIVERY_FAILED;
+    }
+    world->last_loot = receipt;
+    if (receipt.result == RC_LOOT_ROLL_UNVERIFIED) {
+        const RcDropTable *table = rc_drop_table_for_npc(receipt.npc_def_id);
+        const char *reason = table->rejection_flags == RC_DROP_UNPUBLISHED_RATE
+            ? "unpublished drop rate" : table->rejection_flags == RC_DROP_OUTDATED_SOURCE
+            ? "outdated drop source" : "unpublished drop rate and outdated drop source";
+        fprintf(stderr, "npc loot rejected: uid=%d definition=%d (%s): %s; "
+                        "see content/loot/rejections.txt; no loot granted or retry\n",
+                receipt.npc_uid, receipt.npc_def_id, def->name, reason);
+    } else if (receipt.result)
+        fprintf(stderr, "npc loot failed: uid=%d definition=%d (%s) result=%d (%s); "
+                        "no partial grant or retry (see world.last_loot)\n",
+                receipt.npc_uid, receipt.npc_def_id, def->name, receipt.result,
+                receipt.result == RC_LOOT_ROLL_NO_TABLE ? "NPC has no loaded drop table" :
+                receipt.result == RC_LOOT_ROLL_CAPACITY ? "loot receipt capacity exceeded" :
+                receipt.result == RC_LOOT_DELIVERY_FAILED ? "ground delivery rejected" :
+                "invalid reward table or policy");
 }

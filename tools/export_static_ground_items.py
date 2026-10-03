@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Export static world ground-item spawns.
-
-The source file is intentionally empty until an approved static-item corpus is
-added. The exporter still writes a valid zero-row binary so runtime loading,
-packing, and validation can exercise the path without hardcoded item spawns.
-"""
+"""Export owned static spawns with an explicit, overridable respawn policy."""
 from __future__ import annotations
 
 import csv
@@ -16,11 +11,12 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "content/world/static_ground_items.tsv"
 OUT = ROOT / "data/spawns/world.ground-items.indexed.bin"
 REPORT = ROOT / "tools/reports/static_ground_items.txt"
+DEFAULT_RESPAWN_TICKS = 100  # rsmod ObjTypeBuilder default; per-location parity is deferred.
 
 def parse_rows() -> list[dict[str, int | str]]:
     rows: list[dict[str, int | str]] = []
     if not SOURCE.is_file():
-        return rows
+        raise FileNotFoundError(SOURCE)
     with SOURCE.open(newline="", encoding="utf-8") as f:
         filtered = (line for line in f if line.strip() and not line.startswith("#"))
         reader = csv.DictReader(filtered, delimiter="\t")
@@ -36,7 +32,9 @@ def parse_rows() -> list[dict[str, int | str]]:
             x = int(row["x"])
             y = int(row["y"])
             plane = int(row["plane"])
-            if item_id < 0 or quantity <= 0 or plane < 0 or plane > 3:
+            respawn = int(row.get("respawn_ticks") or DEFAULT_RESPAWN_TICKS)
+            if (item_id < 0 or not 0 < quantity <= 0x7FFFFFFF
+                    or plane < 0 or plane > 3 or not 0 < respawn <= 0x7FFFFFFF):
                 raise ValueError(f"{SOURCE}:{line_no}: invalid static item row")
             rows.append({
                 "item_id": item_id,
@@ -44,6 +42,7 @@ def parse_rows() -> list[dict[str, int | str]]:
                 "x": x,
                 "y": y,
                 "plane": plane,
+                "respawn_ticks": respawn,
                 "source": row.get("source", ""),
                 "note": row.get("note", ""),
             })
@@ -59,6 +58,7 @@ def write_binary(rows: list[dict[str, int | str]]) -> None:
             int(row["y"]),
             int(row["plane"]),
             0,
+            int(row["respawn_ticks"]),
         )
         for row in rows
     ]
@@ -73,6 +73,7 @@ def write_report(rows: list[dict[str, int | str]]) -> None:
         f"source: {SOURCE.relative_to(ROOT)}",
         "authority: runec_owned_static_ground_item_source",
         f"rows: {len(rows)}",
+        f"default_respawn_ticks: {DEFAULT_RESPAWN_TICKS} (RuneC policy, not verified per-spawn timing)",
         f"output: {OUT.relative_to(ROOT)}",
     ]
     if not rows:

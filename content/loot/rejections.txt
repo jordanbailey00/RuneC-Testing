@@ -1,0 +1,748 @@
+# Rejected Loot Tables
+
+Evidence snapshot: 2026-09-14.
+
+Reject the entire affected NPC death table before RNG or ground grants; no old-table fallback.
+
+Explicit unpublished-rate labels and outdated DROP sections. Numeric estimates, conditional rates, item/quantity bindings and roll groups still require review; absence here is NOT approval.
+
+83 source tables; 244 B237 NPC definitions.
+
+Each entry is an open TODO. Restore it only after exact odds, quantities,
+eligibility and roll grouping are confirmed and covered by tests.
+
+## Al Kharid warrior
+
+- [ ] Verify and restore this table.
+- NPC IDs: 3292
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15321509)
+- Blockers: unpublished_rate
+- Energy potion(3): rate `Unknown`, quantity `1`.
+
+## Anja
+
+- [ ] Verify and restore this table.
+- NPC IDs: 3285
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15313905)
+- Blockers: unpublished_rate
+- Energy potion(3): rate `Unknown`, quantity `1`.
+
+## Banshee
+
+- [ ] Verify and restore this table.
+- NPC IDs: 414
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15339675)
+- Blockers: unpublished_rate
+- Energy potion(2): rate `Unknown`, quantity `1`.
+- Energy potion(4): rate `Unknown`, quantity `2 (noted)`.
+
+## Black jaguar
+
+- [ ] Verify and restore this table.
+- NPC IDs: 12978
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15200507)
+- Blockers: unpublished_rate
+- Clue scroll (medium): rate `Rare`, quantity `1`.
+
+## Buffalo
+
+- [ ] Verify and restore this table.
+- NPC IDs: 13004
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15200505)
+- Blockers: unpublished_rate
+- Clue scroll (beginner): rate `Unknown`, quantity `1`.
+- Clue scroll (easy): rate `Unknown`, quantity `1`.
+
+## Cave crawler
+
+- [ ] Verify and restore this table.
+- NPC IDs: 406, 407, 408, 409, 13800, 13801
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15338366)
+- Blockers: unpublished_rate
+- Energy potion(3): rate `Unknown`, quantity `1`.
+- Energy potion(4): rate `Unknown`, quantity `1`.
+- Frozen tear: rate `Unknown`, quantity `5`.
+
+## Chasm Crawler
+
+- [ ] Verify and restore this table.
+- NPC IDs: 7389, 14031
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15338365)
+- Blockers: unpublished_rate
+- Energy potion(3): rate `Unknown`, quantity `1`.
+- Energy potion(4): rate `Unknown`, quantity `1`.
+
+## Chilled jelly
+
+- [ ] Verify and restore this table.
+- NPC IDs: 13799
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15339568)
+- Blockers: unpublished_rate
+- Frozen tear: rate `Rare`, quantity `8`.
+
+## Cockathrice
+
+- [ ] Verify and restore this table.
+- NPC IDs: 7393
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15338369)
+- Blockers: unpublished_rate
+- Energy potion(2): rate `Unknown`, quantity `1`.
+- Energy potion(4): rate `Unknown`, quantity `1`.
+
+## Cockatrice
+
+- [ ] Verify and restore this table.
+- NPC IDs: 419
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15338368)
+- Blockers: unpublished_rate, outdated_drop_section
+- Source marks its drops section outdated; recheck the complete distribution.
+- Energy potion(2): rate `Unknown`, quantity `1`.
+- Energy potion(4): rate `Unknown`, quantity `1`.
+
+## Crawling Hand
+
+- [ ] Verify and restore this table.
+- NPC IDs: 448, 449, 450, 451, 452, 453, 454, 455, 456, 457
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15341063)
+- Blockers: unpublished_rate
+- Energy potion(2): rate `Unknown`, quantity `1`.
+- Energy potion(4): rate `Unknown`, quantity `1`.
+
+## Crushing hand
+
+- [ ] Verify and restore this table.
+- NPC IDs: 7388
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15338295)
+- Blockers: unpublished_rate
+- Energy potion(2): rate `Unknown`, quantity `1`.
+- Energy potion(4): rate `Unknown`, quantity `1`.
+
+## Crystalline Bat
+
+- [ ] Verify and restore this table.
+- NPC IDs: 9028
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15273366)
+- Blockers: unpublished_rate
+- Raw paddlefish: rate `Common`, quantity `1, 3`.
+- Grym leaf: rate `Common`, quantity `1`.
+- Weapon frame: rate `Common`, quantity `1`.
+- Teleport crystal (The Gauntlet): rate `Uncommon`, quantity `1`.
+
+## Crystalline Bear
+
+- [ ] Verify and restore this table.
+- NPC IDs: 9032
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15272617)
+- Blockers: unpublished_rate
+- Raw paddlefish: rate `Common`, quantity `5`.
+- Teleport crystal (The Gauntlet): rate `Uncommon`, quantity `1`.
+
+## Crystalline Dark Beast
+
+- [ ] Verify and restore this table.
+- NPC IDs: 9034
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15316459)
+- Blockers: unpublished_rate
+- Raw paddlefish: rate `Common`, quantity `5`.
+- Teleport crystal (The Gauntlet): rate `Uncommon`, quantity `1`.
+
+## Crystalline Dragon
+
+- [ ] Verify and restore this table.
+- NPC IDs: 9033
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15272619)
+- Blockers: unpublished_rate
+- Raw paddlefish: rate `Common`, quantity `5`.
+- Teleport crystal (The Gauntlet): rate `Uncommon`, quantity `1`.
+
+## Crystalline Rat
+
+- [ ] Verify and restore this table.
+- NPC IDs: 9026
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15273369)
+- Blockers: unpublished_rate
+- Raw paddlefish: rate `Common`, quantity `1, 3`.
+- Grym leaf: rate `Common`, quantity `1`.
+- Weapon frame: rate `Common`, quantity `1`.
+- Teleport crystal (The Gauntlet): rate `Uncommon`, quantity `1`.
+
+## Crystalline Scorpion
+
+- [ ] Verify and restore this table.
+- NPC IDs: 9030
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15272613)
+- Blockers: unpublished_rate
+- Raw paddlefish: rate `Common`, quantity `4`.
+- Weapon frame: rate `Common`, quantity `1`.
+- Teleport crystal (The Gauntlet): rate `Uncommon`, quantity `1`.
+
+## Crystalline Spider
+
+- [ ] Verify and restore this table.
+- NPC IDs: 9027
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15273368)
+- Blockers: unpublished_rate
+- Raw paddlefish: rate `Common`, quantity `1, 3`.
+- Grym leaf: rate `Common`, quantity `1`.
+- Weapon frame: rate `Common`, quantity `1`.
+- Teleport crystal (The Gauntlet): rate `Uncommon`, quantity `1`.
+
+## Crystalline Unicorn
+
+- [ ] Verify and restore this table.
+- NPC IDs: 9029
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15272612)
+- Blockers: unpublished_rate
+- Raw paddlefish: rate `Common`, quantity `4`.
+- Weapon frame: rate `Common`, quantity `1`.
+- Teleport crystal (The Gauntlet): rate `Uncommon`, quantity `1`.
+
+## Crystalline Wolf
+
+- [ ] Verify and restore this table.
+- NPC IDs: 9031
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15272615)
+- Blockers: unpublished_rate
+- Raw paddlefish: rate `Common`, quantity `4`.
+- Weapon frame: rate `Common`, quantity `1`.
+- Teleport crystal (The Gauntlet): rate `Uncommon`, quantity `1`.
+
+## Cuffs
+
+- [ ] Verify and restore this table.
+- NPC IDs: 3279
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15313898)
+- Blockers: unpublished_rate
+- Energy potion(3): rate `Unknown`, quantity `1`.
+
+## Dark wizard
+
+- [ ] Verify and restore this table.
+- NPC IDs: 510, 512, 2056, 2057, 2058, 2059, 5086, 5087, 5088, 5089
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15314900)
+- Blockers: unpublished_rate
+- Energy potion(2): rate `Unknown`, quantity `1`.
+- Energy potion(3): rate `Unknown`, quantity `1`.
+- Energy potion(4): rate `Unknown`, quantity `1`.
+- Energy potion(3): rate `Unknown`, quantity `1`.
+- Energy potion(4): rate `Unknown`, quantity `1`.
+
+## Death wing
+
+- [ ] Verify and restore this table.
+- NPC IDs: 509
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15199521)
+- Blockers: unpublished_rate
+- Clue scroll (beginner): rate `Rare`, quantity `1`.
+
+## Desert Lizard
+
+- [ ] Verify and restore this table.
+- NPC IDs: 459, 460, 461, 12003
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15339653)
+- Blockers: unpublished_rate, outdated_drop_section
+- Source marks its drops section outdated; recheck the complete distribution.
+- Energy potion(3): rate `Unknown`, quantity `1`.
+- Energy potion(2): rate `Unknown`, quantity `6 (noted)`.
+
+## Dire gryphon
+
+- [ ] Verify and restore this table.
+- NPC IDs: 14859
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15341249)
+- Blockers: unpublished_rate
+- Clue scroll (hard): rate `Unknown`, quantity `1`.
+
+## Drunken man
+
+- [ ] Verify and restore this table.
+- NPC IDs: 3263
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15322207)
+- Blockers: unpublished_rate
+- Energy potion(3): rate `Unknown`, quantity `1`.
+
+## Elder aquanite
+
+- [ ] Verify and restore this table.
+- NPC IDs: 15502, 15503
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15339683)
+- Blockers: unpublished_rate
+- Clue scroll (hard): rate `Unknown`, quantity `1`.
+
+## Elite Black Knight
+
+- [ ] Verify and restore this table.
+- NPC IDs: 13463, 13464, 13480, 13481
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15343621)
+- Blockers: unpublished_rate
+- Clue scroll (hard): rate `Rare`, quantity `1`.
+
+## Elite Dark Mage
+
+- [ ] Verify and restore this table.
+- NPC IDs: 13469, 13470
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15315206)
+- Blockers: unpublished_rate
+- Clue scroll (hard): rate `Rare`, quantity `1`.
+
+## Elite Dark Ranger
+
+- [ ] Verify and restore this table.
+- NPC IDs: 13467, 13468
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15315204)
+- Blockers: unpublished_rate
+- Clue scroll (hard): rate `Rare`, quantity `1`.
+
+## Elite Dark Warrior
+
+- [ ] Verify and restore this table.
+- NPC IDs: 13465, 13466
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15315205)
+- Blockers: unpublished_rate
+- Clue scroll (hard): rate `Rare`, quantity `1`.
+
+## Farmer
+
+- [ ] Verify and restore this table.
+- NPC IDs: 3114, 3243, 3244, 11918, 11919, 11920, 11921
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15321505)
+- Blockers: unpublished_rate
+- Energy potion(3): rate `Unknown`, quantity `1`.
+- Energy potion(3): rate `Unknown`, quantity `1`.
+
+## Flawed Golem
+
+- [ ] Verify and restore this table.
+- NPC IDs: 10695, 10696
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15270680)
+- Blockers: unpublished_rate
+- Clue scroll (beginner): rate `Rare`, quantity `1`.
+
+## Fox
+
+- [ ] Verify and restore this table.
+- NPC IDs: 3901
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15200046)
+- Blockers: unpublished_rate
+- Copper's crimson collar: rate `Common`, quantity `1`.
+
+## Frost Nagua
+
+- [ ] Verify and restore this table.
+- NPC IDs: 13728, 13787, 13788
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15341239)
+- Blockers: unpublished_rate
+- Clue scroll (hard): rate `Rare`, quantity `1`.
+
+## Ghost (Grave of Scorpius)
+
+- [ ] Verify and restore this table.
+- NPC IDs: 5370
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15233214)
+- Blockers: unpublished_rate
+- Clue scroll (beginner): rate `Unknown`, quantity `1`.
+
+## Giant lobster (Ghosts Ahoy)
+
+- [ ] Verify and restore this table.
+- NPC IDs: 2994
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15272821)
+- Blockers: unpublished_rate
+- Clue scroll (beginner): rate `Rare`, quantity `1`.
+
+## Goblin
+
+- [ ] Verify and restore this table.
+- NPC IDs: 3028, 3029, 3030, 3031, 3032, 3033, 3034, 3035, 3036, 3037, 3038, 3039, 3040, 3041, 3042, 3043, 3044, 3045, 3046, 3051, 3052, 3053, 3054, 3073, 3074, 3075, 3076, 5192, 5193, 5195, 5196, 5197, 5198, 5199, 5200, 5201, 5202, 5203, 5204, 5205, 5206, 5207, 5208
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15318086)
+- Blockers: unpublished_rate
+- Energy potion(1): rate `Common`, quantity `1`.
+- Energy potion(2): rate `Common`, quantity `1`.
+- Energy potion(4): rate `Common`, quantity `1`.
+- Energy potion(1): rate `Common`, quantity `1`.
+- Energy potion(2): rate `Common`, quantity `1`.
+
+## Goblin guard
+
+- [ ] Verify and restore this table.
+- NPC IDs: 5369
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15336205)
+- Blockers: outdated_drop_section
+- Source marks its drops section outdated; recheck the complete distribution.
+
+## Grimy Lizard
+
+- [ ] Verify and restore this table.
+- NPC IDs: 13029, 14430
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15339648)
+- Blockers: unpublished_rate
+- Clue scroll (medium): rate `Rare`, quantity `1`.
+
+## Guardian of Armadyl
+
+- [ ] Verify and restore this table.
+- NPC IDs: 3445, 3446
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15293545)
+- Blockers: unpublished_rate
+- Armadyl pendant: rate `Common`, quantity `1`.
+
+## Hengel
+
+- [ ] Verify and restore this table.
+- NPC IDs: 3284
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15313906)
+- Blockers: unpublished_rate
+- Energy potion(3): rate `Unknown`, quantity `1`.
+
+## Hermit crab
+
+- [ ] Verify and restore this table.
+- NPC IDs: 14852
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15286280)
+- Blockers: unpublished_rate
+- Clue scroll (easy): rate `Unknown`, quantity `1`.
+
+## Ice giant
+
+- [ ] Verify and restore this table.
+- NPC IDs: 2085, 2086, 2087, 2088, 2089, 7878, 7879, 7880, 13796, 13797
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15199301)
+- Blockers: unpublished_rate
+- Frozen tear: rate `Unknown`, quantity `6`.
+
+## Ice spider
+
+- [ ] Verify and restore this table.
+- NPC IDs: 3022, 10722, 13798
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15231530)
+- Blockers: unpublished_rate
+- Frozen tear: rate `Unknown`, quantity `6`.
+
+## Ice warrior
+
+- [ ] Verify and restore this table.
+- NPC IDs: 2841, 2842, 2851, 13802
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15275444)
+- Blockers: unpublished_rate
+- Frozen tear: rate `Unknown`, quantity `6`.
+
+## Jaguar
+
+- [ ] Verify and restore this table.
+- NPC IDs: 12976
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15200503)
+- Blockers: unpublished_rate
+- Clue scroll (medium): rate `Rare`, quantity `1`.
+
+## Jaguar cub
+
+- [ ] Verify and restore this table.
+- NPC IDs: 12977
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15200504)
+- Blockers: unpublished_rate
+- Clue scroll (easy): rate `Rare`, quantity `1`.
+
+## Jeff
+
+- [ ] Verify and restore this table.
+- NPC IDs: 3282
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15313901)
+- Blockers: unpublished_rate
+- Energy potion(3): rate `Unknown`, quantity `1`.
+
+## Jungle spider (Ape Atoll)
+
+- [ ] Verify and restore this table.
+- NPC IDs: 5243
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15322116)
+- Blockers: unpublished_rate
+- Clue scroll (beginner): rate `Rare`, quantity `1`.
+
+## Killerwatt
+
+- [ ] Verify and restore this table.
+- NPC IDs: 469, 470
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15341252)
+- Blockers: outdated_drop_section
+- Source marks its drops section outdated; recheck the complete distribution.
+
+## Lizard
+
+- [ ] Verify and restore this table.
+- NPC IDs: 458
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15339651)
+- Blockers: unpublished_rate
+- Energy potion(3): rate `Unknown`, quantity `1`.
+- Energy potion(2): rate `Unknown`, quantity `6 (noted)`.
+
+## Magma strykewyrm
+
+- [ ] Verify and restore this table.
+- NPC IDs: 15504
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15341057)
+- Blockers: unpublished_rate
+- Clue scroll (hard): rate `Unknown`, quantity `1`.
+
+## Man
+
+- [ ] Verify and restore this table.
+- NPC IDs: 3014, 3106, 3107, 3108, 3109, 3110, 3261, 3264, 3265, 3652, 6815, 6818, 6987, 6988, 6989, 11057, 11058, 14920
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15337969)
+- Blockers: unpublished_rate, outdated_drop_section
+- Source marks its drops section outdated; recheck the complete distribution.
+- Energy potion(3): rate `Common`, quantity `1`.
+
+## Molanisk
+
+- [ ] Verify and restore this table.
+- NPC IDs: 1
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15341257)
+- Blockers: unpublished_rate, outdated_drop_section
+- Source marks its drops section outdated; recheck the complete distribution.
+- Energy potion(3): rate `Common`, quantity `1`.
+
+## Moonlight Cockatrice
+
+- [ ] Verify and restore this table.
+- NPC IDs: 13030
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15342683)
+- Blockers: unpublished_rate
+- Clue scroll (medium): rate `Rare`, quantity `1`.
+
+## Mutated Terrorbird
+
+- [ ] Verify and restore this table.
+- NPC IDs: 12464
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15341106)
+- Blockers: unpublished_rate
+- Clue scroll (hard): rate `Rare`, quantity `1`.
+
+## Mutated Tortoise
+
+- [ ] Verify and restore this table.
+- NPC IDs: 12465
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15341107)
+- Blockers: unpublished_rate
+- Clue scroll (hard): rate `Rare`, quantity `1`.
+
+## Narf
+
+- [ ] Verify and restore this table.
+- NPC IDs: 3280
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15313900)
+- Blockers: unpublished_rate
+- Energy potion(3): rate `Unknown`, quantity `1`.
+
+## Nex
+
+- [ ] Verify and restore this table.
+- NPC IDs: 11278, 11279, 11280, 11281, 11282
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15337120)
+- Blockers: unpublished_rate
+- Air rune: rate `Uncommon`, quantity `123–10000`.
+- Fire rune: rate `Uncommon`, quantity `1–10000`.
+- Blood rune: rate `Common`, quantity `84–876`.
+- Death rune: rate `Common`, quantity `85–986`.
+- Water rune: rate `Uncommon`, quantity `193–10000`.
+- Soul rune: rate `Common`, quantity `86–592`.
+- Dragon bolts (unf): rate `Common`, quantity `12–283`.
+- Onyx bolts (e): rate `Uncommon`, quantity `11–29`.
+- Steel cannonball: rate `Common`, quantity `42–2252`.
+- Air orb: rate `Common`, quantity `6–100 (noted)`.
+- Coal: rate `Uncommon`, quantity `23–2354 (noted)`.
+- Runite ore: rate `Uncommon`, quantity `2–30 (noted)`.
+- Uncut ruby: rate `Common`, quantity `3–80 (noted)`.
+- Uncut diamond: rate `Common`, quantity `3–64 (noted)`.
+- Wine of Zamorak: rate `Common`, quantity `4–64 (noted)`.
+- Shark: rate `Common`, quantity `10`.
+- Prayer potion(4): rate `Common`, quantity `3`.
+- Saradomin brew(4): rate `Common`, quantity `1–10`.
+- Super restore(4): rate `Common`, quantity `1–5`.
+- Coins: rate `Uncommon`, quantity `8539–26748`.
+- Ecumenical key shard: rate `Common`, quantity `6–39`.
+
+## Penda
+
+- [ ] Verify and restore this table.
+- NPC IDs: 4109
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15309431)
+- Blockers: unpublished_rate
+- Energy potion(3): rate `Common`, quantity `1`.
+
+## Poison spider
+
+- [ ] Verify and restore this table.
+- NPC IDs: 3023, 5373, 11999
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15199591)
+- Blockers: unpublished_rate
+- Clue scroll (beginner): rate `Rare`, quantity `1`.
+
+## Porcupine
+
+- [ ] Verify and restore this table.
+- NPC IDs: 13968
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15200517)
+- Blockers: unpublished_rate
+- Clue scroll (beginner): rate `Unknown`, quantity `1`.
+
+## Possessed Priest
+
+- [ ] Verify and restore this table.
+- NPC IDs: 4210
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15199218)
+- Blockers: unpublished_rate
+- Coins: rate `Uncommon`, quantity `1–1260`.
+
+## Pygmy kraken
+
+- [ ] Verify and restore this table.
+- NPC IDs: 15206
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15304625)
+- Blockers: unpublished_rate
+- Clue scroll (medium): rate `Rare`, quantity `1`.
+
+## Rogue
+
+- [ ] Verify and restore this table.
+- NPC IDs: 526, 6603
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15314913)
+- Blockers: unpublished_rate, outdated_drop_section
+- Source marks its drops section outdated; recheck the complete distribution.
+- Energy potion(3): rate `Common`, quantity `1`.
+
+## Rusty
+
+- [ ] Verify and restore this table.
+- NPC IDs: 3281
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15313903)
+- Blockers: unpublished_rate
+- Energy potion(3): rate `Unknown`, quantity `1`.
+
+## Scorpia's guardian
+
+- [ ] Verify and restore this table.
+- NPC IDs: 6617
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15265728)
+- Blockers: unpublished_rate
+- Clue scroll (beginner): rate `Unknown`, quantity `1`.
+
+## Screaming banshee
+
+- [ ] Verify and restore this table.
+- NPC IDs: 7390
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15339674)
+- Blockers: unpublished_rate
+- Energy potion(2): rate `Unknown`, quantity `1`.
+- Energy potion(4): rate `Unknown`, quantity `2 (noted)`.
+
+## Skeleton (Melzar's Maze)
+
+- [ ] Verify and restore this table.
+- NPC IDs: 3972, 3973, 3974
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15200114)
+- Blockers: unpublished_rate
+- Coins: rate `Common`, quantity `2`.
+- Coins: rate `Common`, quantity `3`.
+- Coins: rate `Common`, quantity `4`.
+
+## Small Lizard
+
+- [ ] Verify and restore this table.
+- NPC IDs: 462, 463, 12004
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15339652)
+- Blockers: unpublished_rate
+- Energy potion(3): rate `Unknown`, quantity `1`.
+- Energy potion(2): rate `Unknown`, quantity `6 (noted)`.
+
+## Spider (Ape Atoll)
+
+- [ ] Verify and restore this table.
+- NPC IDs: 5238, 5239
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15200116)
+- Blockers: unpublished_rate
+- Clue scroll (beginner): rate `Rare`, quantity `1`.
+
+## Spider (Ungael)
+
+- [ ] Verify and restore this table.
+- NPC IDs: 8137, 8138
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15330818)
+- Blockers: unpublished_rate
+- Clue scroll (beginner): rate `Rare`, quantity `1`.
+
+## Spined kraken
+
+- [ ] Verify and restore this table.
+- NPC IDs: 15208
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15276867)
+- Blockers: unpublished_rate
+- Clue scroll (hard): rate `Rare`, quantity `1`.
+
+## Thief
+
+- [ ] Verify and restore this table.
+- NPC IDs: 1448, 3252, 3253, 4247, 5217, 5218, 5219, 5220, 7914, 7915, 7916
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15313907)
+- Blockers: unpublished_rate
+- Energy potion(3): rate `Unknown`, quantity `1`.
+
+## Tiger shark
+
+- [ ] Verify and restore this table.
+- NPC IDs: 15198
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15234665)
+- Blockers: unpublished_rate
+- Clue scroll (hard): rate `Rare`, quantity `1`.
+
+## Vitreous Chilled Jelly
+
+- [ ] Verify and restore this table.
+- NPC IDs: 15501
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15339565)
+- Blockers: unpublished_rate
+- Frozen tear: rate `Rare`, quantity `8–12`.
+
+## Warped Tortoise
+
+- [ ] Verify and restore this table.
+- NPC IDs: 12490
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15341109)
+- Blockers: unpublished_rate
+- Clue scroll (hard): rate `Rare`, quantity `1`.
+
+## White jaguar
+
+- [ ] Verify and restore this table.
+- NPC IDs: 12979
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15200509)
+- Blockers: unpublished_rate
+- Clue scroll (medium): rate `Rare`, quantity `1`.
+
+## Wolf
+
+- [ ] Verify and restore this table.
+- NPC IDs: 106, 110, 2490, 2491, 3912
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15343223)
+- Blockers: unpublished_rate
+- Clue scroll (beginner): rate `Rare`, quantity `1`.
+
+## Woman
+
+- [ ] Verify and restore this table.
+- NPC IDs: 3015, 3111, 3112, 3113, 6990, 6991, 6992, 10728, 11053, 11054, 14921
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15337968)
+- Blockers: unpublished_rate, outdated_drop_section
+- Source marks its drops section outdated; recheck the complete distribution.
+- Energy potion(3): rate `Common`, quantity `1`.
+
+## Zemouregal Summon
+
+- [ ] Verify and restore this table.
+- NPC IDs: 15558, 15559, 15560, 15561, 15562, 15563
+- [Pinned source](https://oldschool.runescape.wiki/?oldid=15328522)
+- Blockers: unpublished_rate
+- Archaic emblem (tier 1): rate `Unknown`, quantity `1`.
+
+## Identity Review (Not Automatically Bound)
+
+- [ ] Hermit crab: NPC IDs [14853, 14854, 14855, 14856]. Wiki ID exists in B237 but its NPC name did not match; no guessed binding.

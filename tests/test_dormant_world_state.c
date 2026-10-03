@@ -15,7 +15,7 @@
 enum {
     GSPI_MAGIC = 0x49505347,
     GSPI_VERSION = 1,
-    GSPI_RECORD_SIZE = 22,
+    GSPI_RECORD_SIZE = 26,
     GSPI_MAPSQUARES = 65536,
 };
 
@@ -37,6 +37,7 @@ static void write_ground_row(FILE *f, uint32_t source_order,
     write_u32(f, (uint32_t)y);
     write_u8(f, plane);
     write_u8(f, 0);
+    write_u32(f, 100);
 }
 
 static void write_ground_fixture(void) {
@@ -113,6 +114,7 @@ int main(void) {
     RcWorldConfig config = rc_preset_base_only();
     config.npc_capacity = RC_WORLD_NPC_CAPACITY_SIM;
     config.subsystems = RC_SUB_COMBAT | RC_SUB_LOOT;
+    config.items_path = RC_TEST_SOURCE_DIR "/data/defs/items.bin";
     config.npc_defs_path = NPC_PATH;
     config.spawns_path = SPAWN_PATH;
     config.ground_item_spawns_path = GROUND_PATH;

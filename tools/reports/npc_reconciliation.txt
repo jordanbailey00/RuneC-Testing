@@ -1,26 +1,27 @@
 NPC reconciliation report
 
-npc_defs: 15182
-runelite non-excluded missing: 0
+npc_defs: 15666
+external reference non-excluded missing: 0
 data_osrs source available: False
 aliases in data_osrs name collection: unavailable
 
 Model coverage
-defs with model ID links: 12950
-renderable NPC mesh entries: 12945
-model-linked defs without renderable mesh: 5
-empty/no-render model defs: 5
+defs with model ID links: 13374
+renderable NPC mesh entries: 13374
+model-linked defs without renderable mesh: 0
+empty/no-render model defs: 0
 unresolved model-linked render misses: 0
 oversized / unsupported by current MDL2 path: 0
 defs with at least one missing model part: 0
 
 Drop / spawn coverage
-drop tables: 1052
+drop tables: 1002
 drop table IDs missing npc_defs: 0
 world spawn rows: 24110
 world spawn NPC IDs: 5695
 world spawn IDs missing npc_defs: 0
 instance-flagged spawn NPC IDs: 384
+spawned combat definitions with no loot binding (excluding explicit rejections): 1816
 
 Morph / state coverage
 morph parent IDs: unavailable
@@ -31,19 +32,19 @@ NPCList rows with varbitId: unavailable
 NPCList rows with varpId: unavailable
 
 Mechanics coverage
-combat defs: 5972
+combat defs: 5936
 mechanics TOMLs: 96
 executable encounter TOMLs: 50
-regular special-mechanics families tracked: 11
+regular special-mechanics families tracked: 16
 regular mechanics runtime binary present: True
 name-normalized mechanics TOMLs unmatched to encounter TOML: 67
 
 Remaining blockers
 - boss mechanics conversion and explicit name/group mapping from mechanics TOMLs into executable encounter/activity data
 - implement regular monster special-mechanics behavior consumers in combat/slayer runtime
-- exact Nex and Sol Heredit activity-spawn extraction from cache/server-script/activity configs
+- authoritative sign-off for provisional Nex and Sol Heredit activity-spawn fixtures
 
-Non-excluded RuneLite ID coverage: complete
+Non-excluded external reference ID coverage: complete
 
 Sample name-normalized mechanics TOMLs unmatched to encounter TOML:
   ahrim the blighted
@@ -86,3 +87,1822 @@ Sample name-normalized mechanics TOMLs unmatched to encounter TOML:
   penance queen
   pestilent bloat
   phosani s nightmare
+
+Spawned combat definitions requiring loot-binding review:
+Not automatic aliases: same-named quest, challenge and state variants may have different rewards.
+  3: Aberrant spectre
+  4: Aberrant spectre
+  5: Aberrant spectre
+  6: Aberrant spectre
+  7: Aberrant spectre
+  11: Nechryael
+  21: npc_21
+  27: Zombie
+  28: Zombie
+  29: Zombie
+  30: Zombie
+  31: Zombie
+  32: Zombie
+  34: Zombie
+  37: Zombie
+  38: Zombie
+  39: Zombie
+  40: Zombie
+  41: Zombie
+  42: Zombie
+  43: Zombie
+  44: Zombie
+  46: Zombie
+  47: Zombie
+  48: Zombie
+  49: Zombie
+  50: Zombie
+  51: Zombie
+  52: Zombie
+  54: Zombie
+  55: Zombie
+  56: Zombie
+  57: Zombie
+  58: Zombie
+  59: Zombie
+  60: Zombie
+  61: Zombie
+  62: Zombie
+  63: Zombie
+  65: Zombie
+  66: Zombie
+  67: Zombie
+  68: Zombie
+  71: Skeleton
+  72: Skeleton
+  73: Skeleton
+  74: Skeleton
+  75: Skeleton
+  76: Skeleton
+  77: Skeleton
+  78: Skeleton
+  79: Skeleton
+  80: Skeleton
+  81: Skeleton
+  82: Skeleton
+  83: Skeleton
+  86: Ghost
+  87: Ghost
+  88: Ghost
+  89: Ghost
+  90: Ghost
+  91: Ghost
+  92: Ghost
+  93: Ghost
+  95: Ghost
+  97: Ghost
+  99: Ghost
+  102: Rock Crab
+  105: Hellhound
+  108: White wolf
+  115: Big Wolf
+  222: npc_222
+  224: npc_224
+  226: npc_226
+  228: npc_228
+  230: npc_230
+  242: Baby blue dragon
+  243: Baby blue dragon
+  244: Baby red dragon
+  245: Baby red dragon
+  246: Baby red dragon
+  248: Red dragon
+  249: Red dragon
+  250: Red dragon
+  251: Red dragon
+  253: Black dragon
+  254: Black dragon
+  255: Black dragon
+  256: Black dragon
+  257: Black dragon
+  258: Black dragon
+  259: Black dragon
+  261: Green dragon
+  262: Green dragon
+  263: Green dragon
+  264: Green dragon
+  266: Blue dragon
+  267: Blue dragon
+  268: Blue dragon
+  269: Blue dragon
+  271: Bronze dragon
+  273: Iron dragon
+  274: Steel dragon
+  275: Steel dragon
+  292: Dwarf
+  294: Dwarf
+  295: Dwarf
+  296: Dwarf
+  398: Guard
+  399: Guard
+  400: Guard
+  401: npc_401
+  402: npc_402
+  411: Kurask
+  416: Abyssal demon
+  422: Rockslug
+  428: Turoth
+  429: Turoth
+  430: Turoth
+  434: Pyrefiend
+  435: Pyrefiend
+  436: Pyrefiend
+  438: Jelly
+  439: Jelly
+  440: Jelly
+  441: Jelly
+  442: Jelly
+  444: Infernal Mage
+  445: Infernal Mage
+  446: Infernal Mage
+  447: Infernal Mage
+  466: Skeletal Wyvern
+  467: Skeletal Wyvern
+  468: Skeletal Wyvern
+  471: npc_471
+  472: Ghost
+  473: Ghost
+  474: Ghost
+  483: Cave bug
+  485: Bloodveld
+  486: Bloodveld
+  487: Bloodveld
+  490: npc_490
+  493: Whirlpool
+  505: Ghost
+  506: Ghost
+  507: Ghost
+  517: Black Knight
+  519: Highwayman
+  522: Pirate
+  523: Pirate
+  528: Monk of Zamorak
+  529: Monk of Zamorak
+  536: npc_536
+  562: Sorebones
+  564: Zombie pirate
+  565: Zombie pirate
+  566: Zombie pirate
+  567: Zombie pirate
+  568: Zombie pirate
+  569: Zombie pirate
+  570: Zombie pirate
+  571: Zombie pirate
+  572: Zombie pirate
+  573: Zombie pirate
+  574: Zombie pirate
+  575: Zombie pirate
+  576: Zombie pirate
+  578: Zombie pirate
+  580: Zombie pirate
+  581: Zombie pirate
+  583: Zombie pirate
+  584: Zombie pirate
+  585: Zombie pirate
+  587: Zombie pirate
+  589: Zombie pirate
+  590: Zombie pirate
+  591: Zombie pirate
+  592: Zombie pirate
+  593: Zombie pirate
+  594: Zombie pirate
+  595: Zombie pirate
+  596: Zombie pirate
+  598: Zombie pirate
+  599: Zombie pirate
+  614: Zombie pirate
+  615: Zombie pirate
+  616: Zombie pirate
+  617: Zombie pirate
+  618: Zombie pirate
+  620: Zombie swab
+  621: Zombie swab
+  622: Zombie swab
+  623: Zombie swab
+  624: Zombie swab
+  638: npc_638
+  646: Ice wolf
+  649: Ice Troll
+  650: Ice Troll
+  651: Ice Troll
+  652: Ice Troll
+  653: Ice Troll
+  654: Ice Troll
+  656: Goblin
+  657: Goblin
+  658: Goblin
+  659: Goblin
+  660: Goblin
+  661: Goblin
+  662: Goblin
+  663: Goblin
+  664: Goblin
+  665: Goblin
+  667: Goblin
+  668: Goblin
+  681: Giant skeleton
+  684: npc_684
+  695: Bandit
+  699: Ice troll
+  700: Ice troll
+  701: Ice troll
+  702: Ice troll
+  703: Ice troll
+  704: Ice troll
+  705: Ice troll
+  710: Ice wolf
+  711: Ice wolf
+  712: Ice wolf
+  713: Ice wolf
+  714: Ice wolf
+  715: Ice wolf
+  721: Mummy
+  722: Mummy
+  723: Mummy
+  739: Cowardly Bandit
+  743: npc_743
+  746: npc_746
+  748: npc_748
+  749: npc_749
+  761: npc_761
+  774: Skraeling
+  788: Suqah
+  789: Suqah
+  790: Suqah
+  791: Suqah
+  792: Suqah
+  793: Suqah
+  796: Locust rider
+  816: npc_816
+  818: npc_818
+  843: npc_843
+  853: Icelord
+  854: Icelord
+  855: Icelord
+  865: Ogre guard
+  867: Zogre
+  868: Zogre
+  869: Zogre
+  870: Zogre
+  871: Zogre
+  873: Zogre
+  874: Zogre
+  875: Zogre
+  876: Zogre
+  877: Zogre
+  878: Skogre
+  879: Skogre
+  889: npc_889
+  890: npc_890
+  913: npc_913
+  932: Thrower Troll
+  933: Thrower Troll
+  934: Thrower Troll
+  935: Thrower Troll
+  937: Mountain troll
+  938: Mountain troll
+  939: Mountain troll
+  940: Mountain troll
+  941: Mountain troll
+  942: Mountain troll
+  950: Mummy
+  951: Mummy
+  952: Mummy
+  953: Mummy
+  956: Kalphite Worker
+  957: Kalphite Soldier
+  958: Kalphite Soldier
+  960: Kalphite Guardian
+  962: Kalphite Guardian
+  970: Dagannoth
+  971: Dagannoth
+  972: Dagannoth
+  973: Dagannoth
+  974: Dagannoth
+  975: Dagannoth
+  1023: npc_1023
+  1026: Bandit
+  1033: npc_1033
+  1034: npc_1034
+  1035: npc_1035
+  1036: npc_1036
+  1041: Giant mosquito
+  1043: Jungle horror
+  1044: Jungle horror
+  1045: Jungle horror
+  1046: Jungle horror
+  1048: Cave horror
+  1049: Cave horror
+  1050: Cave horror
+  1051: Cave horror
+  1053: Mac
+  1063: npc_1063
+  1114: npc_1114
+  1115: npc_1115
+  1116: npc_1116
+  1117: npc_1117
+  1130: Woman
+  1131: Woman
+  1136: npc_1136
+  1139: Woman
+  1140: Woman
+  1141: Woman
+  1142: Woman
+  1143: npc_1143
+  1148: npc_1148
+  1150: npc_1150
+  1151: npc_1151
+  1153: Ogre
+  1174: Chicken
+  1198: npc_1198
+  1200: npc_1200
+  1203: npc_1203
+  1211: Khazard Guard
+  1213: General Khazard
+  1219: npc_1219
+  1220: npc_1220
+  1221: npc_1221
+  1222: npc_1222
+  1226: Khazard Scorpion
+  1236: Arzinian Being of Bordanzan
+  1262: Ram
+  1263: Ram
+  1264: Ram
+  1265: Ram
+  1274: Experiment
+  1275: Experiment
+  1294: Afflicted
+  1297: Afflicted
+  1298: Afflicted
+  1328: npc_1328
+  1329: npc_1329
+  1330: npc_1330
+  1331: npc_1331
+  1332: npc_1332
+  1333: npc_1333
+  1334: npc_1334
+  1339: Seagull
+  1355: Dwarf gang member
+  1356: Dwarf gang member
+  1380: Camp dweller
+  1381: Camp dweller
+  1382: Camp dweller
+  1383: Camp dweller
+  1401: Dwarf
+  1402: Dwarf
+  1403: Dwarf
+  1404: Dwarf
+  1405: Dwarf
+  1406: Dwarf
+  1407: Dwarf
+  1408: Dwarf
+  1410: Black Guard
+  1411: Black Guard
+  1412: Black Guard
+  1427: npc_1427
+  1447: Pirate
+  1450: npc_1450
+  1451: npc_1451
+  1452: npc_1452
+  1455: npc_1455
+  1456: npc_1456
+  1457: npc_1457
+  1458: npc_1458
+  1459: npc_1459
+  1461: Mugger
+  1470: npc_1470
+  1543: Gargoyle
+  1547: Guard
+  1548: Guard
+  1549: Guard
+  1550: Guard
+  1611: Battle mage
+  1612: Battle mage
+  1678: Bloodworm
+  1681: Giant crypt rat
+  1682: Giant crypt rat
+  1683: Crypt spider
+  1684: Giant crypt spider
+  1686: Skeleton
+  1687: Skeleton
+  1688: Skeleton
+  1763: npc_1763
+  1793: Goat
+  1795: Goat
+  1796: Goat
+  1797: Billy Goat
+  1799: White Knight
+  1800: White Knight
+  1829: White Knight
+  1830: Shark
+  1838: Duck
+  1839: Duck
+  1853: Rabbit
+  1858: npc_1858
+  1859: npc_1859
+  1872: Baby black dragon
+  1889: Honour guard
+  1890: Honour guard
+  1891: Honour guard
+  1892: Honour guard
+  1946: npc_1946
+  1965: npc_1965
+  1966: npc_1966
+  1967: npc_1967
+  1969: npc_1969
+  1970: npc_1970
+  1971: npc_1971
+  1972: npc_1972
+  1975: npc_1975
+  1976: npc_1976
+  1977: npc_1977
+  1984: npc_1984
+  1985: npc_1985
+  1986: npc_1986
+  1987: npc_1987
+  1988: npc_1988
+  1994: npc_1994
+  1995: npc_1995
+  1996: npc_1996
+  2001: Duckling
+  2006: Lesser demon
+  2007: Lesser demon
+  2008: Lesser demon
+  2011: npc_2011
+  2013: npc_2013
+  2014: npc_2014
+  2015: npc_2015
+  2016: npc_2016
+  2017: npc_2017
+  2018: Lesser demon
+  2019: npc_2019
+  2026: Greater demon
+  2027: Greater demon
+  2028: Greater demon
+  2029: Greater demon
+  2030: Greater demon
+  2031: Greater demon
+  2032: Greater demon
+  2048: Black demon
+  2049: Black demon
+  2050: Black demon
+  2051: Black demon
+  2052: Black demon
+  2065: Terrorbird
+  2066: Terrorbird
+  2076: Fire giant
+  2077: Fire giant
+  2078: Fire giant
+  2079: Fire giant
+  2080: Fire giant
+  2081: Fire giant
+  2082: Fire giant
+  2083: Fire giant
+  2091: Moss giant
+  2092: Moss giant
+  2093: Moss giant
+  2095: Ogre
+  2096: Ogre
+  2099: Hill Giant
+  2100: Hill Giant
+  2101: Hill Giant
+  2102: Hill Giant
+  2103: Hill Giant
+  2109: npc_2109
+  2137: Cyclops
+  2138: Cyclops
+  2139: Cyclops
+  2140: Cyclops
+  2141: Cyclops
+  2142: Cyclops
+  2147: npc_2147
+  2155: TzHaar-Mej
+  2156: TzHaar-Mej
+  2157: TzHaar-Mej
+  2158: TzHaar-Mej
+  2159: TzHaar-Mej
+  2160: TzHaar-Mej
+  2162: TzHaar-Hur
+  2163: TzHaar-Hur
+  2164: TzHaar-Hur
+  2165: TzHaar-Hur
+  2166: TzHaar-Hur
+  2168: TzHaar-Xil
+  2169: TzHaar-Xil
+  2170: TzHaar-Xil
+  2171: TzHaar-Xil
+  2172: TzHaar-Xil
+  2174: TzHaar-Ket
+  2175: TzHaar-Ket
+  2176: TzHaar-Ket
+  2177: TzHaar-Ket
+  2178: TzHaar-Ket
+  2179: TzHaar-Ket
+  2214: Knight of Saradomin
+  2233: Ogre
+  2234: Jogre
+  2236: Cyclops
+  2238: Ork
+  2239: Ork
+  2240: Ork
+  2241: Hobgoblin
+  2242: Spiritual ranger
+  2243: Spiritual warrior
+  2244: Spiritual mage
+  2246: Goblin
+  2247: Goblin
+  2248: Goblin
+  2249: Goblin
+  2260: npc_2260
+  2303: npc_2303
+  2317: Guard
+  2432: npc_2432
+  2457: npc_2457
+  2458: npc_2458
+  2463: Cyclops
+  2464: Cyclops
+  2465: Cyclops
+  2466: Cyclops
+  2467: Cyclops
+  2468: Cyclops
+  2475: Catablepon
+  2476: Catablepon
+  2480: Scorpion
+  2483: Minotaur
+  2485: Goblin
+  2486: Goblin
+  2487: Goblin
+  2488: Goblin
+  2489: Goblin
+  2499: Flesh Crawler
+  2500: Flesh Crawler
+  2502: Zombie
+  2503: Zombie
+  2504: Zombie
+  2505: Zombie
+  2506: Zombie
+  2507: Zombie
+  2508: Zombie
+  2509: Zombie
+  2511: Giant rat
+  2512: Giant rat
+  2513: Rat
+  2515: Ankou
+  2516: Ankou
+  2517: Ankou
+  2518: Ankou
+  2519: Ankou
+  2521: Skeleton
+  2522: Skeleton
+  2523: Skeleton
+  2524: Skeleton
+  2525: Skeleton
+  2526: Skeleton
+  2527: Ghost
+  2528: Ghost
+  2529: Ghost
+  2530: Ghost
+  2531: Ghost
+  2537: H.A.M. Guard
+  2538: H.A.M. Guard
+  2649: Myre Blamish Snail
+  2650: Blood Blamish Snail
+  2651: Ochre Blamish Snail
+  2652: Bruise Blamish Snail
+  2791: Cow
+  2793: Cow
+  2794: Cow calf
+  2795: Cow
+  2801: Cow calf
+  2804: Chicken
+  2805: Chicken
+  2806: Chicken
+  2845: Snake
+  2848: Monkey
+  2854: Rat
+  2855: Rat
+  2856: Giant rat
+  2857: Giant rat
+  2858: Giant rat
+  2859: Giant rat
+  2860: Giant rat
+  2861: Giant rat
+  2862: Giant rat
+  2863: Giant rat
+  2864: Giant rat
+  2866: Dungeon rat
+  2867: Dungeon rat
+  2907: Sabre-toothed kyatt
+  2908: Spined larupia
+  2909: Horned graahk
+  2917: Waterfiend
+  2934: npc_2934
+  2935: npc_2935
+  2936: npc_2936
+  2937: npc_2937
+  2938: npc_2938
+  2939: npc_2939
+  2940: npc_2940
+  2941: npc_2941
+  2942: npc_2942
+  2943: npc_2943
+  2944: npc_2944
+  2945: npc_2945
+  2964: npc_2964
+  2965: npc_2965
+  2966: npc_2966
+  2967: npc_2967
+  2968: npc_2968
+  2969: npc_2969
+  2970: npc_2970
+  2971: npc_2971
+  2979: npc_2979
+  3017: Giant spider
+  3018: Giant spider
+  3019: Spider
+  3024: Scorpion
+  3049: Hobgoblin
+  3050: Hobgoblin
+  3056: Barbarian
+  3057: Barbarian
+  3058: Barbarian
+  3059: Barbarian
+  3060: Barbarian
+  3061: Barbarian
+  3062: Barbarian
+  3064: Barbarian
+  3065: Barbarian
+  3066: Barbarian
+  3067: Barbarian
+  3068: Barbarian
+  3069: Barbarian
+  3070: Barbarian
+  3071: Barbarian
+  3072: Barbarian
+  3104: npc_3104
+  3133: Hellhound
+  3135: Werewolf
+  3136: Werewolf
+  3138: Bloodveld
+  3139: Pyrefiend
+  3141: Gorak
+  3159: Spiritual warrior
+  3160: Spiritual ranger
+  3161: Spiritual mage
+  3166: Spiritual warrior
+  3167: Spiritual ranger
+  3168: Spiritual mage
+  3170: Aviansie
+  3171: Aviansie
+  3172: Aviansie
+  3173: Aviansie
+  3174: Aviansie
+  3175: Aviansie
+  3176: Aviansie
+  3177: Aviansie
+  3178: Aviansie
+  3179: Aviansie
+  3180: Aviansie
+  3181: Aviansie
+  3182: Aviansie
+  3183: Aviansie
+  3185: Dagannoth
+  3186: npc_3186
+  3187: npc_3187
+  3188: npc_3188
+  3206: npc_3206
+  3228: npc_3228
+  3229: npc_3229
+  3230: npc_3230
+  3233: Leech
+  3237: Feral Vampyre
+  3262: Barbarian
+  3276: Gardener
+  3286: Hobgoblin
+  3287: Hobgoblin
+  3288: Hobgoblin
+  3289: Hobgoblin
+  3294: Paladin
+  3307: Combat Instructor
+  3363: npc_3363
+  3365: npc_3365
+  3367: npc_3367
+  3420: Rabbit
+  3421: Rabbit
+  3422: Rabbit
+  3423: Grizzly bear
+  3425: Grizzly bear cub
+  3427: npc_3427
+  3430: npc_3430
+  3431: npc_3431
+  3433: Tyras guard
+  3434: Tyras guard
+  3435: npc_3435
+  3473: The Inadequacy
+  3484: Monk of Zamorak
+  3485: Monk of Zamorak
+  3486: Monk of Zamorak
+  3487: npc_3487
+  3488: npc_3488
+  3489: npc_3489
+  3500: npc_3500
+  3565: Skeleton
+  3607: Dungeon rat
+  3608: Dungeon rat
+  3609: Dungeon rat
+  3644: npc_3644
+  3645: npc_3645
+  3646: npc_3646
+  3648: npc_3648
+  3650: npc_3650
+  3661: Chicken
+  3662: Chicken
+  3663: Rooster
+  3664: Rabbit
+  3665: Rabbit
+  3674: Ragnar
+  3676: Alrik
+  3686: Skraeling
+  3690: Vampyre Juvinate
+  3691: Vampyre Juvinate
+  3693: Vampyre Juvenile
+  3695: Vampyre Juvinate
+  3717: Vyrewatch
+  3718: Vyrewatch
+  3719: Vyrewatch
+  3729: Vyrewatch
+  3730: Vyrewatch
+  3731: Vyrewatch
+  3732: Vyrewatch
+  3748: Vyrewatch
+  3749: Vyrewatch
+  3750: Vyrewatch
+  3751: Vyrewatch
+  3752: Vyrewatch
+  3753: Vyrewatch
+  3754: Vyrewatch
+  3755: Vyrewatch
+  3773: npc_3773
+  3851: Moss giant
+  3885: npc_3885
+  3903: Bunny
+  3909: Bear Cub
+  3926: npc_3926
+  3927: npc_3927
+  3941: Pontak
+  3945: Sassilik
+  3946: Inga
+  3949: Market Guard
+  3957: Ungadulu
+  3970: Zombie rat
+  3971: Zombie rat
+  3976: Ghost
+  3977: Ghost
+  3978: Ghost
+  3979: Ghost
+  3981: Zombie
+  3983: npc_3983
+  3990: npc_3990
+  3991: npc_3991
+  3992: npc_3992
+  3993: npc_3993
+  4003: npc_4003
+  4004: Shadow
+  4006: npc_4006
+  4007: npc_4007
+  4008: npc_4008
+  4009: npc_4009
+  4044: Pirate
+  4045: Pirate
+  4046: Pirate
+  4047: Pirate
+  4048: Pirate
+  4049: Pirate
+  4050: Pirate
+  4051: Pirate
+  4052: Pirate
+  4068: Monk
+  4097: Archer
+  4098: Archer
+  4100: Guard
+  4113: npc_4113
+  4121: Troll general
+  4122: Troll general
+  4124: Troll spectator
+  4125: Troll spectator
+  4126: Troll spectator
+  4127: Troll spectator
+  4128: Troll spectator
+  4129: Troll spectator
+  4133: Twig
+  4134: Berry
+  4136: Thrower troll
+  4137: Thrower troll
+  4138: Thrower troll
+  4139: Thrower troll
+  4143: Mountain troll
+  4168: Outlaw
+  4169: Outlaw
+  4170: Outlaw
+  4171: Outlaw
+  4172: Outlaw
+  4173: Outlaw
+  4174: Outlaw
+  4175: Outlaw
+  4176: Outlaw
+  4186: npc_4186
+  4188: npc_4188
+  4189: npc_4189
+  4190: npc_4190
+  4191: npc_4191
+  4200: npc_4200
+  4201: npc_4201
+  4211: npc_4211
+  4246: Monk
+  4254: npc_4254
+  4258: npc_4258
+  4259: npc_4259
+  4260: npc_4260
+  4261: npc_4261
+  4262: npc_4262
+  4267: npc_4267
+  4273: npc_4273
+  4275: npc_4275
+  4277: Jail guard
+  4278: Jail guard
+  4279: Jail guard
+  4281: npc_4281
+  4282: npc_4282
+  4297: npc_4297
+  4300: npc_4300
+  4319: Skeleton Mage
+  4321: Renegade knight
+  4331: Black Knight
+  4339: npc_4339
+  4341: npc_4341
+  4342: Sir Lucan
+  4344: Sir Lancelot
+  4345: Sir Bedivere
+  4346: Sir Tristram
+  4347: Sir Pelleas
+  4348: Sir Gawain
+  4349: Sir Kay
+  4415: npc_4415
+  4418: npc_4418
+  4427: Vampyre Juvinate
+  4428: Vampyre Juvinate
+  4429: Vampyre Juvinate
+  4430: Vampyre Juvinate
+  4436: Vampyre Juvenile
+  4437: Vampyre Juvenile
+  4438: Vampyre Juvenile
+  4479: npc_4479
+  4492: Skeleton fremennik
+  4493: Skeleton fremennik
+  4494: Skeleton fremennik
+  4495: Skeleton fremennik
+  4496: Skeleton fremennik
+  4497: Skeleton fremennik
+  4498: Skeleton fremennik
+  4507: npc_4507
+  4515: npc_4515
+  4523: Guard
+  4524: Guard
+  4525: Guard
+  4526: Guard
+  4533: Blessed spider
+  4535: Blessed giant rat
+  4536: npc_4536
+  4537: npc_4537
+  4538: npc_4538
+  4539: npc_4539
+  4540: npc_4540
+  4541: npc_4541
+  4542: npc_4542
+  4544: npc_4544
+  4545: npc_4545
+  4546: npc_4546
+  4547: npc_4547
+  4548: npc_4548
+  4549: npc_4549
+  4550: npc_4550
+  4555: npc_4555
+  4556: npc_4556
+  4557: npc_4557
+  4559: npc_4559
+  4560: npc_4560
+  4561: Spider
+  4577: npc_4577
+  4650: Desert Wolf
+  4651: Desert Wolf
+  4656: Mercenary
+  4657: Mercenary
+  4658: Mercenary
+  4659: Mercenary
+  4661: Guard
+  4662: Guard
+  4663: Guard
+  4664: Guard
+  4665: Guard
+  4666: Guard
+  4667: Guard
+  4668: Guard
+  4669: Guard
+  4688: Angry unicorn
+  4689: Angry giant rat
+  4690: Angry giant rat
+  4691: Angry goblin
+  4692: Angry bear
+  4693: Fear reaper
+  4694: Confusion beast
+  4695: Hopeless creature
+  4709: The Shaikahan
+  4728: npc_4728
+  4729: npc_4729
+  4730: npc_4730
+  4731: npc_4731
+  4732: npc_4732
+  4765: npc_4765
+  4773: Fortress Guard
+  4774: Fortress Guard
+  4775: Fortress Guard
+  4776: Fortress Guard
+  4800: Giant Lobster
+  4805: Hobgoblin
+  4813: Icefiend
+  4821: Mudskipper
+  4822: Crab
+  4919: Grip
+  4971: npc_4971
+  4974: Gnome troop
+  5005: npc_5005
+  5007: Imp
+  5047: npc_5047
+  5049: npc_5049
+  5050: npc_5050
+  5058: npc_5058
+  5059: npc_5059
+  5060: npc_5060
+  5064: npc_5064
+  5065: npc_5065
+  5071: npc_5071
+  5082: npc_5082
+  5128: Mouse
+  5183: npc_5183
+  5186: Guard
+  5187: Guard
+  5188: Guard
+  5189: Guard
+  5211: npc_5211
+  5240: Bird
+  5241: Bird
+  5242: Scorpion
+  5273: Monkey Archer
+  5274: Monkey Archer
+  5275: Monkey Guard
+  5276: Monkey Guard
+  5282: Monkey Zombie
+  5283: Monkey Zombie
+  5285: npc_5285
+  5286: npc_5286
+  5287: npc_5287
+  5292: npc_5292
+  5294: Elf Warrior
+  5296: Elf Archer
+  5298: npc_5298
+  5301: npc_5301
+  5310: npc_5310
+  5311: npc_5311
+  5312: npc_5312
+  5314: npc_5314
+  5331: Cave goblin miner
+  5332: Cave goblin miner
+  5333: Cave goblin miner
+  5335: Cave goblin guard
+  5339: Cave goblin miner
+  5343: Undead one
+  5344: Undead one
+  5345: Undead one
+  5346: Undead one
+  5347: Undead one
+  5348: Undead one
+  5349: Undead one
+  5350: Undead one
+  5351: Undead one
+  5368: Sleeping guard
+  5425: npc_5425
+  5490: npc_5490
+  5494: npc_5494
+  5495: npc_5495
+  5496: npc_5496
+  5497: npc_5497
+  5498: npc_5498
+  5499: npc_5499
+  5501: npc_5501
+  5729: Shipyard worker
+  5732: Market Guard
+  5783: npc_5783
+  5828: Ice troll runt
+  5829: Ice troll male
+  5830: Ice troll female
+  5831: Ice troll grunt
+  5842: Cow
+  5849: npc_5849
+  5850: npc_5850
+  5851: npc_5851
+  5852: npc_5852
+  5854: Baby tanglefoot
+  5859: npc_5859
+  5863: Cerberus
+  5865: npc_5865
+  5872: Baby green dragon
+  5873: Baby green dragon
+  5874: Black demon
+  5875: Black demon
+  5876: Black demon
+  5877: Black demon
+  5878: Blue dragon
+  5879: Blue dragon
+  5880: Blue dragon
+  5881: Blue dragon
+  5882: Blue dragon
+  5931: npc_5931
+  5939: Wallasalki
+  5940: Giant Rock Crab
+  5942: Dagannoth
+  5943: Dagannoth
+  5947: Spinolyp
+  5948: Suspicious water
+  5961: Spinolyp
+  5962: Suspicious water
+  5963: Spinolyp
+  5964: Khazard trooper
+  5965: Khazard trooper
+  5966: Gnome troop
+  5967: Gnome troop
+  5969: Gnome
+  5970: Gnome
+  5971: Mounted terrorbird gnome
+  5972: Mounted terrorbird gnome
+  5973: Mounted terrorbird gnome
+  6046: Black Guard
+  6047: Black Guard
+  6048: Black Guard
+  6049: Black Guard
+  6050: Black Guard Berserker
+  6051: Black Guard Berserker
+  6052: Black Guard Berserker
+  6076: Tortoise
+  6078: Gnome child
+  6079: Gnome child
+  6082: Gnome guard
+  6087: Gnome woman
+  6094: Gnome
+  6095: Gnome
+  6096: Gnome
+  6104: npc_6104
+  6105: npc_6105
+  6106: npc_6106
+  6107: npc_6107
+  6108: npc_6108
+  6109: npc_6109
+  6110: npc_6110
+  6111: npc_6111
+  6112: npc_6112
+  6113: npc_6113
+  6114: npc_6114
+  6115: npc_6115
+  6116: npc_6116
+  6117: npc_6117
+  6122: npc_6122
+  6123: npc_6123
+  6129: npc_6129
+  6138: npc_6138
+  6139: npc_6139
+  6140: npc_6140
+  6141: npc_6141
+  6144: npc_6144
+  6147: npc_6147
+  6148: npc_6148
+  6150: npc_6150
+  6151: npc_6151
+  6152: npc_6152
+  6153: npc_6153
+  6162: npc_6162
+  6164: npc_6164
+  6165: npc_6165
+  6166: npc_6166
+  6167: npc_6167
+  6168: npc_6168
+  6169: npc_6169
+  6170: npc_6170
+  6171: npc_6171
+  6172: npc_6172
+  6173: npc_6173
+  6174: npc_6174
+  6175: npc_6175
+  6176: npc_6176
+  6179: npc_6179
+  6180: npc_6180
+  6181: npc_6181
+  6182: npc_6182
+  6184: npc_6184
+  6185: npc_6185
+  6187: npc_6187
+  6188: npc_6188
+  6189: npc_6189
+  6190: npc_6190
+  6191: npc_6191
+  6192: npc_6192
+  6193: npc_6193
+  6194: npc_6194
+  6195: npc_6195
+  6196: npc_6196
+  6197: npc_6197
+  6198: npc_6198
+  6199: npc_6199
+  6200: npc_6200
+  6201: npc_6201
+  6202: npc_6202
+  6203: npc_6203
+  6206: npc_6206
+  6207: npc_6207
+  6208: npc_6208
+  6209: npc_6209
+  6210: npc_6210
+  6211: npc_6211
+  6212: npc_6212
+  6213: npc_6213
+  6214: npc_6214
+  6215: npc_6215
+  6216: npc_6216
+  6217: npc_6217
+  6218: npc_6218
+  6219: npc_6219
+  6222: npc_6222
+  6223: npc_6223
+  6224: npc_6224
+  6225: npc_6225
+  6226: npc_6226
+  6227: npc_6227
+  6228: npc_6228
+  6229: npc_6229
+  6235: npc_6235
+  6236: npc_6236
+  6237: npc_6237
+  6238: npc_6238
+  6239: npc_6239
+  6240: npc_6240
+  6241: npc_6241
+  6242: npc_6242
+  6243: npc_6243
+  6244: npc_6244
+  6245: npc_6245
+  6246: npc_6246
+  6247: npc_6247
+  6248: npc_6248
+  6249: npc_6249
+  6250: npc_6250
+  6251: npc_6251
+  6252: npc_6252
+  6254: npc_6254
+  6255: npc_6255
+  6256: npc_6256
+  6257: Tempoross
+  6259: npc_6259
+  6260: npc_6260
+  6261: npc_6261
+  6262: npc_6262
+  6263: npc_6263
+  6269: npc_6269
+  6270: npc_6270
+  6277: npc_6277
+  6278: npc_6278
+  6279: npc_6279
+  6280: npc_6280
+  6281: npc_6281
+  6282: npc_6282
+  6283: npc_6283
+  6284: npc_6284
+  6286: npc_6286
+  6288: npc_6288
+  6290: npc_6290
+  6405: npc_6405
+  6435: Cave goblin
+  6436: Cave goblin
+  6437: Cave goblin
+  6443: Skeleton
+  6444: Skeleton
+  6445: Skeleton
+  6446: Skeleton
+  6447: Skeleton
+  6448: Skeleton
+  6450: Zombie
+  6451: Zombie
+  6452: Zombie
+  6453: Zombie
+  6454: Zombie
+  6455: Zombie
+  6456: Zombie
+  6457: Zombie
+  6458: Zombie
+  6459: Zombie
+  6460: Zombie
+  6461: Zombie
+  6462: Zombie
+  6463: Zombie
+  6464: Zombie
+  6465: Zombie
+  6466: Zombie
+  6469: Possessed pickaxe
+  6474: Terror dog
+  6481: Jack Frost
+  6486: npc_6486
+  6507: npc_6507
+  6508: npc_6508
+  6511: npc_6511
+  6520: npc_6520
+  6521: npc_6521
+  6522: npc_6522
+  6523: npc_6523
+  6528: npc_6528
+  6534: npc_6534
+  6535: npc_6535
+  6537: npc_6537
+  6548: npc_6548
+  6549: npc_6549
+  6550: npc_6550
+  6551: npc_6551
+  6552: npc_6552
+  6553: npc_6553
+  6554: npc_6554
+  6555: npc_6555
+  6556: npc_6556
+  6557: npc_6557
+  6558: npc_6558
+  6559: npc_6559
+  6560: npc_6560
+  6563: npc_6563
+  6573: npc_6573
+  6577: npc_6577
+  6578: npc_6578
+  6596: Zombie
+  6597: Zombie
+  6598: Zombie
+  6600: Runite Golem
+  6605: Bandit
+  6606: Dark warrior
+  6608: Ankou
+  6609: Callisto
+  6610: Venenatis
+  6704: npc_6704
+  6705: npc_6705
+  6706: npc_6706
+  6707: npc_6707
+  6708: npc_6708
+  6709: npc_6709
+  6710: npc_6710
+  6711: npc_6711
+  6712: npc_6712
+  6713: npc_6713
+  6714: npc_6714
+  6739: Evil Chicken
+  6740: Shade
+  6760: npc_6760
+  6761: npc_6761
+  6763: npc_6763
+  6764: npc_6764
+  6767: Lizardman shaman
+  6782: npc_6782
+  6783: npc_6783
+  6785: npc_6785
+  6786: npc_6786
+  6787: npc_6787
+  6788: npc_6788
+  6789: npc_6789
+  6790: npc_6790
+  6791: npc_6791
+  6795: Pyrelord
+  6807: npc_6807
+  6808: npc_6808
+  6809: npc_6809
+  6810: npc_6810
+  6813: Monkey Archer
+  6824: Giant bat
+  6868: Soldier
+  6869: Soldier
+  6870: Soldier
+  6871: Soldier
+  6915: Lizardman
+  6916: Lizardman
+  6917: Lizardman
+  6919: Lizardman brute
+  6923: npc_6923
+  6924: npc_6924
+  6956: Monk
+  6993: Pirate
+  6994: Pirate
+  6995: Pirate
+  6996: Mugger
+  7016: npc_7016
+  7017: npc_7017
+  7083: npc_7083
+  7084: npc_7084
+  7085: npc_7085
+  7086: npc_7086
+  7087: npc_7087
+  7098: Stunted demonic gorilla
+  7122: Monkey guard
+  7123: Monkey guard
+  7124: Monkey guard
+  7125: Monkey guard
+  7126: Monkey guard
+  7127: Monkey guard
+  7128: Monkey guard
+  7129: Monkey guard
+  7130: Monkey guard
+  7131: Monkey guard
+  7132: Monkey guard
+  7133: Monkey guard
+  7134: Monkey guard
+  7135: Monkey guard
+  7136: Monkey guard
+  7137: Monkey guard
+  7138: Monkey guard
+  7139: Monkey guard
+  7140: Monkey guard
+  7141: Monkey guard
+  7142: Monkey guard
+  7143: Monkey guard
+  7145: Demonic gorilla
+  7146: Demonic gorilla
+  7147: Demonic gorilla
+  7148: Demonic gorilla
+  7149: Demonic gorilla
+  7150: Tortured gorilla
+  7151: Tortured gorilla
+  7175: npc_7175
+  7179: npc_7179
+  7180: npc_7180
+  7208: npc_7208
+  7209: Guard dog
+  7234: Ent
+  7238: Forester
+  7241: Abyssal demon
+  7242: Black demon
+  7243: Black demon
+  7244: Greater demon
+  7245: Greater demon
+  7246: Greater demon
+  7247: Lesser demon
+  7248: Lesser demon
+  7249: Dust devil
+  7251: Fire giant
+  7252: Fire giant
+  7253: Bronze dragon
+  7254: Iron dragon
+  7255: Steel dragon
+  7256: Hellhound
+  7257: Ankou
+  7258: Shade
+  7259: Dagannoth
+  7260: Dagannoth
+  7261: Hill Giant
+  7262: Moss giant
+  7263: Ghost
+  7264: Ghost
+  7268: Possessed pickaxe
+  7269: Magic axe
+  7271: Cyclops
+  7318: npc_7318
+  7322: Wild dog
+  7325: npc_7325
+  7326: npc_7326
+  7375: npc_7375
+  7382: npc_7382
+  7419: Zamorak warrior
+  7421: Zamorak ranger
+  7423: Zamorak mage
+  7427: Zamorak crafter
+  7428: npc_7428
+  7429: npc_7429
+  7430: npc_7430
+  7431: npc_7431
+  7432: npc_7432
+  7433: npc_7433
+  7434: npc_7434
+  7435: npc_7435
+  7436: npc_7436
+  7486: Zombie
+  7487: Zombie
+  7488: Zombie
+  7492: npc_7492
+  7493: npc_7493
+  7494: npc_7494
+  7495: npc_7495
+  7496: npc_7496
+  7497: npc_7497
+  7498: npc_7498
+  7499: npc_7499
+  7500: npc_7500
+  7501: npc_7501
+  7502: npc_7502
+  7503: npc_7503
+  7504: npc_7504
+  7505: npc_7505
+  7506: npc_7506
+  7507: npc_7507
+  7508: npc_7508
+  7596: npc_7596
+  7609: npc_7609
+  7656: Lesser demon
+  7657: Lesser demon
+  7664: Lesser demon
+  7679: TzHaar-Ket
+  7682: TzHaar-Hur
+  7683: TzHaar-Hur
+  7684: TzHaar-Hur
+  7685: TzHaar-Hur
+  7686: TzHaar-Hur
+  7687: TzHaar-Hur
+  7690: npc_7690
+  7735: npc_7735
+  7744: Lizardman shaman
+  7745: Lizardman shaman
+  7861: Black dragon
+  7864: Ankou
+  7865: Lesser demon
+  7866: Lesser demon
+  7867: Lesser demon
+  7868: Green dragon
+  7869: Green dragon
+  7870: Green dragon
+  7871: Greater demon
+  7872: Greater demon
+  7873: Greater demon
+  7876: Black demon
+  7877: Hellhound
+  7896: npc_7896
+  7897: npc_7897
+  7924: npc_7924
+  7925: npc_7925
+  7926: npc_7926
+  7927: npc_7927
+  7928: npc_7928
+  7929: npc_7929
+  7930: npc_7930
+  7942: npc_7942
+  7945: npc_7945
+  7955: Baby black dragon
+  7990: Ogress Warrior
+  7998: npc_7998
+  8015: npc_8015
+  8016: npc_8016
+  8017: npc_8017
+  8018: npc_8018
+  8031: Rune dragon
+  8064: Stone Guardian
+  8065: Stone Guardian
+  8066: Stone Guardian
+  8068: Zombie
+  8069: Zombie
+  8071: Skeleton
+  8072: Skeleton
+  8109: npc_8109
+  8110: npc_8110
+  8139: Skeleton
+  8141: npc_8141
+  8184: Colossal Chocco Chicken
+  8185: Colossal Chocco Chicken
+  8186: npc_8186
+  8187: npc_8187
+  8190: npc_8190
+  8191: npc_8191
+  8192: npc_8192
+  8272: npc_8272
+  8277: npc_8277
+  8278: npc_8278
+  8279: npc_8279
+  8280: npc_8280
+  8281: npc_8281
+  8282: npc_8282
+  8283: npc_8283
+  8284: npc_8284
+  8285: npc_8285
+  8286: npc_8286
+  8289: npc_8289
+  8290: npc_8290
+  8291: npc_8291
+  8292: npc_8292
+  8293: npc_8293
+  8294: npc_8294
+  8295: npc_8295
+  8300: Vyrewatch
+  8301: Vyrewatch
+  8302: Vyrewatch
+  8303: Vyrewatch
+  8304: Vyrewatch
+  8305: Vyrewatch
+  8306: Vyrewatch
+  8307: Vyrewatch
+  8308: npc_8308
+  8309: npc_8309
+  8310: npc_8310
+  8311: npc_8311
+  8312: npc_8312
+  8313: npc_8313
+  8314: npc_8314
+  8315: npc_8315
+  8316: npc_8316
+  8317: npc_8317
+  8318: npc_8318
+  8319: npc_8319
+  8325: npc_8325
+  8400: Monk of Zamorak
+  8401: Monk of Zamorak
+  8496: Dwarf
+  8497: npc_8497
+  8498: npc_8498
+  8499: npc_8499
+  8506: npc_8506
+  8563: Lizardman
+  8564: Lizardman brute
+  8565: Lizardman shaman
+  8580: npc_8580
+  8597: npc_8597
+  8624: npc_8624
+  8625: npc_8625
+  8627: npc_8627
+  8628: npc_8628
+  8632: npc_8632
+  8695: npc_8695
+  8698: Monk of Zamorak
+  8700: Giant frog
+  8701: Big frog
+  8717: npc_8717
+  8718: npc_8718
+  8719: npc_8719
+  8720: npc_8720
+  8732: Mugger
+  8796: npc_8796
+  8799: Knight of Ardougne
+  8800: Knight of Ardougne
+  8801: Knight of Ardougne
+  8817: npc_8817
+  8820: npc_8820
+  8824: npc_8824
+  8826: npc_8826
+  8828: npc_8828
+  8896: npc_8896
+  8900: npc_8900
+  8905: npc_8905
+  8909: npc_8909
+  8912: npc_8912
+  8916: npc_8916
+  8945: Tyras Guard
+  8946: Rebel Archer
+  8947: Rebel Archer
+  8948: Rebel Warrior
+  8949: Rebel Warrior
+  8978: Blessed spider
+  9143: Gladiator
+  9144: Gladiator
+  9147: npc_9147
+  9181: Dire Wolf
+  9183: Guard
+  9184: Guard
+  9185: Guard
+  9186: Guard
+  9187: Guard
+  9188: Guard
+  9189: Guard
+  9209: npc_9209
+  9210: npc_9210
+  9211: npc_9211
+  9212: npc_9212
+  9216: npc_9216
+  9217: npc_9217
+  9218: npc_9218
+  9219: npc_9219
+  9220: npc_9220
+  9222: npc_9222
+  9223: npc_9223
+  9224: npc_9224
+  9225: npc_9225
+  9226: npc_9226
+  9227: npc_9227
+  9228: npc_9228
+  9229: npc_9229
+  9230: npc_9230
+  9231: npc_9231
+  9232: npc_9232
+  9233: npc_9233
+  9234: npc_9234
+  9235: npc_9235
+  9236: npc_9236
+  9237: npc_9237
+  9238: npc_9238
+  9239: npc_9239
+  9240: npc_9240
+  9241: npc_9241
+  9242: npc_9242
+  9243: npc_9243
+  9245: npc_9245
+  9269: npc_9269
+  9459: npc_9459
+  9460: The Nightmare
+  9473: npc_9473
+  9475: npc_9475
+  9482: Combat Instructor
+  9483: Giant rat
+  9488: Chicken
+  9502: Iorwerth Warrior
+  9503: Iorwerth Warrior
+  9507: npc_9507
+  9508: npc_9508
+  9509: npc_9509
+  9510: npc_9510
+  9515: npc_9515
+  9516: npc_9516
+  9517: npc_9517
+  9518: npc_9518
+  9519: npc_9519
+  9520: npc_9520
+  9620: npc_9620
+  9626: npc_9626
+  9628: npc_9628
+  9630: npc_9630
+  9727: Vampyre Juvinate
+  9728: Vampyre Juvinate
+  9731: Vampyre Juvenile
+  9732: Vampyre Juvenile
+  9735: Vyrewatch
+  9736: Vyrewatch
+  9737: Vyrewatch
+  9738: Vyrewatch
+  9739: Vyrewatch
+  9740: Vyrewatch
+  9741: Vyrewatch
+  9742: Vyrewatch
+  9757: Vyrewatch Sentinel
+  9758: Vyrewatch Sentinel
+  9759: Vyrewatch Sentinel
+  9760: Vyrewatch Sentinel
+  9761: Vyrewatch Sentinel
+  9762: Vyrewatch Sentinel
+  9763: Vyrewatch Sentinel
+  9804: npc_9804
+  9805: npc_9805
+  9807: npc_9807
+  9809: npc_9809
+  9810: npc_9810
+  9811: npc_9811
+  9822: npc_9822
+  9823: npc_9823
+  9824: npc_9824
+  9825: npc_9825
+  9826: npc_9826
+  9827: npc_9827
+  9828: npc_9828
+  9829: npc_9829
+  9830: npc_9830
+  9831: npc_9831
+  9832: npc_9832
+  9833: npc_9833
+  9834: npc_9834
+  9835: npc_9835
+  9836: npc_9836
+  9837: npc_9837
+  9838: npc_9838
+  9839: npc_9839
+  9840: npc_9840
+  9841: npc_9841
+  9842: npc_9842
+  9843: npc_9843
+  9844: npc_9844
+  9845: npc_9845
+  9846: npc_9846
+  9847: npc_9847
+  9848: npc_9848
+  9849: npc_9849
+  10374: Hill Giant
+  10375: Hill Giant
+  10376: Hill Giant
+  10396: npc_10396
+  10428: npc_10428
+  10429: npc_10429
+  10430: npc_10430
+  10431: npc_10431
+  10440: npc_10440
+  10441: npc_10441
+  10494: Chicken
+  10495: Chicken
+  10496: Chicken
+  10497: Chicken
+  10541: Bird
+  10542: npc_10542
+  10543: npc_10543
+  10544: Forgotten Soul
+  10545: Forgotten Soul
+  10555: npc_10555
+  10633: npc_10633
+  10638: npc_10638
+  10639: npc_10639
+  10702: npc_10702
+  10703: npc_10703
+  10704: npc_10704
+  10705: npc_10705
+  10706: npc_10706
+  10710: npc_10710
+  10711: npc_10711
+  10712: npc_10712
+  10713: npc_10713
+  10714: npc_10714
+  10715: npc_10715
+  10716: npc_10716
+  10718: Skeleton
+  10719: Skeleton
+  10720: Skeleton
+  10721: Skeleton
+  10729: npc_10729
+  10730: npc_10730
+  10888: Bat
+  10930: npc_10930
+  10985: Barbarian
+  10986: Barbarian
+  10987: Barbarian
+  10988: Barbarian
+  10990: npc_10990
+  11064: Bandit
+  11065: Bandit
+  11067: Boar
+  11069: Lynx
+  11070: Lynx
+  11074: Soldier
+  11075: Sergeant
+  11076: Soldier
+  11077: Sergeant
+  11078: Soldier
+  11079: Sergeant
+  11080: Soldier
+  11081: Sergeant
+  11082: Soldier
+  11083: Sergeant
+  11084: Soldier
+  11085: Sergeant
+  11086: Soldier
+  11087: Sergeant
+  11094: Guard
+  11095: Head Guard
+  11096: Guard
+  11097: Head Guard
+  11098: Guard
+  11100: Guard
+  11101: Head Guard
+  11102: Guard
+  11103: Head Guard
+  11104: Guard
+  11105: Head Guard
+  11106: Guard
+  11107: Head Guard
+  11109: Dark warrior
+  11110: Dark warrior
+  11111: Dark warrior
+  11114: npc_11114
+  11115: npc_11115
+  11116: npc_11116
+  11117: npc_11117
+  11118: npc_11118
+  11119: npc_11119
+  11120: npc_11120
+  11121: npc_11121
+  11122: npc_11122
+  11123: npc_11123
+  11124: npc_11124
+  11125: npc_11125
+  11127: npc_11127
+  11128: npc_11128
+  11129: npc_11129
+  11131: npc_11131
+  11132: npc_11132
+  11133: npc_11133
+  11134: npc_11134
+  11135: npc_11135
+  11136: npc_11136
+  11137: npc_11137
+  11138: npc_11138
+  11139: npc_11139
+  11140: npc_11140
+  11141: npc_11141
+  11143: npc_11143
+  11144: npc_11144
+  11145: npc_11145
+  11147: npc_11147
+  11149: npc_11149
+  11150: npc_11150
+  11151: npc_11151

@@ -6,6 +6,12 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 enable_testing()
 find_package(ZLIB REQUIRED)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME test_portable_paths
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_portable_paths.py)
+add_test(NAME validate_no_external_repos
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/validate_no_external_repos.py)
+add_test(NAME test_loot_sources
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_loot_sources.py)
 add_test(NAME test_weapon_metadata
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_weapon_metadata.py)
 add_test(NAME test_magic_assets
@@ -113,12 +119,8 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/lib/raylib/lib/libraylib.a")
 
     # Platform-specific libs
     if(UNIX AND NOT APPLE)
-        find_library(GL_LIB NAMES GL PATHS /usr/lib/x86_64-linux-gnu)
-        if(GL_LIB)
-            target_link_libraries(rc-viewer ${GL_LIB})
-        else()
-            target_link_libraries(rc-viewer /usr/lib/x86_64-linux-gnu/libGL.so.1)
-        endif()
+        find_package(OpenGL REQUIRED)
+        target_link_libraries(rc-viewer OpenGL::GL)
     endif()
 else()
     message(WARNING "Raylib not found at lib/raylib/ — skipping rc-viewer build. "
@@ -286,26 +288,37 @@ if(TARGET rc-viewer AND TARGET test_streaming_cpu_assets)
     )
     target_link_libraries(test_streaming_cpu_assets raylib dl pthread m)
     if(UNIX AND NOT APPLE)
-        if(GL_LIB)
-            target_link_libraries(test_streaming_cpu_assets ${GL_LIB})
-        else()
-            target_link_libraries(test_streaming_cpu_assets
-                /usr/lib/x86_64-linux-gnu/libGL.so.1)
-        endif()
+        target_link_libraries(test_streaming_cpu_assets OpenGL::GL)
     endif()
 endif()
 
 include(${CMAKE_SOURCE_DIR}/tests/tier1_suites.cmake)
 
 if(TARGET rc-viewer)
+    set(VIEWER_TEST_SOURCES ${RC_VIEWER_SOURCES})
+    list(FILTER VIEWER_TEST_SOURCES EXCLUDE REGEX "/viewer\\.c$")
+    add_executable(test_viewer_scene tests/frontend/test_viewer_scene.c ${VIEWER_TEST_SOURCES})
+    target_include_directories(test_viewer_scene PRIVATE lib/raylib/include)
+    target_link_directories(test_viewer_scene PRIVATE lib/raylib/lib)
+    target_link_libraries(test_viewer_scene rc-core rc-content-link raylib m dl pthread)
+    if(TARGET OpenGL::GL)
+        target_link_libraries(test_viewer_scene OpenGL::GL)
+    endif()
+    target_compile_definitions(test_viewer_scene PRIVATE RC_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(test_viewer_scene PRIVATE -UNDEBUG)
+    endif()
+    add_test(NAME test_viewer_scene COMMAND test_viewer_scene)
+    set_tests_properties(test_viewer_scene PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
     add_executable(test_dev_spellbooks tests/frontend/test_dev_spellbooks.c
         rc-viewer/dev_validation.c rc-viewer/ui_assets.c rc-viewer/ui_spellbook.c
         rc-viewer/ui_interfaces.c rc-viewer/context_menu.c rc-viewer/prayer_ui.c)
     target_include_directories(test_dev_spellbooks PRIVATE lib/raylib/include)
     target_link_directories(test_dev_spellbooks PRIVATE lib/raylib/lib)
     target_link_libraries(test_dev_spellbooks rc-core rc-content-link raylib m dl pthread)
-    if(GL_LIB)
-        target_link_libraries(test_dev_spellbooks ${GL_LIB})
+    if(TARGET OpenGL::GL)
+        target_link_libraries(test_dev_spellbooks OpenGL::GL)
     endif()
     target_compile_definitions(test_dev_spellbooks PRIVATE RC_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
     if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")

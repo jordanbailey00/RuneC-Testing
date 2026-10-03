@@ -991,7 +991,7 @@ class RuntimePackMapsquareTests(unittest.TestCase):
             )
             spawn_index.write_ground_item_spawns(
                 spawns / "world.ground-items.indexed.bin",
-                [(995, 1, 3200, 3200, 0, 0)],
+                [(995, 1, 3200, 3200, 0, 0, 100)],
             )
             self.assertEqual(
                 pack_runtime_data.validate_spawn_runtime_assets(root),

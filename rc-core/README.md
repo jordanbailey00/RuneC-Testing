@@ -238,6 +238,23 @@ Records carry their original source ordinal; `rc-core/spawn_index.c` reads
 only selected page ranges and restores that order before subsystem loaders
 apply exact tile/plane filters.
 
+Current GSPI records are 26 bytes, including the source ordinal and a trailing
+uint32 respawn interval in ticks. The ground-item loader rejects the old
+22-byte shape; rebuild the spawn assets and matching pack together. Static
+respawn and delayed arrival use the same elapsed-time owner as active/dormant
+ground-item expiry. Ground batches reserve capacity before item transactions
+commit; `RC_EVT_DROP_GRANTED` acknowledges reservation (not visible arrival),
+and reports the full uint32 quantity and pile UID. Loot-table source migration
+is still in progress; these lifecycle changes do not validate legacy odds.
+
+DROP v2 adds per-table source-rejection flags. Rejected definitions contain no
+reward entries and return `RC_LOOT_ROLL_UNVERIFIED` before RNG or grants.
+Death preparation records the failure and prints the NPC/reason once. See
+`content/loot/rejections.txt` for the named revisit inventory. The production
+snapshot installer applies that manifest; raw DROP v1 runtime files are
+rejected. Non-rejected legacy tables and shared-table v1 assets still await
+the exact-roll/source migration and are not certified OSRS parity.
+
 The OPLI v1 object-placement file uses the same fixed mapsquare directory.
 Placement records remain in source order. `rc-core/objects.c` range-reads pages
 on demand and retains at most `max_cached_regions` pages; interaction lookup

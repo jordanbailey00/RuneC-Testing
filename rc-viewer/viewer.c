@@ -68,7 +68,6 @@
 #define VIEWER_NPC_TZTOK_JAD 3127
 #define VIEWER_JAD_MELEE_ANIM_TICKS 3
 #define VIEWER_JAD_WARNING_ANIM_TICKS 5
-#define VIEWER_CONTEXT_NONE 0
 #define VIEWER_CONTEXT_NPC 1
 #define VIEWER_CONTEXT_OBJECT 2
 #define VIEWER_CONTEXT_GROUND_ITEM 3
@@ -77,6 +76,9 @@
 #define VIEWER_CONTEXT_EXAMINE -11
 #define VIEWER_CONTEXT_CANCEL -12
 #define VIEWER_CONTEXT_TAKE -13
+#define VIEWER_CONTEXT_PREVIOUS -14
+#define VIEWER_CONTEXT_MORE -15
+#define VIEWER_CONTEXT_PAGE_ROWS (RUNEC_UI_CONTEXT_ACTIONS - 4)
 #define VIEWER_HOVER_NONE 0
 #define VIEWER_HOVER_NPC 1
 #define VIEWER_HOVER_OBJECT 2
@@ -211,6 +213,13 @@ typedef struct {
 
 typedef struct {
     int kind;
+    int option;
+    int npc_uid;
+    int ground_index, ground_uid, ground_version;
+} ViewerContextEntry;
+
+typedef struct {
+    int kind;
     int npc_uid;
     ViewerPickedObject object;
     int ground_item_idx;
@@ -316,6 +325,12 @@ typedef struct {
     ObjectMesh *object_planes[RC_MAX_PLANES];
     ModelSet *object_anim_model_planes[RC_MAX_PLANES];
     ModelSet *player_model;
+    struct {
+        ModelSet *models;
+        int item_id;
+        uint64_t last_use;
+    } ground_models[RC_MAX_GROUND_ITEMS];
+    uint64_t ground_model_clock;
     ModelSet *npc_models;
     ModelSet *item_models;
     ModelSet *projectile_models;
@@ -416,13 +431,13 @@ typedef struct {
     int alpha_cutout_shader_static_loaded;
     int alpha_cutout_shader_dynamic_loaded;
     int projectile_effect_shader_loaded;
-    int context_kind;
-    int context_npc_uid;
+    ViewerContextEntry context_entries[RUNEC_UI_CONTEXT_ACTIONS];
     ViewerPickedObject context_object;
-    int context_ground_item_idx;
+    Ray context_ray;
+    int context_page;
+    int context_plane;
     int context_tile_x;
     int context_tile_y;
-    int context_action_option[RUNEC_UI_CONTEXT_ACTIONS];
     uint64_t interaction_outcome_seen;
     uint64_t traversal_event_seen;
     uint64_t traversal_outcome_seen;
@@ -1341,6 +1356,10 @@ static void viewer_refresh_streaming_telemetry(ViewerState *v,
                                       : (Texture2D){0});
         if (refresh_model_cache)
             model_bytes += model_set_resident_bytes(sets[i]);
+    }
+    if (refresh_model_cache) {
+        for (int i = 0; i < RC_MAX_GROUND_ITEMS; i++)
+            model_bytes += model_set_resident_bytes(v->ground_models[i].models);
     }
     for (int plane = 0; plane < RC_MAX_PLANES; plane++) {
         ModelSet *set = v->object_anim_model_planes[plane];
@@ -3287,6 +3306,11 @@ static int viewer_dev_tile_safe(const ViewerState *v, int x, int y,
                                 int plane, const RuneCDevTransport *d) {
     if (!v || !v->world || !d || rc_tile_blocked(&v->world->map, x, y, plane))
         return 0;
+    if (!rc_can_move(&v->world->map, x, y, 1, 0, plane)
+            && !rc_can_move(&v->world->map, x, y, -1, 0, plane)
+            && !rc_can_move(&v->world->map, x, y, 0, 1, plane)
+            && !rc_can_move(&v->world->map, x, y, 0, -1, plane))
+        return 0;
     if (d->npc_id < 0)
         return 1;
     int size = d->npc_size > 0 ? d->npc_size : 1;
@@ -3295,16 +3319,32 @@ static int viewer_dev_tile_safe(const ViewerState *v, int x, int y,
     return x < d->target_x || x > max_x || y < d->target_y || y > max_y;
 }
 
-static void viewer_dev_player_tile(const ViewerState *v,
+typedef struct {
+    int x, y, score;
+} ViewerDevLandingTile;
+
+static int compare_dev_landing_tiles(const void *a, const void *b) {
+    const ViewerDevLandingTile *lhs = a, *rhs = b;
+    if (lhs->score != rhs->score) return lhs->score - rhs->score;
+    if (lhs->x != rhs->x) return lhs->x - rhs->x;
+    return lhs->y - rhs->y;
+}
+
+static int viewer_dev_player_tile(ViewerState *v,
                                    const RuneCDevTransport *d,
                                    int *out_x, int *out_y) {
+    // Visual streaming does not activate core collision. Load it before searching.
+    if (rc_world_activate_area_around(v->world, d->target_x, d->target_y,
+                                      d->plane, NULL) < 0)
+        return 0;
     int size = d->npc_size > 0 ? d->npc_size : 1;
     int desired_x = d->target_x;
     int desired_y = d->npc_id >= 0 ? d->target_y - (size + 4) : d->target_y;
     int plane = clamp_plane(d->plane);
-    int best_x = desired_x;
-    int best_y = desired_y;
-    int best_score = 0x3fffffff;
+    ViewerDevLandingTile candidates[41 * 41];
+    int count = 0;
+    RcRouteTarget target = rc_route_target_rectangle(
+        d->target_x, d->target_y, size, size, 1, 1, false, false);
 
     for (int dx = -20; dx <= 20; dx++) {
         for (int dy = -20; dy <= 20; dy++) {
@@ -3322,16 +3362,22 @@ static void viewer_dev_player_tile(const ViewerState *v,
                                 d->target_x, d->target_y, plane))
                     score += 16;
             }
-            if (score < best_score) {
-                best_score = score;
-                best_x = x;
-                best_y = y;
-            }
+            candidates[count++] = (ViewerDevLandingTile){x, y, score};
         }
     }
-
-    *out_x = best_x;
-    *out_y = best_y;
+    qsort(candidates, (size_t)count, sizeof(candidates[0]), compare_dev_landing_tiles);
+    for (int i = 0; i < count; i++) {
+        if (d->npc_id >= 0) {
+            RcRoute route = rc_find_route(&v->world->map, candidates[i].x, candidates[i].y,
+                                          1, 1, plane, &target, false);
+            if (route.status != RC_ROUTE_EXACT && route.status != RC_ROUTE_ALREADY_ARRIVED)
+                continue;
+        }
+        *out_x = candidates[i].x;
+        *out_y = candidates[i].y;
+        return 1;
+    }
+    return 0;
 }
 
 static void viewer_dev_transport_to(ViewerState *v,
@@ -3345,8 +3391,8 @@ static void viewer_dev_transport_to(ViewerState *v,
     p->plane = clamp_plane(d->plane);
     int reload_status = reload_scene_around_player(
         v, d->target_x, d->target_y);
+    p->plane = old_plane;
     if (reload_status <= 0) {
-        p->plane = old_plane;
         fprintf(stderr,
                 "dev transport: blocked %s because destination visuals for "
                 "%d,%d,%d are unavailable\n",
@@ -3354,7 +3400,6 @@ static void viewer_dev_transport_to(ViewerState *v,
         return;
     }
     if (reload_status == 2) {
-        p->plane = old_plane;
         v->pending_dev_transport = d;
         fprintf(stderr,
                 "dev transport: loading %s destination %d,%d,%d\n",
@@ -3374,9 +3419,14 @@ static void viewer_finish_dev_transport(ViewerState *v,
 
     int player_x = d->target_x;
     int player_y = d->target_y;
-    viewer_dev_player_tile(v, d, &player_x, &player_y);
-    if (!rc_world_relocate_player(v->world, player_x, player_y,
-                                  clamp_plane(d->plane))) {
+    if (!viewer_dev_player_tile(v, d, &player_x, &player_y)
+            || !rc_world_relocate_player(v->world, player_x, player_y,
+                                         clamp_plane(d->plane))) {
+        fprintf(stderr, "dev transport: %s rejected: cannot activate a reachable landing tile\n", d->label);
+        runec_ui_add_chat_message(&v->ui, "Teleport rejected: cannot activate a reachable landing tile.");
+        if (rc_world_activate_area_around(v->world, p->x, p->y, p->plane, NULL) < 0)
+            fprintf(stderr, "dev transport: failed to restore source collision\n");
+        reload_scene_around_player(v, p->x, p->y);
         return;
     }
     p->facing_entity = -1;
@@ -3869,7 +3919,8 @@ static int ground_item_at_tile_plane(const ViewerState *v, int x, int y,
                                      int plane) {
     for (int i = 0; i < v->world->ground_item_count; i++) {
         const RcGroundItem *g = &v->world->ground_items[i];
-        if (g->active && g->x == x && g->y == y && g->plane == plane) {
+        if (rc_ground_item_visible(g, RC_GROUND_OWNER_LOCAL_PLAYER)
+                && g->x == x && g->y == y && g->plane == plane) {
             return i;
         }
     }
@@ -3928,31 +3979,30 @@ static float npc_pick_box_height(const RcNpcDef *def, int size) {
     return height;
 }
 
+static RayCollision pick_npc_ray(ViewerState *v, int i, Ray ray) {
+    const RcNpc *n = &v->world->npcs[i];
+    int plane = viewer_scene_plane(v);
+    if (!n->active || n->is_dead || n->plane != plane)
+        return (RayCollision){0};
+    const RcNpcDef *def = rc_npc_def_for_npc(v->world, n);
+    if (!def) return (RayCollision){0};
+    int size = def->size > 0 ? def->size : 1;
+    float x = v->npc_render[i].initialized ? v->npc_render[i].render_x : (float)n->x;
+    float y = v->npc_render[i].initialized ? v->npc_render[i].render_y : (float)n->y;
+    float pad = npc_pick_padding(def);
+    BoundingBox box = viewer_tile_box(x - pad, y - pad, size + 2 * pad, size + 2 * pad,
+        ground_yf_plane(v, plane, x, y), npc_pick_box_height(def, size));
+    return GetRayCollisionBox(ray, box);
+}
+
 static int pick_npc_at_mouse_score(ViewerState *v, int *out_uid,
                                    float *out_score) {
     int best_uid = -1;
     float best_distance = 1000000000.0f;
-    int scene_plane = viewer_scene_plane(v);
     Ray ray = GetScreenToWorldRay(GetMousePosition(), v->camera);
     for (int i = 0; i < v->world->npc_count; i++) {
         const RcNpc *n = &v->world->npcs[i];
-        if (!n->active || n->is_dead || n->plane != scene_plane)
-            continue;
-        const RcNpcDef *def = rc_npc_def_for_npc(v->world, n);
-        if (!def)
-            continue;
-        int size = def->size > 0 ? def->size : 1;
-        float npc_x = v->npc_render[i].initialized
-                    ? v->npc_render[i].render_x : (float)n->x;
-        float npc_y = v->npc_render[i].initialized
-                    ? v->npc_render[i].render_y : (float)n->y;
-        float base_y = ground_yf_plane(v, scene_plane, npc_x, npc_y);
-        float pad = npc_pick_padding(def);
-        BoundingBox box = viewer_tile_box(npc_x - pad, npc_y - pad,
-                                          (float)size + pad * 2.0f,
-                                          (float)size + pad * 2.0f, base_y,
-                                          npc_pick_box_height(def, size));
-        RayCollision hit = GetRayCollisionBox(ray, box);
+        RayCollision hit = pick_npc_ray(v, i, ray);
         if (hit.hit && hit.distance < best_distance) {
             best_distance = hit.distance;
             best_uid = n->uid;
@@ -4531,207 +4581,150 @@ static int viewer_left_click_npc(ViewerState *v, int npc_uid) {
 }
 
 static void reset_viewer_context(ViewerState *v) {
-    v->context_kind = VIEWER_CONTEXT_NONE;
-    v->context_npc_uid = -1;
-    v->context_object = (ViewerPickedObject){0};
-    v->context_ground_item_idx = -1;
-    v->context_tile_x = -1;
-    v->context_tile_y = -1;
-    for (int i = 0; i < RUNEC_UI_CONTEXT_ACTIONS; i++)
-        v->context_action_option[i] = VIEWER_CONTEXT_CANCEL;
+    memset(v->context_entries, 0, sizeof(v->context_entries));
+    v->context_object = (ViewerPickedObject){.obj_id = -1};
+    v->context_page = 0;
+    v->context_plane = -1;
+    v->context_tile_x = v->context_tile_y = -1;
 }
 
-static void open_npc_context_menu(ViewerState *v, int npc_uid) {
-    RcNpc *npc = viewer_find_npc_by_uid(v, npc_uid);
-    const RcNpcDef *def = rc_npc_def_for_npc(v ? v->world : NULL, npc);
-    if (!def)
+static void scene_context_row(ViewerState *v, int row, ViewerContextEntry entry,
+                               const char *action, const char *target, Color color) {
+    v->context_entries[row] = entry;
+    snprintf(v->ui.context_actions[row], sizeof(v->ui.context_actions[row]), "%s", action);
+    snprintf(v->ui.context_targets[row], sizeof(v->ui.context_targets[row]), "%s", target);
+    v->ui.context_target_colors[row] = color;
+    v->ui.context_action_op[row] = row;
+    v->ui.context_action_count = row + 1;
+}
+
+static void scene_context_candidate(ViewerState *v, int *seen, ViewerContextEntry entry,
+                                     const char *action, const char *target, Color color) {
+    int row = (*seen)++ - v->context_page * VIEWER_CONTEXT_PAGE_ROWS;
+    if (row >= 0 && row < VIEWER_CONTEXT_PAGE_ROWS)
+        scene_context_row(v, row, entry, action, target, color);
+}
+
+static void build_scene_context_page(ViewerState *v, int page) {
+    if (!v || !v->world || page < 0 || v->context_plane != viewer_scene_plane(v))
         return;
-    const char *actions[RUNEC_UI_CONTEXT_ACTIONS];
-    char action_text[RUNEC_UI_CONTEXT_ACTIONS][RUNEC_UI_CONTEXT_TEXT_MAX];
-    int action_options[RUNEC_UI_CONTEXT_ACTIONS];
-    int count = 0;
-
-    for (int i = 0; i < RC_NPC_OPTION_COUNT
-            && count < RUNEC_UI_CONTEXT_ACTIONS - 3; i++) {
-        const char *option = rc_npc_def_option(def, i);
-        if (!option || !option[0])
-            continue;
-        snprintf(action_text[count], sizeof(action_text[count]), "%s", option);
-        actions[count] = action_text[count];
-        action_options[count] = i;
-        count++;
+    v->context_page = page;
+    Vector2 position = v->ui.context_pos;
+    const char *cancel[] = {"Cancel"};
+    runec_ui_open_context_targeted(&v->ui, position, "", WHITE, cancel, 1);
+    v->ui.context_action_count = 0;
+    memset(v->context_entries, 0, sizeof(v->context_entries));
+    int seen = 0;
+    // A right-click lists overlapping targets; the left-click winner must not hide loot.
+    for (int i = 0; i < v->world->npc_count; i++) {
+        if (!pick_npc_ray(v, i, v->context_ray).hit) continue;
+        const RcNpc *npc = &v->world->npcs[i];
+        const RcNpcDef *def = rc_npc_def_for_npc(v->world, npc);
+        ViewerContextEntry entry = {.kind = VIEWER_CONTEXT_NPC, .npc_uid = npc->uid};
+        for (int opt = 0; opt < RC_NPC_OPTION_COUNT; opt++) {
+            const char *label = rc_npc_def_option(def, opt);
+            if (!label || !label[0]) continue;
+            entry.option = opt;
+            scene_context_candidate(v, &seen, entry, label, def->name, YELLOW);
+        }
+        entry.option = VIEWER_CONTEXT_EXAMINE;
+        scene_context_candidate(v, &seen, entry, "Examine", def->name, YELLOW);
     }
-    if (count < RUNEC_UI_CONTEXT_ACTIONS - 1) {
-        snprintf(action_text[count], sizeof(action_text[count]), "Walk here");
-        actions[count] = action_text[count];
-        action_options[count] = VIEWER_CONTEXT_WALK_HERE;
-        count++;
+    const ViewerPickedObject *object = &v->context_object;
+    const RcObjectDef *def = object->obj_id >= 0 ? rc_object_def_get(object->obj_id) : NULL;
+    if (def) {
+        ViewerContextEntry entry = {.kind = VIEWER_CONTEXT_OBJECT};
+        for (int opt = 0; opt < RC_OBJECT_ACTIONS; opt++) {
+            const char *label = object_action_label(v, object, def, opt);
+            if (!object_action_option_available(v, object, opt) || !label[0]) continue;
+            entry.option = opt;
+            scene_context_candidate(v, &seen, entry, label, def->name, (Color){0,255,255,255});
+        }
+        entry.option = VIEWER_CONTEXT_EXAMINE;
+        scene_context_candidate(v, &seen, entry, "Examine", def->name, (Color){0,255,255,255});
     }
-    if (count < RUNEC_UI_CONTEXT_ACTIONS - 1) {
-        snprintf(action_text[count], sizeof(action_text[count]), "Examine");
-        actions[count] = action_text[count];
-        action_options[count] = VIEWER_CONTEXT_EXAMINE;
-        count++;
+    for (int i = 0; i < v->world->ground_item_count; i++) {
+        const RcGroundItem *g = &v->world->ground_items[i];
+        if (!rc_ground_item_visible(g, RC_GROUND_OWNER_LOCAL_PLAYER)
+                || g->x != v->context_tile_x || g->y != v->context_tile_y
+                || g->plane != v->context_plane) continue;
+        ViewerContextEntry entry = {.kind = VIEWER_CONTEXT_GROUND_ITEM,
+            .ground_index = i, .ground_uid = g->uid, .ground_version = g->version,
+            .option = VIEWER_CONTEXT_TAKE};
+        scene_context_candidate(v, &seen, entry, "Take",
+            viewer_ground_item_name(v, i), (Color){255,144,64,255});
+        entry.option = VIEWER_CONTEXT_EXAMINE;
+        scene_context_candidate(v, &seen, entry, "Examine",
+            viewer_ground_item_name(v, i), (Color){255,144,64,255});
     }
-    snprintf(action_text[count], sizeof(action_text[count]), "Cancel");
-    actions[count] = action_text[count];
-    action_options[count] = VIEWER_CONTEXT_CANCEL;
-    count++;
-
-    reset_viewer_context(v);
-    v->context_kind = VIEWER_CONTEXT_NPC;
-    v->context_npc_uid = npc_uid;
-    for (int i = 0; i < count; i++)
-        v->context_action_option[i] = action_options[i];
-    runec_ui_open_context_targeted(
-        &v->ui, GetMousePosition(), def->name,
-        (Color){255, 255, 0, 255}, actions, count);
-}
-
-static void open_object_context_menu(ViewerState *v,
-                                     ViewerPickedObject object) {
-    const RcObjectDef *def = rc_object_def_get(object.obj_id);
-    if (!def)
-        return;
-
-    const char *actions[RUNEC_UI_CONTEXT_ACTIONS];
-    char action_text[RUNEC_UI_CONTEXT_ACTIONS][80];
-    int action_options[RUNEC_UI_CONTEXT_ACTIONS];
-    int count = 0;
-
-    for (int i = 0; i < RC_OBJECT_ACTIONS
-            && count < RUNEC_UI_CONTEXT_ACTIONS - 3; i++) {
-        const char *label = object_action_label(v, &object, def, i);
-        if (!object_action_option_available(v, &object, i) || !label[0])
-            continue;
-        snprintf(action_text[count], sizeof(action_text[count]), "%s", label);
-        actions[count] = action_text[count];
-        action_options[count] = i;
-        count++;
+    ViewerContextEntry entry = {.kind = VIEWER_CONTEXT_TILE};
+    if (page > 0) {
+        entry.option = VIEWER_CONTEXT_PREVIOUS;
+        scene_context_row(v, v->ui.context_action_count, entry, "Previous options", "", WHITE);
     }
-    if (count < RUNEC_UI_CONTEXT_ACTIONS - 1) {
-        snprintf(action_text[count], sizeof(action_text[count]), "Walk here");
-        actions[count] = action_text[count];
-        action_options[count] = VIEWER_CONTEXT_WALK_HERE;
-        count++;
+    if (seen > (page + 1) * VIEWER_CONTEXT_PAGE_ROWS) {
+        entry.option = VIEWER_CONTEXT_MORE;
+        scene_context_row(v, v->ui.context_action_count, entry, "More options", "", WHITE);
     }
-    if (count < RUNEC_UI_CONTEXT_ACTIONS - 1) {
-        snprintf(action_text[count], sizeof(action_text[count]), "Examine");
-        actions[count] = action_text[count];
-        action_options[count] = VIEWER_CONTEXT_EXAMINE;
-        count++;
+    if (v->context_tile_x >= 0 && v->context_tile_y >= 0) {
+        entry.option = VIEWER_CONTEXT_WALK_HERE;
+        scene_context_row(v, v->ui.context_action_count, entry, "Walk here", "", WHITE);
     }
-    snprintf(action_text[count], sizeof(action_text[count]), "Cancel");
-    actions[count] = action_text[count];
-    action_options[count] = VIEWER_CONTEXT_CANCEL;
-    count++;
-
-    reset_viewer_context(v);
-    v->context_kind = VIEWER_CONTEXT_OBJECT;
-    v->context_object = object;
-    for (int i = 0; i < count; i++)
-        v->context_action_option[i] = action_options[i];
-    runec_ui_open_context_targeted(
-        &v->ui, GetMousePosition(), def->name,
-        (Color){0, 255, 255, 255}, actions, count);
-}
-
-static void open_ground_item_context_menu(ViewerState *v, int ground_item_idx,
-                                          int tile_x, int tile_y) {
-    if (!v || !v->world || ground_item_idx < 0
-            || ground_item_idx >= v->world->ground_item_count)
-        return;
-    const char *actions[] = {"Take", "Walk here", "Examine", "Cancel"};
-    const int options[] = {
-        VIEWER_CONTEXT_TAKE,
-        VIEWER_CONTEXT_WALK_HERE,
-        VIEWER_CONTEXT_EXAMINE,
-        VIEWER_CONTEXT_CANCEL,
-    };
-    reset_viewer_context(v);
-    v->context_kind = VIEWER_CONTEXT_GROUND_ITEM;
-    v->context_ground_item_idx = ground_item_idx;
-    v->context_tile_x = tile_x;
-    v->context_tile_y = tile_y;
-    for (int i = 0; i < 4; i++)
-        v->context_action_option[i] = options[i];
-    runec_ui_open_context_targeted(
-        &v->ui, GetMousePosition(),
-        viewer_ground_item_name(v, ground_item_idx),
-        (Color){255, 144, 64, 255}, actions, 4);
-}
-
-static void open_tile_context_menu(ViewerState *v, int tile_x, int tile_y) {
-    const char *actions[] = {"Walk here", "Cancel"};
-    reset_viewer_context(v);
-    v->context_kind = VIEWER_CONTEXT_TILE;
-    v->context_tile_x = tile_x;
-    v->context_tile_y = tile_y;
-    v->context_action_option[0] = VIEWER_CONTEXT_WALK_HERE;
-    v->context_action_option[1] = VIEWER_CONTEXT_CANCEL;
-    runec_ui_open_context_targeted(
-        &v->ui, GetMousePosition(), "", WHITE, actions, 2);
+    entry.option = VIEWER_CONTEXT_CANCEL;
+    scene_context_row(v, v->ui.context_action_count, entry, "Cancel", "", WHITE);
 }
 
 static void open_scene_context_menu(ViewerState *v) {
-    ViewerHoverTarget hover;
-    int have_hover = resolve_scene_hover_target(v, &hover);
-    if (have_hover && hover.kind == VIEWER_HOVER_NPC) {
-        open_npc_context_menu(v, hover.npc_uid);
-    } else if (have_hover && hover.kind == VIEWER_HOVER_OBJECT) {
-        open_object_context_menu(v, hover.object);
-    } else if (have_hover && hover.kind == VIEWER_HOVER_GROUND_ITEM) {
-        open_ground_item_context_menu(
-            v, hover.ground_item_idx, hover.tile_x, hover.tile_y);
-    } else if (have_hover && hover.kind == VIEWER_HOVER_TILE) {
-        open_tile_context_menu(v, hover.tile_x, hover.tile_y);
-    } else {
-        reset_viewer_context(v);
-    }
+    reset_viewer_context(v);
+    v->context_plane = viewer_scene_plane(v);
+    v->ui.context_pos = GetMousePosition();
+    v->context_ray = GetScreenToWorldRay(v->ui.context_pos, v->camera);
+    raycast_tile(v, &v->context_tile_x, &v->context_tile_y);
+    pick_object_at_mouse(v, &v->context_object);
+    build_scene_context_page(v, 0);
 }
 
 static void handle_context_intent(ViewerState *v) {
-    if (v->ui.last_intent.kind != RUNEC_UI_INTENT_CONTEXT_ACTION)
-        return;
-    int action_idx = v->ui.last_intent.primary;
-    if (action_idx < 0 || action_idx >= RUNEC_UI_CONTEXT_ACTIONS) {
+    if (v->ui.last_intent.kind != RUNEC_UI_INTENT_CONTEXT_ACTION) return;
+    int row = v->ui.last_intent.primary;
+    if (row < 0 || row >= v->ui.context_action_count || row >= RUNEC_UI_CONTEXT_ACTIONS
+            || v->context_plane != viewer_scene_plane(v)) {
         reset_viewer_context(v);
         return;
     }
-    if (v->context_kind == VIEWER_CONTEXT_NPC) {
-        RcNpc *npc = viewer_find_npc_by_uid(v, v->context_npc_uid);
-        int option = v->context_action_option[action_idx];
-        if (npc && option >= 0) {
-            rc_player_interact_npc(v->world, v->context_npc_uid, option);
-        } else if (npc && option == VIEWER_CONTEXT_WALK_HERE) {
-            route_player_to(v, npc->x, npc->y);
-        } else if (npc && option == VIEWER_CONTEXT_EXAMINE) {
-            rc_player_examine_npc(v->world, v->context_npc_uid);
-        }
-    } else if (v->context_kind == VIEWER_CONTEXT_OBJECT) {
+    ViewerContextEntry entry = v->context_entries[row];
+    int option = entry.option;
+    if (entry.kind == VIEWER_CONTEXT_NPC) {
+        RcNpc *npc = viewer_find_npc_by_uid(v, entry.npc_uid);
+        if (npc && option >= 0)
+            rc_player_interact_npc(v->world, entry.npc_uid, option);
+        else if (npc && option == VIEWER_CONTEXT_EXAMINE)
+            rc_player_examine_npc(v->world, entry.npc_uid);
+    } else if (entry.kind == VIEWER_CONTEXT_OBJECT) {
         ViewerPickedObject object = v->context_object;
-        int option = v->context_action_option[action_idx];
-        if (option >= 0) {
+        if (option >= 0)
             viewer_interact_object(v, object, option);
-        } else if (option == VIEWER_CONTEXT_WALK_HERE) {
-            route_player_to(v, object.x, object.y);
-        } else if (option == VIEWER_CONTEXT_EXAMINE) {
-            rc_player_examine_object_placement(
-                v->world, object.obj_id, object.x, object.y, object.plane,
-                object.placement_key);
-        }
-    } else if (v->context_kind == VIEWER_CONTEXT_GROUND_ITEM) {
-        int option = v->context_action_option[action_idx];
+        else if (option == VIEWER_CONTEXT_EXAMINE)
+            rc_player_examine_object_placement(v->world, object.obj_id,
+                object.x, object.y, object.plane, object.placement_key);
+    } else if (entry.kind == VIEWER_CONTEXT_GROUND_ITEM) {
         if (option == VIEWER_CONTEXT_TAKE) {
-            rc_player_pickup_item(v->world, v->context_ground_item_idx);
-        } else if (option == VIEWER_CONTEXT_WALK_HERE) {
-            route_player_to(v, v->context_tile_x, v->context_tile_y);
+            rc_player_pickup_item_expected(v->world, entry.ground_index,
+                entry.ground_uid, entry.ground_version);
         } else if (option == VIEWER_CONTEXT_EXAMINE) {
-            rc_player_examine_ground_item(v->world,
-                                          v->context_ground_item_idx);
+            const RcGroundItem *g = entry.ground_index >= 0
+                && entry.ground_index < v->world->ground_item_count
+                ? &v->world->ground_items[entry.ground_index] : NULL;
+            if (g && g->uid == entry.ground_uid && g->version == entry.ground_version
+                    && g->plane == v->context_plane
+                    && rc_ground_item_visible(g, RC_GROUND_OWNER_LOCAL_PLAYER))
+                rc_player_examine_ground_item(v->world, entry.ground_index);
         }
-    } else if (v->context_kind == VIEWER_CONTEXT_TILE) {
-        int option = v->context_action_option[action_idx];
+    } else if (entry.kind == VIEWER_CONTEXT_TILE) {
+        if (option == VIEWER_CONTEXT_MORE || option == VIEWER_CONTEXT_PREVIOUS) {
+            build_scene_context_page(v, v->context_page + (option == VIEWER_CONTEXT_MORE ? 1 : -1));
+            return;
+        }
         if (option == VIEWER_CONTEXT_WALK_HERE)
             route_player_to(v, v->context_tile_x, v->context_tile_y);
     }
@@ -4796,12 +4789,6 @@ static int item_display_id_for_quantity(const ViewerState *v, int item_id, int q
     return item_id;
 }
 
-static float ground_item_scale(int item_id, int quantity) {
-    (void)item_id;
-    (void)quantity;
-    return 0.65f;
-}
-
 static void begin_one_sided_model_draw(void) {
     rlSetCullFace(RL_CULL_FACE_BACK);
     rlEnableBackfaceCulling();
@@ -4835,10 +4822,8 @@ static void draw_model_entry_one_sided(ModelEntry *entry, Vector3 pos,
     }
 }
 
-static int draw_item_model_with_shader(ViewerState *v, uint32_t model_id,
-                                       Vector3 pos, float facing_angle,
-                                       float scale, Color tint,
-                                       int use_dynamic_shader) {
+static int draw_item_model(ViewerState *v, uint32_t model_id, Vector3 pos,
+                           float facing_angle, float scale, Color tint) {
     if (!v->item_models || !v->item_models->loaded
             || model_id == RUNEC_RENDER_MODEL_MISSING)
         return 0;
@@ -4847,22 +4832,8 @@ static int draw_item_model_with_shader(ViewerState *v, uint32_t model_id,
         return 0;
     draw_model_entry_one_sided(
         entry, pos, facing_angle, scale, tint,
-        v->alpha_cutout_shader_dynamic, use_dynamic_shader
-            && v->alpha_cutout_shader_dynamic_loaded);
+        v->alpha_cutout_shader_dynamic, 0);
     return 1;
-}
-
-static int draw_item_model(ViewerState *v, uint32_t model_id, Vector3 pos,
-                           float facing_angle, float scale, Color tint) {
-    return draw_item_model_with_shader(v, model_id, pos, facing_angle, scale,
-                                       tint, 0);
-}
-
-static int draw_scene_item_model(ViewerState *v, uint32_t model_id,
-                                 Vector3 pos, float facing_angle,
-                                 float scale, Color tint) {
-    return draw_item_model_with_shader(v, model_id, pos, facing_angle, scale,
-                                       tint, 1);
 }
 
 static int ui_item_icon_cached(const RuneCUiState *ui, uint32_t icon_item_id) {
@@ -7014,37 +6985,47 @@ static int draw_generated_equipped_item_models(ViewerState *v, const RcPlayer *p
     return drawn;
 }
 
-static int draw_ground_item_model(ViewerState *v, const RcGroundItem *ground,
-                                  Vector3 pos) {
-    int render_item_id = ground->item_id == 995
-        ? coin_stack_model_item_id(ground->quantity)
-        : ground->item_id;
-    const RuneCItemRenderRecord *rec = runec_item_render_find(
-        &v->item_render_map, (uint32_t)render_item_id);
-    if (rec && rec->ground_model_id != RUNEC_RENDER_MODEL_MISSING) {
-        return draw_scene_item_model(
-            v, rec->ground_model_id, pos, 0.0f,
-            ground_item_scale(render_item_id, ground->quantity), WHITE);
+static ModelSet *ground_item_models(ViewerState *v, int item_id) {
+    uint64_t stamp = ++v->ground_model_clock;
+    int oldest = 0;
+    for (int i = 0; i < RC_MAX_GROUND_ITEMS; i++) {
+        if (v->ground_models[i].last_use && v->ground_models[i].item_id == item_id) {
+            v->ground_models[i].last_use = stamp;
+            return v->ground_models[i].models;
+        }
+        if (v->ground_models[i].last_use < v->ground_models[oldest].last_use)
+            oldest = i;
     }
+    models_free(v->ground_models[oldest].models);
+    char path[128];
+    snprintf(path, sizeof(path), "data/models/ground/%d.models", item_id);
+    ModelSet *models = models_load_cpu_with_shared_atlas(path);
+    if (!models || !model_find(models, (uint32_t)item_id)) {
+        fprintf(stderr, "ground item %d: missing render model; rebuild ground-item assets (%s)\n",
+                item_id, path);
+        models_free(models);
+        models = NULL;
+    }
+    v->ground_models[oldest].models = models;
+    v->ground_models[oldest].item_id = item_id;
+    v->ground_models[oldest].last_use = stamp;
+    return models;
+}
 
-    const RuneCItemDefRenderRecord *def_render =
-        runec_item_def_render_find(&v->item_def_render_map, render_item_id);
-    if (!def_render)
-        def_render =
-            runec_item_def_render_find(&v->item_def_render_map, ground->item_id);
-    if (!def_render ||
-            def_render->ground_model_id == RUNEC_RENDER_MODEL_MISSING)
-        return 0;
-    if (!v->item_models || !v->item_models->loaded)
-        return 0;
-    ModelEntry *entry = model_find(v->item_models, def_render->ground_model_id);
-    if (!entry || !entry->loaded)
-        return 0;
-    float scale = ground_item_scale(render_item_id, ground->quantity);
-    draw_model_entry_one_sided(
-        entry, pos, 0.0f, scale, WHITE, v->alpha_cutout_shader_dynamic,
-        v->alpha_cutout_shader_dynamic_loaded);
-    return 1;
+static void draw_ground_item_model(ViewerState *v, const RcGroundItem *ground,
+                                   Vector3 pos) {
+    int item_id = item_display_id_for_quantity(v, ground->item_id, ground->quantity);
+    ModelSet *models = ground_item_models(v, item_id);
+    if (!models || !v->item_models || !v->item_models->atlas_texture.id)
+        return;
+    ModelEntry *entry = model_find(models, (uint32_t)item_id);
+    if (!entry->uploaded && !models_upload_with_shared_atlas(
+            models, v->item_models->atlas_texture)) {
+        fprintf(stderr, "ground item %d: GPU upload failed\n", item_id);
+        return;
+    }
+    draw_model_entry_one_sided(entry, pos, 0.0f, 1.0f, WHITE,
+        v->alpha_cutout_shader_dynamic, v->alpha_cutout_shader_dynamic_loaded);
 }
 
 static const char *combat_actor_kind_name(int kind) {
@@ -9266,7 +9247,8 @@ static void draw_scene(ViewerState *v, int ui_capture) {
 
     for (int i = 0; i < v->world->ground_item_count; i++) {
         const RcGroundItem *g = &v->world->ground_items[i];
-        if (!g->active || g->plane != scene_plane) continue;
+        if (!rc_ground_item_visible(g, RC_GROUND_OWNER_LOCAL_PLAYER)
+                || g->plane != scene_plane) continue;
         if (g->x < g_world_origin_x || g->x >= g_world_origin_x + g_world_w
                 || g->y < g_world_origin_y
                 || g->y >= g_world_origin_y + g_world_h)
@@ -9276,10 +9258,7 @@ static void draw_scene(ViewerState *v, int ui_capture) {
         float gx = (float)LOCAL_X(g->x) + 0.5f;
         float gz = -((float)LOCAL_Y(g->y) + 0.5f);
         float gy = ground_y_plane(v, scene_plane, g->x, g->y) + 0.08f;
-        if (!draw_ground_item_model(v, g, (Vector3){gx, gy, gz})) {
-            DrawCube((Vector3){gx, gy, gz}, 0.35f, 0.08f, 0.35f,
-                     (Color){235, 190, 55, 255});
-        }
+        draw_ground_item_model(v, g, (Vector3){gx, gy, gz});
     }
 
     draw_combat_projectiles(v);
@@ -9453,6 +9432,61 @@ static void draw_streaming_telemetry_overlay(ViewerState *v) {
         DrawText(lines[i], x + 7, y + 5 + i * line_height, 12, RAYWHITE);
 }
 
+static RcWorldConfig viewer_world_config(
+    RcWorldStreamingConfig backend_streaming, const char *combat_visuals_path) {
+    RcWorldConfig cfg = rc_preset_base_only();
+    cfg.streaming = backend_streaming;
+    cfg.npc_capacity = RC_WORLD_NPC_CAPACITY_FULL;
+    cfg.subsystems = RC_SUB_INVENTORY | RC_SUB_EQUIPMENT | RC_SUB_LOOT |
+                     RC_SUB_COMBAT | RC_SUB_PRAYER | RC_SUB_OBJECTS |
+                     RC_SUB_REGIONS | RC_SUB_TRAVERSAL | RC_SUB_STORAGE |
+                     RC_SUB_ENCOUNTER;
+    cfg.npc_defs_path = env_path("RUNEC_NPC_DEFS", "data/defs/npc_defs.bin");
+    cfg.items_path = env_path("RUNEC_ITEMS", "data/defs/items.bin");
+    cfg.drops_path = env_path("RUNEC_DROPS", "data/defs/drops.bin");
+    cfg.rdt_path = env_path("RUNEC_RDT", "data/defs/rdt.bin");
+    cfg.gdt_path = env_path("RUNEC_GDT", "data/defs/gdt.bin");
+    cfg.mrdt_path = env_path("RUNEC_MRDT", "data/defs/mrdt.bin");
+    cfg.prayers_path = env_path("RUNEC_PRAYERS", "data/defs/prayers.bin");
+    cfg.varbits_path = env_path("RUNEC_VARBITS", "data/defs/varbits.bin");
+    cfg.varps_path = env_path("RUNEC_VARPS", "data/defs/varps.bin");
+    cfg.spells_path = env_path("RUNEC_SPELLS", "data/defs/spells.bin");
+    cfg.combat_profiles_path = env_path("RUNEC_COMBAT_PROFILES",
+        combat_visuals_path);
+    cfg.monster_mechanics_path = env_path("RUNEC_MONSTER_MECHANICS",
+        "data/defs/regular_npc_mechanics.bin");
+    cfg.activity_schemas_path = env_path("RUNEC_ACTIVITY_SCHEMAS",
+        "data/defs/activity_schemas.bin");
+    cfg.activity_spawns_path = env_path("RUNEC_ACTIVITY_SPAWNS",
+        "data/defs/activity_spawns.bin");
+    cfg.activity_mechanics_path = env_path("RUNEC_ACTIVITY_MECHANICS",
+        "data/defs/activity_mechanics.bin");
+    cfg.activity_states_path = env_path("RUNEC_ACTIVITY_STATES",
+        "data/defs/activity_states.bin");
+    cfg.encounters_path = env_path("RUNEC_ENCOUNTERS",
+        "data/defs/encounters.bin");
+    cfg.player_actions_path = env_path("RUNEC_PLAYER_ACTIONS",
+        "data/defs/player_actions.bin");
+    cfg.object_defs_path = env_path("RUNEC_OBJECT_DEFS",
+        "data/defs/object_defs.bin");
+    cfg.object_placements_path = env_path("RUNEC_OBJECT_PLACEMENTS",
+        "data/regions/world.object-placements.indexed.bin");
+    cfg.object_behaviors_path = env_path("RUNEC_OBJECT_BEHAVIORS",
+        "data/defs/object_behaviors.bin");
+    cfg.collision_tiles_path = env_path("RUNEC_COLLISION_TILES",
+        "data/regions/world.collision-tiles.indexed.bin");
+    cfg.spawns_path = env_path("RUNEC_NPC_SPAWNS",
+        "data/spawns/world.npc-spawns.indexed.bin");
+    cfg.ground_item_spawns_path = env_path("RUNEC_GROUND_ITEM_SPAWNS",
+        "data/spawns/world.ground-items.indexed.bin");
+    cfg.area_flags_path = env_path("RUNEC_AREA_FLAGS",
+        "data/defs/area_flags.bin");
+    cfg.traversal_edges_path = env_path("RUNEC_TRAVERSAL_EDGES",
+        "data/defs/traversal_edges.bin");
+    cfg.seed = 12345;
+    return cfg;
+}
+
 int main(int argc, char **argv) {
     (void)argc;
     double startup_started_ms = viewer_streaming_now_ms();
@@ -9545,52 +9579,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    RcWorldConfig cfg = rc_preset_base_only();
-    cfg.streaming = backend_streaming;
-    cfg.npc_capacity = RC_WORLD_NPC_CAPACITY_FULL;
-    cfg.subsystems = RC_SUB_INVENTORY | RC_SUB_EQUIPMENT | RC_SUB_LOOT |
-                     RC_SUB_COMBAT | RC_SUB_PRAYER | RC_SUB_OBJECTS |
-                     RC_SUB_REGIONS | RC_SUB_TRAVERSAL | RC_SUB_STORAGE |
-                     RC_SUB_ENCOUNTER;
-    cfg.npc_defs_path = env_path("RUNEC_NPC_DEFS", "data/defs/npc_defs.bin");
-    cfg.items_path = env_path("RUNEC_ITEMS", "data/defs/items.bin");
-    cfg.prayers_path = env_path("RUNEC_PRAYERS", "data/defs/prayers.bin");
-    cfg.varbits_path = env_path("RUNEC_VARBITS", "data/defs/varbits.bin");
-    cfg.varps_path = env_path("RUNEC_VARPS", "data/defs/varps.bin");
-    cfg.spells_path = env_path("RUNEC_SPELLS", "data/defs/spells.bin");
-    cfg.combat_profiles_path = env_path("RUNEC_COMBAT_PROFILES",
-        combat_visuals_path);
-    cfg.monster_mechanics_path = env_path("RUNEC_MONSTER_MECHANICS",
-        "data/defs/regular_npc_mechanics.bin");
-    cfg.activity_schemas_path = env_path("RUNEC_ACTIVITY_SCHEMAS",
-        "data/defs/activity_schemas.bin");
-    cfg.activity_spawns_path = env_path("RUNEC_ACTIVITY_SPAWNS",
-        "data/defs/activity_spawns.bin");
-    cfg.activity_mechanics_path = env_path("RUNEC_ACTIVITY_MECHANICS",
-        "data/defs/activity_mechanics.bin");
-    cfg.activity_states_path = env_path("RUNEC_ACTIVITY_STATES",
-        "data/defs/activity_states.bin");
-    cfg.encounters_path = env_path("RUNEC_ENCOUNTERS",
-        "data/defs/encounters.bin");
-    cfg.player_actions_path = env_path("RUNEC_PLAYER_ACTIONS",
-        "data/defs/player_actions.bin");
-    cfg.object_defs_path = env_path("RUNEC_OBJECT_DEFS",
-        "data/defs/object_defs.bin");
-    cfg.object_placements_path = env_path("RUNEC_OBJECT_PLACEMENTS",
-        "data/regions/world.object-placements.indexed.bin");
-    cfg.object_behaviors_path = env_path("RUNEC_OBJECT_BEHAVIORS",
-        "data/defs/object_behaviors.bin");
-    cfg.collision_tiles_path = env_path("RUNEC_COLLISION_TILES",
-        "data/regions/world.collision-tiles.indexed.bin");
-    cfg.spawns_path = env_path("RUNEC_NPC_SPAWNS",
-        "data/spawns/world.npc-spawns.indexed.bin");
-    cfg.ground_item_spawns_path = env_path("RUNEC_GROUND_ITEM_SPAWNS",
-        "data/spawns/world.ground-items.indexed.bin");
-    cfg.area_flags_path = env_path("RUNEC_AREA_FLAGS",
-        "data/defs/area_flags.bin");
-    cfg.traversal_edges_path = env_path("RUNEC_TRAVERSAL_EDGES",
-        "data/defs/traversal_edges.bin");
-    cfg.seed = 12345;
+    RcWorldConfig cfg = viewer_world_config(backend_streaming, combat_visuals_path);
     fprintf(stderr,
             "backend streaming config: active_radius=%d "
             "max_cached_regions=%d\n",
@@ -10202,6 +10191,8 @@ cleanup:
     free_projectile_anim_states(&v);
     clear_composed_player_model(&v);
     models_free(v.player_model);
+    for (int i = 0; i < RC_MAX_GROUND_ITEMS; i++)
+        models_free(v.ground_models[i].models);
     models_free(v.npc_models);
     models_free(v.item_models);
     models_free(v.projectile_models);

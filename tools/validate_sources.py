@@ -131,6 +131,9 @@ def tree_sha256(path: Path) -> tuple[str, int]:
     for child in sorted(path.rglob("*")):
         if not child.is_file():
             continue
+        # Match the repository's local-only Markdown policy; READMEs are tracked.
+        if child.suffix == ".md" and child.name != "README.md":
+            continue
         child_rel = rel(child)
         h.update(child_rel.encode())
         h.update(b"\0")

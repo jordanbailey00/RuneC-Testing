@@ -11,6 +11,7 @@ import struct
 from pathlib import Path
 from typing import Any
 from export_spells import update_combat_effects
+from compile_loot_rejections import install_rejections
 
 ROOT = Path(__file__).resolve().parents[1]
 SNAPSHOT_ROOT = ROOT / "content/runtime_snapshots"
@@ -131,6 +132,10 @@ def write_reports(installed: list[dict[str, Any]]) -> None:
             lines.append("entries: " + str(total_rows))
         if report_name == "drops.txt":
             lines.append("drop tables: " + str(total_rows))
+            lines[2:5] = ["status: IN_PROGRESS_NOT_VERIFIED",
+                "source: owned v1 snapshot plus content/loot/rejections.json and runtime_repairs.json",
+                "authority: source rejections enforced; remaining legacy rows NOT approved"]
+            lines.append("DROP v2: rejected tables contain no executable entries; exact-roll migration remains open")
         if report_name == "rdt_gdt.txt":
             lines.append("table rows: " + str(total_rows))
         if report_name == "spells.txt":
@@ -143,7 +148,9 @@ def write_reports(installed: list[dict[str, Any]]) -> None:
         lines.extend(
             [
                 "",
-                "accepted simplifications:",
+                "remaining verification:" if report_name == "drops.txt" else "accepted simplifications:",
+                "  - non-rejected legacy loot still needs exact probabilities, grouping and identity/quantity reconciliation"
+                if report_name == "drops.txt" else
                 "  - this first-release bridge preserves the reviewed runtime snapshot while semantic source tables are normalized later",
                 "  - no external checkout, wiki cache, private-server source, or wrong-game source is read during rebuild",
             ]
@@ -179,7 +186,10 @@ def main() -> int:
         verify_source(src, row)
         dst = ROOT / logical
         dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dst)
+        if logical == "data/defs/drops.bin":
+            install_rejections(src, dst)
+        else:
+            shutil.copy2(src, dst)
         if logical == "data/defs/spells.bin":
             update_combat_effects(dst)
         installed.append(

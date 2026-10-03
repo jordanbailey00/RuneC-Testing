@@ -100,12 +100,16 @@ def npc_symbols() -> dict[int, str]:
 def drop_table_ids(path: Path) -> set[int]:
     out: set[int] = set()
     with path.open("rb") as f:
-        magic, _version, count = struct.unpack("<III", read_exact(f, 12))
-        if magic != DROP_MAGIC:
-            raise ValueError("bad DROP magic")
+        magic, version, count = struct.unpack("<III", read_exact(f, 12))
+        if magic != DROP_MAGIC or version != 2:
+            raise ValueError("expected DROP v2; rebuild runtime drops")
         for _ in range(count):
             npc_id = struct.unpack("<I", read_exact(f, 4))[0]
-            out.add(npc_id)
+            rejected, = struct.unpack("<I", read_exact(f, 4))
+            if rejected & ~3:
+                raise ValueError("invalid DROP rejection flags")
+            if not rejected:
+                out.add(npc_id)
             always = struct.unpack("<B", read_exact(f, 1))[0]
             read_exact(f, always * 8)
             main = struct.unpack("<B", read_exact(f, 1))[0]
@@ -200,6 +204,9 @@ def main() -> int:
 
     model_linked = {i for i, d in defs.items() if d["models"]}
     combat_ids = {i for i, d in defs.items() if d["combat"] > 0}
+    rejections = json.loads((ROOT / "content/loot/rejections.json").read_text())
+    rejected_ids = {i for table in rejections["tables"] for i in table["npc_ids"]}
+    missing_spawn_loot = sorted((spawn_all & combat_ids) - drop_ids - rejected_ids)
     mechanic_names = toml_names(content_read_path("mechanics"))
     encounter_names = toml_names(content_read_path("encounters"))
     special_path = content_read_path("regular_npc_special_mechanics.toml")
@@ -248,6 +255,7 @@ def main() -> int:
         f"world spawn NPC IDs: {len(spawn_all)}",
         f"world spawn IDs missing npc_defs: {len(spawn_all - set(defs))}",
         f"instance-flagged spawn NPC IDs: {len(spawn_instance)}",
+        f"spawned combat definitions with no loot binding (excluding explicit rejections): {len(missing_spawn_loot)}",
         "",
         "Morph / state coverage",
         "morph parent IDs: "
@@ -284,6 +292,9 @@ def main() -> int:
         lines += ["", "Sample name-normalized mechanics TOMLs unmatched to encounter TOML:"]
         for name in missing_mechanics[:40]:
             lines.append(f"  {name}")
+    lines += ["", "Spawned combat definitions requiring loot-binding review:",
+              "Not automatic aliases: same-named quest, challenge and state variants may have different rewards."]
+    lines += [f"  {i}: {defs[i]['name']}" for i in missing_spawn_loot]
 
     out = ROOT / "tools/reports/npc_reconciliation.txt"
     out.write_text("\n".join(lines) + "\n")

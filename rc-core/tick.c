@@ -33,20 +33,6 @@ static const RcNpcDef *npc_def_for(const RcWorld *world, const RcNpc *npc) {
     return rc_npc_def_for_npc(world, npc);
 }
 
-static void spawn_npc_loot(RcWorld *world, const RcNpc *npc) {
-    if (!world || !npc || !(world->enabled & RC_SUB_LOOT)) return;
-    const RcNpcDef *def = npc_def_for(world, npc);
-    if (!def) return;
-    int npc_id = def->id;
-    RcLootDrop drops[RC_MAX_LOOT_DROPS];
-    int count = rc_roll_npc_loot(world, npc_id, drops, RC_MAX_LOOT_DROPS);
-    for (int i = 0; i < count; i++) {
-        rc_ground_item_spawn(world, drops[i].item_id, drops[i].quantity,
-                             npc->x, npc->y, npc->plane,
-                             RC_GROUND_OWNER_LOCAL_PLAYER);
-    }
-}
-
 static RcNpc *api_find_npc_by_uid(RcWorld *world, int uid);
 static int api_option_from_interaction_op(RcInteractionOp op);
 static int api_npc_attack_option_index(const RcNpcDef *def);
@@ -384,6 +370,10 @@ static int route_player_toward_interaction_target(RcWorld *world, RcPlayer *p,
     RcRouteTarget target = rc_route_target_rectangle(
         t->tile_x, t->tile_y, t->footprint_width, t->footprint_height,
         range > 0 ? 1 : 0, range, range == 0, range > 1);
+    if (t->kind == RC_INTERACTION_GROUND_ITEM && range == 1) {
+        target.min_distance = 0;
+        target.allow_inside = true;
+    }
     if (t->kind == RC_INTERACTION_OBJECT) {
         RcObjectPlacement placement;
         if (rc_world_object_current_placement(
@@ -577,8 +567,7 @@ static int validate_pending_ground_item_interaction(
         pending->last_failure = RC_INTERACTION_FAIL_TARGET_MISSING;
         return 0;
     }
-    if (item->visibility != RC_GROUND_VIS_PUBLIC &&
-            item->owner_uid != RC_GROUND_OWNER_LOCAL_PLAYER) {
+    if (!rc_ground_item_visible(item, RC_GROUND_OWNER_LOCAL_PLAYER)) {
         pending->last_failure = RC_INTERACTION_FAIL_TARGET_MISSING;
         return 0;
     }
@@ -738,7 +727,11 @@ static void process_player_interaction(RcWorld *world, int dispatch_ready) {
             return;
         } else {
             int range = p->interaction.approach_range;
-            if (player_distance_to_target(p, &p->interaction.target) > range) {
+            int reached = range == 1
+                ? rc_ground_item_reachable(world, p->interaction.target.tile_x,
+                    p->interaction.target.tile_y, p->interaction.target.plane)
+                : player_distance_to_target(p, &p->interaction.target) <= range;
+            if (!reached) {
                 if (!route_player_toward_interaction_target(
                         world, p, &p->interaction.target, range)) {
                     rc_interaction_cancel(p, RC_INTERACTION_FAIL_CANNOT_REACH);
@@ -746,6 +739,15 @@ static void process_player_interaction(RcWorld *world, int dispatch_ready) {
                 return;
             }
             face_player_to_target(p, &p->interaction.target);
+            if (dispatch_ready && p->interaction.op == RC_INTERACTION_OP1
+                    && (p->x != p->interaction.target.tile_x
+                        || p->y != p->interaction.target.tile_y)) {
+                if (player_has_active_route(p))
+                    rc_player_route_clear(p, RC_MOVEMENT_ARRIVED);
+                if (!p->interaction.ready_tick)
+                    p->interaction.ready_tick = world->tick + 1;
+                if (world->tick < p->interaction.ready_tick) return;
+            }
         }
     } else if (p->interaction.target.kind == RC_INTERACTION_INVENTORY_ITEM ||
             p->interaction.target.kind == RC_INTERACTION_EQUIPMENT_ITEM ||
@@ -822,7 +824,6 @@ static void process_player_skilling(RcWorld *world) {
 static void resolve_npc_hits(RcWorld *world, RcNpc *npc) {
     const RcNpcDef *def = npc_def_for(world, npc);
     bool was_alive = !npc->is_dead;
-    int death_source = RC_HIT_SOURCE_STATUS;
     int w = 0;
     for (int i = 0; i < npc->num_pending_hits; i++) {
         RcPendingHit *h = &npc->pending_hits[i];
@@ -848,6 +849,8 @@ static void resolve_npc_hits(RcWorld *world, RcNpc *npc) {
                                    hit_type, h->flags, 4);
         h->active = 0;
         npc->current_hp -= damage;
+        if (h->source_idx == RC_HIT_SOURCE_PLAYER && damage > 0)
+            npc->player_loot_credit = true;
         if (h->accurate && h->defence_drain > 0) {
             npc->stats[1] -= h->defence_drain;
             if (npc->stats[1] < 0) npc->stats[1] = 0;
@@ -875,7 +878,6 @@ static void resolve_npc_hits(RcWorld *world, RcNpc *npc) {
                                ? def->respawn_ticks : 0;
             npc->target_uid = -1;
             rc_npc_route_clear(npc, RC_MOVEMENT_NONE);
-            death_source = h->source_idx;
             if (world->player.attack_target == npc->uid) {
                 world->player.attack_target = -1;
                 world->player.attack_target_def_id = -1;
@@ -897,7 +899,7 @@ static void resolve_npc_hits(RcWorld *world, RcNpc *npc) {
     npc->combat.hp_max = def ? def->hitpoints : 0;
     // Fire death event once on the transition alive → dead.
     if (was_alive && npc->is_dead) {
-        if (death_source == RC_HIT_SOURCE_PLAYER) spawn_npc_loot(world, npc);
+        rc_npc_prepare_loot(world, npc);
         RcPayloadNpcEvent payload = {
             .npc_id = (uint32_t)npc->uid,
             .def_id = def ? (uint32_t)def->id : 0,
@@ -927,31 +929,6 @@ static void check_deaths(RcWorld *world) {
 
 static void tick_respawns(RcWorld *world) {
     rc_world_objects_tick(world);
-}
-
-static void tick_ground_items(RcWorld *world) {
-    if (!world) return;
-    for (int i = 0; i < world->ground_item_count; i++) {
-        RcGroundItem *item = &world->ground_items[i];
-        if (!item->active) continue;
-        if (world->tick < item->timer_start_tick) continue;
-        if (item->visibility == RC_GROUND_VIS_PRIVATE &&
-                item->reveal_timer > 0) {
-            item->reveal_timer--;
-            if (item->reveal_timer == 0) {
-                item->visibility = RC_GROUND_VIS_PUBLIC;
-                item->owner_uid = RC_GROUND_OWNER_NONE;
-                item->version++;
-            }
-        }
-        if (item->despawn_timer <= 0) continue;
-        item->despawn_timer--;
-        if (item->despawn_timer == 0) {
-            item->active = false;
-            item->quantity = 0;
-            item->version++;
-        }
-    }
 }
 
 // Tick dispatcher. Per rc-core/README.md §3, per-subsystem ticks are
@@ -1026,7 +1003,7 @@ void rc_world_tick(RcWorld *world) {
     // Phase 8 — deaths / respawns / ground items.
     if (on & RC_SUB_COMBAT)   check_deaths(world);
     tick_respawns(world);     // base — NPC wander reset clock
-    if (on & RC_SUB_LOOT)     tick_ground_items(world);
+    if (on & RC_SUB_LOOT)     rc_ground_items_tick(world);
 
     world->tick++;
     if (world->player_action.active) rc_player_action_refresh(world);
@@ -2766,7 +2743,7 @@ int rc_player_use_inventory_item_on_ground_item(RcWorld *world,
     int item_id = p->inventory[inv_slot].item_id;
     if (item_id < 0 || p->inventory[inv_slot].quantity <= 0) return 0;
     RcGroundItem *ground = &world->ground_items[ground_item_idx];
-    if (!ground->active) return 0;
+    if (!rc_ground_item_visible(ground, RC_GROUND_OWNER_LOCAL_PLAYER)) return 0;
     if (ground->plane != p->plane) return 0;
     RcInteractionTarget target =
         api_ground_item_interaction_target(ground, ground_item_idx);
@@ -2942,7 +2919,7 @@ int rc_player_cast_spell_on_ground_item(RcWorld *world, int spell_id,
         return 0;
     }
     RcGroundItem *ground = &world->ground_items[ground_item_idx];
-    if (!ground->active) return 0;
+    if (!rc_ground_item_visible(ground, RC_GROUND_OWNER_LOCAL_PLAYER)) return 0;
     if (ground->plane != world->player.plane) return 0;
     RcInteractionTarget target =
         api_ground_item_interaction_target(ground, ground_item_idx);
@@ -3047,7 +3024,8 @@ int rc_player_examine_ground_item(RcWorld *world, int ground_item_idx) {
     if (!world || ground_item_idx < 0
             || ground_item_idx >= world->ground_item_count) return 0;
     const RcGroundItem *ground = &world->ground_items[ground_item_idx];
-    if (!ground->active || ground->quantity <= 0) return 0;
+    if (!rc_ground_item_visible(ground, RC_GROUND_OWNER_LOCAL_PLAYER)
+            || ground->plane != world->player.plane || ground->quantity <= 0) return 0;
     const RcItemDef *def = rc_item_def_get(ground->item_id);
     return def ? publish_examine(&world->player, def->name, def->examine) : 0;
 }

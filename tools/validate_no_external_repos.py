@@ -13,6 +13,8 @@ SCAN_ROOTS = (
     "AGENT.md",
     "README.md",
     "CMakeLists.txt",
+    ".github",
+    "data-sources",
     "content",
     "docs",
     "rc-core",
@@ -37,6 +39,7 @@ SKIP_DIRS = {
 }
 
 POLICY_FILES = {
+    "data-sources/sources.lock",
     "data_cleanup.md",
     "data_pipeline.md",
     "git_setup.md",
@@ -54,12 +57,17 @@ TEXT_SUFFIXES = {
     ".cc",
     ".cmake",
     ".h",
+    ".inc",
+    ".json",
+    ".lock",
     ".md",
     ".py",
     ".sh",
     ".toml",
     ".tsv",
     ".txt",
+    ".yaml",
+    ".yml",
 }
 
 BLOCKED_LOCAL_PATHS = (
@@ -132,6 +140,13 @@ HARD_PATTERNS = (
         "external setup clone",
         re.compile(r"git clone https://github\.com/(runelite|rsmod|jordanbailey00/RuneC-DB)"),
     ),
+)
+
+MACHINE_PATH_PATTERNS = (
+    Pattern("hardcoded home directory", re.compile(r"/(?:home|Users)/[^/\s\"']+/")),
+    Pattern("hardcoded Windows home directory", re.compile(r"[A-Za-z]:[\\/]+Users[\\/]+")),
+    Pattern("versioned local checkout path", re.compile(r"RuneC_v\d+[\\/]")),
+    Pattern("hardcoded distro library directory", re.compile(r"/usr/lib/(?:x86_64|aarch64|arm)-[^/\s]+/")),
 )
 
 DEFERRED_PATTERNS = (
@@ -216,9 +231,12 @@ def scan(
     patterns: tuple[Pattern, ...],
     *,
     skip_legacy_external_sources: bool = False,
+    skip_markdown: bool = False,
 ) -> list[tuple[str, int, str, str]]:
     findings: list[tuple[str, int, str, str]] = []
     for path in candidate_files():
+        if skip_markdown and path.suffix == ".md":
+            continue
         if skip_legacy_external_sources and rel(path) in LEGACY_EXTERNAL_SOURCE_FILES:
             continue
         try:
@@ -258,6 +276,7 @@ def main() -> int:
         failures.append(f"blocked local source path exists: {path}")
 
     hard_findings = scan(HARD_PATTERNS)
+    hard_findings.extend(scan(MACHINE_PATH_PATTERNS, skip_markdown=True))
     deferred_layout = present_deferred_paths()
     deferred_findings = scan(
         DEFERRED_PATTERNS,

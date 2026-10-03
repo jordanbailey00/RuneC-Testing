@@ -11,10 +11,33 @@
 #include "runtime_test_fixture.h"
 
 #define ITEM_PATH RC_TEST_SOURCE_DIR "/data/defs/items.bin"
-#define DROPS_PATH RC_TEST_SOURCE_DIR "/data/defs/drops.bin"
+#define DROPS_PATH "/tmp/runec_ground_phase3_drops.bin"
 #define RDT_PATH RC_TEST_SOURCE_DIR "/data/defs/rdt.bin"
 #define GDT_PATH RC_TEST_SOURCE_DIR "/data/defs/gdt.bin"
 #define MRDT_PATH RC_TEST_SOURCE_DIR "/data/defs/mrdt.bin"
+
+static void write_drop_fixture(void) {
+    FILE *f = fopen(DROPS_PATH, "wb");
+    assert(f);
+    uint32_t header[] = {0x504F5244u, 2, 1, 1234, 0};
+    assert(fwrite(header, sizeof(header), 1, f) == 1);
+    fputc(2, f);
+    uint32_t items[] = {526, 2138};
+    uint16_t one[] = {1, 1};
+    for (int i = 0; i < 2; i++) {
+        assert(fwrite(&items[i], sizeof(items[i]), 1, f) == 1);
+        assert(fwrite(one, sizeof(one), 1, f) == 1);
+    }
+    fputc(1, f);
+    uint32_t coins = 995, rarity = 1, rare_weight = 0;
+    uint16_t quantity[] = {1, 14};
+    assert(fwrite(&coins, sizeof(coins), 1, f) == 1);
+    assert(fwrite(quantity, sizeof(quantity), 1, f) == 1);
+    assert(fwrite(&rarity, sizeof(rarity), 1, f) == 1);
+    fputc(0, f);
+    assert(fwrite(&rare_weight, sizeof(rare_weight), 1, f) == 1);
+    fclose(f);
+}
 
 static void install_npc_def(int npc_id) {
     memset(g_npc_defs, 0, sizeof(g_npc_defs));
@@ -64,10 +87,10 @@ static int active_items_at(const RcWorld *world, int x, int y, int plane) {
     return count;
 }
 
-static void test_roll_returns_obor_always_drops(void) {
-    RcWorld *world = phase3_world(7416);
+static void test_roll_returns_fixture_always_drops(void) {
+    RcWorld *world = phase3_world(1234);
     RcLootDrop drops[RC_MAX_LOOT_DROPS];
-    int count = rc_roll_npc_loot(world, 7416, drops, RC_MAX_LOOT_DROPS);
+    int count = rc_roll_npc_loot(world, 1234, drops, RC_MAX_LOOT_DROPS);
     assert(count >= 2);
     assert(count < RC_MAX_LOOT_DROPS);
     assert(drops[0].kind == RC_DROP_ALWAYS);
@@ -78,13 +101,14 @@ static void test_roll_returns_obor_always_drops(void) {
 }
 
 static void test_roll_handles_variable_quantities(void) {
-    RcWorld *world = phase3_world(1);
+    RcWorld *world = phase3_world(1234);
     int saw_range_drop = 0;
     for (int i = 0; i < 512 && !saw_range_drop; i++) {
         RcLootDrop drops[RC_MAX_LOOT_DROPS];
-        int count = rc_roll_npc_loot(world, 1, drops, RC_MAX_LOOT_DROPS);
+        int count = rc_roll_npc_loot(world, 1234, drops, RC_MAX_LOOT_DROPS);
+        assert(count == 3);
         for (int j = 0; j < count; j++) {
-            if (drops[j].item_id == 555) {
+            if (drops[j].item_id == 995) {
                 assert(drops[j].quantity >= 1);
                 assert(drops[j].quantity <= 14);
                 saw_range_drop = 1;
@@ -96,7 +120,7 @@ static void test_roll_handles_variable_quantities(void) {
 }
 
 static void test_npc_death_spawns_private_ground_loot(void) {
-    RcWorld *world = phase3_world(7416);
+    RcWorld *world = phase3_world(1234);
     int x = world->player.x + 1;
     int y = world->player.y;
     int idx = rc_npc_spawn(world, 0, x, y, world->player.plane);
@@ -114,7 +138,9 @@ static void test_npc_death_spawns_private_ground_loot(void) {
         assert(g->original_owner_uid == RC_GROUND_OWNER_LOCAL_PLAYER);
         assert(g->visibility == RC_GROUND_VIS_PRIVATE ||
                g->visibility == RC_GROUND_VIS_PRIVATE_PERMANENT);
-        assert(g->despawn_timer == 300);
+        assert(g->despawn_timer == (rc_item_def_get(g->item_id)->tradeable ? 200 : 300));
+        assert(g->arrival_timer == 3);
+        assert(!rc_ground_item_visible(g, RC_GROUND_OWNER_LOCAL_PLAYER));
     }
     rc_world_destroy(world);
 }
@@ -132,7 +158,8 @@ static void test_npc_without_table_spawns_no_loot(void) {
 }
 
 int main(void) {
-    test_roll_returns_obor_always_drops();
+    write_drop_fixture();
+    test_roll_returns_fixture_always_drops();
     test_roll_handles_variable_quantities();
     test_npc_death_spawns_private_ground_loot();
     test_npc_without_table_spawns_no_loot();

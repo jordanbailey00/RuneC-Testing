@@ -211,7 +211,7 @@ CACHE_DERIVED_REBUILD_SPECS = (
 POST_DEF_RENDER_REBUILD_SPECS = (
     RuntimeOutputSpec(
         dataset="item_render_models",
-        logical_paths=("models/items.models", "models/items.tanim", "models/item_render.map"),
+        logical_paths=("models/items.models", "models/items.tanim", "models/item_render.map", "models/ground/"),
         rebuild_inputs=B237_CACHE_INPUT,
         commands=(
             py_cmd(
@@ -225,8 +225,9 @@ POST_DEF_RENDER_REBUILD_SPECS = (
                 "--model-lighting",
                 "client",
             ),
+            py_cmd("tools/cache_pipeline/export_ground_item_models.py", "--cache", "{b237_cache}"),
         ),
-        authority="b237 cache, rebuilt items.bin, and RuneC-owned reviewed player pose sets for first-release validation equipment and static ground-item visuals",
+        authority="b237 cache, rebuilt items.bin, and RuneC-owned reviewed player pose sets for equipment and game-wide ground-item visuals",
     ),
     RuntimeOutputSpec(
         dataset="animations",
@@ -362,7 +363,7 @@ DEF_REBUILD_SPECS = (
                 "data/defs/normalization.bin",
             ),
         ),
-        authority="tracked RuneC-owned reviewed runtime snapshots replacing removed research-cache inputs",
+        authority="owned snapshots; drops apply content/loot/rejections.json and runtime_repairs.json, remaining legacy loot awaits exact-roll migration",
     ),
     RuntimeOutputSpec(
         dataset="recipes_skill_drops_shops",

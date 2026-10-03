@@ -827,6 +827,7 @@ void rc_content_combat_register(struct RcWorld *world) {
             regular_modify_incoming_after_protection,
         .player_special_energy_cost = regular_player_special_energy_cost,
         .player_ranged_resource_cost = regular_player_ranged_resource_cost,
+        .consume_ranged_resource = rc_content_consume_ammunition,
         .player_ranged_resource_slot = regular_player_resource_slot,
         .player_hit_delay = rc_content_player_hit_delay,
         .prepare_player_hits = regular_prepare_player_hits,

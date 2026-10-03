@@ -12,6 +12,15 @@ import export_items
 
 
 class WeaponMetadataTests(unittest.TestCase):
+    def test_notes_stack_without_a_raw_cache_stackable_flag(self):
+        for noted, stackable, expected in ((True, False, True), (True, True, True),
+                                          (False, True, True), (False, False, False)):
+            record = export_items.build_record({"id": 1516, "name": "Yew logs",
+                                                "noted": noted, "stackable": stackable}, {})
+            flags, = struct.unpack_from("<H", record, 4)
+            self.assertEqual(bool(flags & export_items.F_STACKABLE), expected)
+            self.assertEqual(bool(flags & export_items.F_NOTED), noted)
+
     def test_reviewed_family_ranges(self):
         vectors = [("Oak longbow", "bow", 10), ("Magic comp bow", "bow", 10),
                    ("Magic shortbow", "bow", 7), ("Dark bow", "bow", 10),

@@ -103,7 +103,7 @@ int rc_world_config_validate(const RcWorldConfig *config,
                     | RC_SUB_SLAYER | RC_SUB_ENCOUNTER,
                     npc_defs_path, "NPC-backed subsystem");
     RC_REQUIRE_PATH(RC_SUB_EQUIPMENT | RC_SUB_INVENTORY | RC_SUB_CONSUMABLES
-                    | RC_SUB_SHOPS | RC_SUB_STORAGE,
+                    | RC_SUB_SHOPS | RC_SUB_STORAGE | RC_SUB_LOOT,
                     items_path, "item-backed subsystem");
     RC_REQUIRE_PATH(RC_SUB_PRAYER, prayers_path, "prayer subsystem");
     RC_REQUIRE_PATH(RC_SUB_QUESTS, quests_path, "quest subsystem");

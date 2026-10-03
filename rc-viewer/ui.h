@@ -269,7 +269,8 @@ typedef struct RuneCUiState {
     Vector2 context_pos;
     char context_title[RUNEC_UI_CONTEXT_TEXT_MAX];
     char context_actions[RUNEC_UI_CONTEXT_ACTIONS][RUNEC_UI_CONTEXT_TEXT_MAX];
-    Color context_target_color;
+    char context_targets[RUNEC_UI_CONTEXT_ACTIONS][RUNEC_UI_CONTEXT_TEXT_MAX];
+    Color context_target_colors[RUNEC_UI_CONTEXT_ACTIONS];
     int context_action_op[RUNEC_UI_CONTEXT_ACTIONS];
     int context_action_count;
     RuneCUiContextSourceKind context_source_kind;

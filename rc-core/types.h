@@ -302,6 +302,7 @@ typedef struct {
     int source_widget_id;
     int source_component_id;
     int approach_range;
+    RcTick ready_tick;
     uint32_t flags;
     RcInteractionFailure last_failure;
 } RcPendingInteraction;
@@ -1000,6 +1001,8 @@ typedef struct {
     bool disable_wander;
     bool force_player_max_hit;
     bool player_untargetable;
+    bool player_loot_credit;
+    bool loot_prepared;
     bool active;
 } RcNpc;
 
@@ -1028,11 +1031,40 @@ typedef struct {
     int original_owner_uid;
     int reveal_timer;
     int despawn_timer;
+    int initial_reveal_ticks;
+    int initial_lifetime_ticks;
+    int respawn_ticks;
+    int respawn_timer;
+    int arrival_timer;
     RcTick timer_start_tick;
     uint8_t visibility;
     bool static_spawn;
     bool active;
 } RcGroundItem;
+
+#define RC_MAX_LOOT_DROPS 64
+typedef struct {
+    int item_id, quantity;
+    uint32_t state_id;
+} RcGroundGrant;
+
+typedef enum {
+    RC_LOOT_GENERIC,
+    RC_LOOT_SUPPRESS,
+    RC_LOOT_REPLACE,
+    RC_LOOT_AUGMENT,
+} RcLootPolicy;
+
+typedef RcLootPolicy (*RcNpcLootHook)(struct RcWorld *world, const RcNpc *npc,
+    RcGroundGrant *out, int capacity, int *count, void *ctx);
+
+typedef struct {
+    int npc_uid, npc_def_id;
+    int x, y, plane;
+    RcTick tick;
+    int result, count;
+    RcGroundGrant grants[RC_MAX_LOOT_DROPS];
+} RcLootReceipt;
 
 typedef struct RcObjectState {
     uint64_t placement_key;
@@ -1130,6 +1162,9 @@ typedef struct {
                                RcPendingHit *hits, int capacity,
                                const char **failure_reason);
     int (*consume_weapon_charge)(struct RcWorld *world, int weapon_id);
+    int (*consume_ranged_resource)(struct RcWorld *world, int slot, int count,
+                                   int x, int y, int plane, int delay,
+                                   const char **failure);
     int (*prepare_player_magic)(struct RcWorld *world, const RcNpc *target,
                                 const struct RcSpellDef *spell,
                                 struct RcCombatCalc *calc, int *speed,
@@ -1165,6 +1200,9 @@ typedef struct RcWorld {
     RcGroundItem ground_items[RC_MAX_GROUND_ITEMS];
     int ground_item_count;
     int next_ground_item_uid;
+    RcNpcLootHook npc_loot_hook;
+    void *npc_loot_ctx;
+    RcLootReceipt last_loot;
     struct RcDormantNpcState *dormant_npcs;
     int dormant_npc_count;
     int dormant_npc_capacity;

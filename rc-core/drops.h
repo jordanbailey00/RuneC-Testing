@@ -12,6 +12,11 @@ enum {
 };
 
 enum {
+    RC_DROP_UNPUBLISHED_RATE = 1u,
+    RC_DROP_OUTDATED_SOURCE = 2u,
+};
+
+enum {
     RC_SHARED_DROP_RDT = 0x5F544452u,
     RC_SHARED_DROP_GDT = 0x5F544447u,
     RC_SHARED_DROP_MRDT = 0x5444524Du,
@@ -25,6 +30,7 @@ typedef struct {
 
 typedef struct {
     uint32_t npc_id;
+    uint32_t rejection_flags;
     uint32_t rare_table_weight;
     uint32_t first[3];
     uint16_t count[3];
@@ -44,7 +50,13 @@ typedef struct {
     int table_by_npc[RC_MAX_NPC_ID];
 } RcDropData;
 
-#define RC_MAX_LOOT_DROPS 64
+enum {
+    RC_LOOT_ROLL_CAPACITY = -1,
+    RC_LOOT_ROLL_INVALID = -2,
+    RC_LOOT_ROLL_NO_TABLE = -3,
+    RC_LOOT_DELIVERY_FAILED = -4,
+    RC_LOOT_ROLL_UNVERIFIED = -5,
+};
 
 typedef struct {
     int item_id;
@@ -82,5 +94,7 @@ const RcDropEntry *rc_drop_entries_for(const RcDropTable *table, int kind,
                                        int *count);
 const RcDropEntry *rc_shared_drop_entries(int kind, int *count);
 int rc_roll_npc_loot(RcWorld *world, int npc_id, RcLootDrop *out, int max);
+void rc_npc_prepare_loot(RcWorld *world, RcNpc *npc);
+void rc_set_npc_loot_hook(RcWorld *world, RcNpcLootHook hook, void *ctx);
 
 #endif

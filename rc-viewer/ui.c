@@ -872,7 +872,6 @@ static void set_context(RuneCUiState *ui, Vector2 pos, const char *title,
     ui->context_open = 1;
     ui->context_pos = pos;
     copy_text(ui->context_title, sizeof(ui->context_title), title);
-    ui->context_target_color = OSRS_ORANGE;
     ui->context_source_kind = RUNEC_UI_CONTEXT_NONE;
     ui->context_source_slot = -1;
     ui->context_source_item_id = 0;
@@ -882,6 +881,8 @@ static void set_context(RuneCUiState *ui, Vector2 pos, const char *title,
     ui->context_action_count = action_count;
     for (int i = 0; i < action_count; i++) {
         copy_text(ui->context_actions[i], sizeof(ui->context_actions[i]), actions[i]);
+        copy_text(ui->context_targets[i], sizeof(ui->context_targets[i]), title);
+        ui->context_target_colors[i] = OSRS_ORANGE;
         ui->context_action_op[i] = i;
     }
 }
@@ -912,8 +913,9 @@ static void set_context_action_op(RuneCUiState *ui, int action_index, int op) {
 }
 
 static int context_action_has_target(const RuneCUiState *ui,
-                                     const char *action) {
-    return ui && ui->context_title[0] && action && action[0]
+                                     int index) {
+    const char *action = ui->context_actions[index];
+    return ui->context_targets[index][0] && action[0]
         && strcmp(action, "Cancel") != 0
         && strcmp(action, "Walk here") != 0;
 }
@@ -925,8 +927,8 @@ static void context_action_text(const RuneCUiState *ui, int action_index,
     if (!ui || action_index < 0
             || action_index >= ui->context_action_count) return;
     const char *action = ui->context_actions[action_index];
-    if (context_action_has_target(ui, action)) {
-        snprintf(out, out_size, "%s %s", action, ui->context_title);
+    if (context_action_has_target(ui, action_index)) {
+        snprintf(out, out_size, "%s %s", action, ui->context_targets[action_index]);
     } else {
         copy_text(out, out_size, action);
     }
@@ -974,7 +976,8 @@ void runec_ui_open_context_targeted(
     if (!ui || !actions || action_count <= 0)
         return;
     set_context(ui, pos, title, actions, action_count);
-    ui->context_target_color = target_color;
+    for (int i = 0; i < ui->context_action_count; i++)
+        ui->context_target_colors[i] = target_color;
 }
 
 void runec_ui_clear_selected_target(RuneCUiState *ui) {
@@ -4083,17 +4086,17 @@ static void draw_context(const RuneCUiState *ui) {
                    RUNEC_CONTEXT_MENU_FONT_SIZE, 0.0f, BLACK);
         DrawTextEx(font, action, (Vector2){x, y},
                    RUNEC_CONTEXT_MENU_FONT_SIZE, 0.0f, action_color);
-        if (context_action_has_target(ui, action)) {
+        if (context_action_has_target(ui, i)) {
             float action_width = MeasureTextEx(
                 font, action, RUNEC_CONTEXT_MENU_FONT_SIZE, 0.0f).x;
             char target[RUNEC_UI_CONTEXT_TEXT_MAX + 2];
-            snprintf(target, sizeof(target), " %s", ui->context_title);
+            snprintf(target, sizeof(target), " %s", ui->context_targets[i]);
             x += action_width;
             DrawTextEx(font, target, (Vector2){x + 1.0f, y + 1.0f},
                        RUNEC_CONTEXT_MENU_FONT_SIZE, 0.0f, BLACK);
             DrawTextEx(font, target, (Vector2){x, y},
                        RUNEC_CONTEXT_MENU_FONT_SIZE, 0.0f,
-                       ui->context_target_color);
+                       ui->context_target_colors[i]);
         }
     }
 }

@@ -25,7 +25,7 @@
 enum {
     GSPI_TEST_MAGIC = 0x49505347,
     GSPI_TEST_VERSION = 1,
-    GSPI_TEST_RECORD_SIZE = 22,
+    GSPI_TEST_RECORD_SIZE = 26,
     GSPI_TEST_MAPSQUARES = 65536,
 };
 
@@ -52,6 +52,7 @@ static void write_ground_item_row(FILE *f, uint32_t source_order,
     write_i32(f, y);
     write_u8(f, plane);
     write_u8(f, 0);
+    write_u32(f, 100);
 }
 
 static void write_static_ground_item_fixture(void) {
@@ -132,6 +133,7 @@ int main(void) {
     cfg.subsystems = RC_SUB_COMBAT | RC_SUB_REGIONS | RC_SUB_LOOT
                    | RC_SUB_OBJECTS | RC_SUB_ENCOUNTER;
     cfg.npc_defs_path = NPC_PATH;
+    cfg.items_path = RC_TEST_SOURCE_DIR "/data/defs/items.bin";
     cfg.spawns_path = SPAWN_PATH;
     cfg.ground_item_spawns_path = STATIC_GROUND_ITEM_TEST_PATH;
     cfg.object_defs_path = ODEF_PATH;
@@ -211,7 +213,7 @@ int main(void) {
             + stats.ground_item_stats.pages_loaded
             + (int)stats.object_placement_stats.pages_loaded);
     assert(stats.streaming.active_npcs == 837);
-    assert(stats.streaming.active_ground_items == 2);
+    assert(stats.streaming.active_ground_items == 3);
     assert(world->npc_count == 837);
     assert(world->active_area.active);
     const RcActiveArea *active = rc_world_get_active_area(world);
@@ -327,25 +329,27 @@ int main(void) {
     assert(stats.ground_item_stats.skipped_filtered == 1);
     assert(stats.ground_item_stats.spawned == 2);
     assert(stats.spawned_ground_items == 2);
-    assert(stats.streaming.active_ground_items == 1);
-    assert(active_ground_items(world, 1) == 1);
+    assert(stats.streaming.active_ground_items == 2);
+    assert(active_ground_items(world, 1) == 2);
     assert(world->ground_items[0].active);
     assert(world->ground_items[0].static_spawn);
     assert(world->ground_items[0].spawn_key != 0);
     assert(world->ground_items[0].item_id == 995);
-    assert(world->ground_items[0].quantity == 150);
-    assert(world->ground_items[0].spawn_quantity == 150);
+    assert(world->ground_items[0].quantity == 100);
+    assert(world->ground_items[0].spawn_quantity == 100);
+    assert(world->ground_items[1].quantity == 50);
+    assert(world->ground_items[0].spawn_key != world->ground_items[1].spawn_key);
 
     assert(rc_ground_item_spawn(world, 995, 1, 3213, 3428, 0,
                                 RC_GROUND_OWNER_NONE));
-    assert(active_ground_items(world, 0) == 2);
+    assert(active_ground_items(world, 0) == 3);
     assert(rc_world_activate_area(world, &ground_items, &stats) == 1);
     assert(stats.unchanged);
-    assert(active_ground_items(world, 1) == 1);
-    assert(active_ground_items(world, 0) == 2);
-    assert(!world->ground_items[1].static_spawn);
+    assert(active_ground_items(world, 1) == 2);
+    assert(active_ground_items(world, 0) == 3);
+    assert(!world->ground_items[2].static_spawn);
     assert(rc_world_get_streaming_telemetry(world, &telemetry) == 1);
-    assert(telemetry.active_ground_items == 2);
+    assert(telemetry.active_ground_items == 3);
     char valid_ground_path[sizeof(world->ground_item_spawns_path)];
     memcpy(valid_ground_path, world->ground_item_spawns_path,
            sizeof(valid_ground_path));

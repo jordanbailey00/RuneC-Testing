@@ -695,7 +695,8 @@ def build_record(rec: dict, model_links: dict[int, list[int]]) -> bytes | None:
             equip_weapon = True
 
     flags = 0
-    if rec.get("stackable"):       flags |= F_STACKABLE
+    # Certificate linking makes notes stackable even without cache opcode 11.
+    if rec.get("stackable") or rec.get("noted"): flags |= F_STACKABLE
     if rec.get("tradeable"):       flags |= F_TRADEABLE
     if rec.get("members"):         flags |= F_MEMBERS
     if rec.get("quest_item"):      flags |= F_QUEST_ITEM

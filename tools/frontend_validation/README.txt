@@ -68,3 +68,14 @@ python3 tools/frontend_validation/validate_promoted_defaults.py --with-screensho
 
 Generated screenshots, logs, and baselines are local artifacts under build/ by
 default and are not committed.
+
+Bundle paths:
+
+- Run a generated run_viewer.sh from the checkout root, or set RUNEC_VIEWER to
+  an executable you choose. A missing executable fails with a diagnostic.
+- run.env resolves RUNEC_DATA_ROOT from its own location when sourced in Bash;
+  launchers and manifests no longer embed the generating checkout's path.
+- Symlink mode uses relative links. Move bundles with their source data while
+  preserving that relationship, or use --link-mode copy for standalone bundles.
+- Scene prefixes must point inside the checkout's data/ tree, so staging and
+  runtime asset keys remain logical data paths rather than absolute filenames.

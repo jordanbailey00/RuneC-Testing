@@ -85,7 +85,7 @@ int runec_dev_validation_set_god_mode(RcWorld *world, bool enabled) {
 static const RuneCDevTransport g_dev_transports[] = {
     {"varrock",  "Varrock",   RUNEC_DEV_VARROCK_BANK_X, RUNEC_DEV_VARROCK_BANK_Y, 0,   -1, 1},
     {"graardor", "Graardor",  2872, 5358, 2, 2215, 4},
-    {"kbd",      "KBD",       2269, 4697, 0, 2266, 5},
+    {"kbd",      "KBD",       2269, 4697, 0, 239, 5},
     {"vorkath",  "Vorkath",   2269, 4062, 0, 8061, 7},
     {"jad",      "Jad",       2400, 5088, 0, 3127, 5},
 };
@@ -98,7 +98,7 @@ static const RuneCDevEncounterNpc g_graardor_encounter[] = {
 };
 
 static const RuneCDevEncounterNpc g_kbd_encounter[] = {
-    {2266, 2269, 4697, 0, 5},
+    {239, 2269, 4697, 0, 5},
 };
 
 static const RuneCDevEncounterNpc g_vorkath_encounter[] = {
@@ -199,22 +199,12 @@ int runec_dev_validation_prepare_encounter(RcWorld *world,
             continue;
         }
         RcNpc *npc = &world->npcs[idx];
-        npc->x = row->x;
-        npc->y = row->y;
-        npc->prev_x = row->x;
-        npc->prev_y = row->y;
-        npc->plane = row->plane;
         npc->spawn_x = row->x;
         npc->spawn_y = row->y;
+        npc->spawn_plane = row->plane;
         npc->disable_wander = true;
         npc->player_untargetable = false;
-        npc->is_dead = false;
-        npc->death_timer = 0;
-        npc->respawn_timer = 0;
-        const RcNpcDef *def = rc_npc_def_for_npc(world, npc);
-        if (def) {
-            npc->current_hp = def->hitpoints;
-        }
+        rc_npc_reset_life(world, npc);
         if (env_bool_local("RUNEC_DEV_BOSS_ATTACKS", 1)) {
             rc_combat_start_npc_vs_player(world, npc->uid, 0);
             npc->attack_timer = 0;

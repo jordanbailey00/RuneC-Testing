@@ -59,13 +59,15 @@ static void write_phase6_drop_file(const char *path, int npc_id) {
     FILE *f = fopen(path, "wb");
     assert(f);
     uint32_t magic = 0x504F5244u;
-    uint32_t version = 1u;
+    uint32_t version = 2u;
     uint32_t count = 1u;
     fwrite(&magic, sizeof(magic), 1, f);
     fwrite(&version, sizeof(version), 1, f);
     fwrite(&count, sizeof(count), 1, f);
     uint32_t table_npc = (uint32_t)npc_id;
     fwrite(&table_npc, sizeof(table_npc), 1, f);
+    uint32_t rejection_flags = 0;
+    fwrite(&rejection_flags, sizeof(rejection_flags), 1, f);
     uint8_t always = 1;
     fwrite(&always, sizeof(always), 1, f);
     uint32_t item = 995u;
@@ -108,6 +110,7 @@ static void test_npc_hit_pipeline_records_damage_hp_xp_death_and_loot(void) {
 
     RcWorldConfig cfg = rc_preset_base_only();
     cfg.subsystems = RC_SUB_COMBAT | RC_SUB_LOOT;
+    cfg.items_path = RC_TEST_SOURCE_DIR "/data/defs/items.bin";
     cfg.seed = 12345;
     cfg.drops_path = drops;
     g_npc_def_count = 0;

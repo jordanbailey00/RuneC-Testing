@@ -122,7 +122,8 @@ typedef struct {
 
 typedef struct {
     uint32_t item_id;
-    uint16_t quantity;
+    uint32_t quantity;
+    int ground_uid;
     uint8_t slot;              // RcItemSlot
 } RcPayloadItemEvent;          // RC_EVT_ITEM_PICKED_UP, RC_EVT_DROP_GRANTED,
                                // RC_EVT_ITEM_EQUIPPED, RC_EVT_ITEM_UNEQUIPPED,

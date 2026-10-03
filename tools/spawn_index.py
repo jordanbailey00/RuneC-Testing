@@ -14,7 +14,7 @@ GROUND_ITEM_INDEX_MAGIC = int.from_bytes(b"GSPI", "little")
 HEADER = struct.Struct("<9I")
 INDEX_ENTRY = struct.Struct("<II")
 NPC_PAYLOAD = struct.Struct("<IiiBBBB")
-GROUND_ITEM_PAYLOAD = struct.Struct("<IIiiBB")
+GROUND_ITEM_PAYLOAD = struct.Struct("<IIiiBBI")
 
 
 def _mapsquare(x: int, y: int) -> int:
@@ -84,7 +84,7 @@ def write_npc_spawns(path: Path, rows: Sequence[tuple[int, ...]]) -> None:
 def write_ground_item_spawns(
     path: Path, rows: Sequence[tuple[int, ...]]
 ) -> None:
-    """Write item_id,quantity,x,y,plane,flags rows."""
+    """Write item_id,quantity,x,y,plane,flags,respawn_ticks rows."""
     _write_indexed(
         path,
         GROUND_ITEM_INDEX_MAGIC,

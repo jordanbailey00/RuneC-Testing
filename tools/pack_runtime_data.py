@@ -509,6 +509,11 @@ def build_specs(data_root: Path) -> tuple[PackSpec, ...]:
         ),
     )
     add_spec(
+        "runec-models-ground",
+        (p for p in iter_files(models_root / "ground") if p.suffix == ".models"),
+        numbered=True,
+    )
+    add_spec(
         "runec-models-npcs",
         (
             p for p in model_files

@@ -6,6 +6,7 @@
 #include "interaction.h"
 #include "player_actions.h"
 #include "player_command.h"
+#include "pathfinding.h"
 #include "spawn_index.h"
 #include "skills.h"
 #include <limits.h>
@@ -43,7 +44,7 @@ enum {
 
 enum {
     GSPI_MAGIC = 0x49505347,
-    GSPI_RECORD_SIZE = 22,
+    GSPI_RECORD_SIZE = 26,
 };
 
 static int read_u8(const unsigned char **p, const unsigned char *end,
@@ -922,8 +923,8 @@ static void fire_item_event(RcWorld *world, int event, RcInvSlot item,
                             int slot) {
     RcPayloadItemEvent payload = {
         .item_id = (uint32_t)item.item_id,
-        .quantity = (uint16_t)(item.quantity > UINT16_MAX
-                            ? UINT16_MAX : item.quantity),
+        .quantity = (uint32_t)item.quantity,
+        .ground_uid = -1,
         .slot = (uint8_t)slot,
     };
     rc_event_fire(world, event, &payload);
@@ -1107,9 +1108,16 @@ static int ground_item_next_uid(RcWorld *world) {
     return world->next_ground_item_uid++;
 }
 
-static int ground_item_visible_to_local(const RcGroundItem *g) {
-    return g->visibility == RC_GROUND_VIS_PUBLIC
-        || g->owner_uid == RC_GROUND_ITEM_LOCAL_OWNER;
+int rc_ground_item_visible(const RcGroundItem *g, int owner_uid) {
+    return g && g->active && g->arrival_timer == 0
+        && (g->visibility == RC_GROUND_VIS_PUBLIC || g->owner_uid == owner_uid);
+}
+
+int rc_ground_item_reachable(const RcWorld *world, int x, int y, int plane) {
+    if (!world || world->player.plane != plane) return 0;
+    RcRouteTarget target = rc_route_target_rectangle(x, y, 1, 1, 0, 1, true, false);
+    return rc_route_target_reached(&world->map, plane,
+        world->player.x, world->player.y, 1, 1, &target);
 }
 
 static int inventory_can_add(const RcInvSlot *inv, int item_id,
@@ -1142,13 +1150,14 @@ static int ground_item_free_slots(const RcWorld *world) {
 }
 
 static int ground_item_is_stackable(int item_id, int quantity) {
+    (void)quantity;
     const RcItemDef *def = rc_item_def_get(item_id);
-    return def ? def->stackable : quantity > 1;
+    return def && def->stackable;
 }
 
 static int ground_item_is_tradeable(int item_id) {
     const RcItemDef *def = rc_item_def_get(item_id);
-    return !def || def->tradeable;
+    return def && def->tradeable;
 }
 
 static uint64_t ground_spawn_instance_key(uint64_t base, uint32_t ordinal) {
@@ -1168,16 +1177,20 @@ static int spawn_ground_item_one(RcWorld *world, int item_id, int quantity,
                                  int original_owner_uid, int visibility,
                                  int reveal_timer, int despawn_timer,
                                  int stackable, int static_spawn,
-                                 uint64_t spawn_key) {
+                                 uint64_t spawn_key, int arrival_timer) {
     if (!world || item_id < 0 || quantity <= 0) return -1;
-    if (stackable) {
+    if (stackable && !arrival_timer) {
         for (int i = 0; i < world->ground_item_count; i++) {
             RcGroundItem *g = &world->ground_items[i];
-            if (!g->active || g->item_id != item_id
+            if (!g->active || g->arrival_timer || g->item_id != item_id
                     || g->state_id != state_id || g->x != x
                     || g->y != y || g->plane != plane
                     || g->visibility != visibility
                     || g->owner_uid != owner_uid
+                    || g->original_owner_uid != original_owner_uid
+                    || g->initial_reveal_ticks != reveal_timer
+                    || g->initial_lifetime_ticks != despawn_timer
+                    || g->spawn_key != spawn_key
                     || g->static_spawn != (static_spawn ? true : false)) {
                 continue;
             }
@@ -1194,10 +1207,10 @@ static int spawn_ground_item_one(RcWorld *world, int item_id, int quantity,
 
     if (ground_item_count_at(world, x, y, plane) >= RC_GROUND_ITEM_MAX_PER_TILE)
         return -1;
+    if (world->next_ground_item_uid == INT_MAX) return -1;
     int idx = ground_item_slot(world);
     if (idx < 0) return -1;
-    int version = world->ground_items[idx].version + 1;
-    if (version <= 0) version = 1;
+    int version = 1; // A new UID invalidates every reference to the reused slot.
     world->ground_items[idx] = (RcGroundItem){
         .uid = ground_item_next_uid(world),
         .version = version,
@@ -1213,6 +1226,9 @@ static int spawn_ground_item_one(RcWorld *world, int item_id, int quantity,
         .original_owner_uid = original_owner_uid,
         .reveal_timer = reveal_timer,
         .despawn_timer = despawn_timer,
+        .initial_reveal_ticks = reveal_timer,
+        .initial_lifetime_ticks = despawn_timer,
+        .arrival_timer = arrival_timer,
         .timer_start_tick = world->tick + (world->in_tick ? 1u : 0u),
         .visibility = (uint8_t)visibility,
         .static_spawn = static_spawn ? true : false,
@@ -1227,8 +1243,8 @@ static int spawn_ground_item_quantity(RcWorld *world, int item_id,
                                       int owner_uid, int original_owner_uid,
                                       int visibility, int reveal_timer,
                                       int despawn_timer, int static_spawn,
-                                      uint64_t spawn_key) {
-    if (!world || item_id < 0 || quantity <= 0
+                                      uint64_t spawn_key, int arrival_timer) {
+    if (!world || !rc_item_def_get(item_id) || quantity <= 0
             || !rc_world_tile_valid(x, y, plane)) {
         return 0;
     }
@@ -1238,9 +1254,10 @@ static int spawn_ground_item_quantity(RcWorld *world, int item_id,
                                      x, y, plane,
                                      owner_uid, original_owner_uid, visibility,
                                      reveal_timer, despawn_timer, 1,
-                                     static_spawn, spawn_key) >= 0;
+                                     static_spawn, spawn_key, arrival_timer) >= 0;
     }
-    if (quantity > ground_item_free_slots(world)) return 0;
+    if (quantity > ground_item_free_slots(world)
+            || quantity >= INT_MAX - world->next_ground_item_uid) return 0;
     if (ground_item_count_at(world, x, y, plane) + quantity
             > RC_GROUND_ITEM_MAX_PER_TILE) {
         return 0;
@@ -1252,39 +1269,12 @@ static int spawn_ground_item_quantity(RcWorld *world, int item_id,
                                   reveal_timer, despawn_timer, 0,
                                   static_spawn,
                                   ground_spawn_instance_key(
-                                      spawn_key, (uint32_t)i))
+                                      spawn_key, (uint32_t)i), arrival_timer)
                 < 0) {
             return 0;
         }
     }
     return 1;
-}
-
-static int ground_item_can_spawn_quantity(
-    const RcWorld *world, int item_id, int quantity, uint32_t state_id,
-    int x, int y, int plane, int owner_uid, int visibility) {
-    if (!world || item_id < 0 || quantity <= 0
-            || !rc_world_tile_valid(x, y, plane)) {
-        return 0;
-    }
-    if (ground_item_is_stackable(item_id, quantity)) {
-        for (int i = 0; i < world->ground_item_count; i++) {
-            const RcGroundItem *g = &world->ground_items[i];
-            if (!g->active || g->item_id != item_id
-                    || g->state_id != state_id || g->x != x || g->y != y
-                    || g->plane != plane || g->visibility != visibility
-                    || g->owner_uid != owner_uid || g->static_spawn) {
-                continue;
-            }
-            return g->quantity <= INT_MAX - quantity;
-        }
-        return ground_item_count_at(world, x, y, plane)
-                    < RC_GROUND_ITEM_MAX_PER_TILE
-            && ground_item_free_slots(world) > 0;
-    }
-    return quantity <= ground_item_free_slots(world)
-        && ground_item_count_at(world, x, y, plane) + quantity
-                    <= RC_GROUND_ITEM_MAX_PER_TILE;
 }
 
 int rc_ground_item_spawn(RcWorld *world, int item_id, int quantity,
@@ -1302,7 +1292,140 @@ int rc_ground_item_spawn(RcWorld *world, int item_id, int quantity,
                                       x, y, plane,
                                       owner_uid, owner_uid, visibility,
                                       reveal_timer,
-                                      RC_GROUND_ITEM_DESPAWN_TICKS, 0, 0);
+                                      RC_GROUND_ITEM_DESPAWN_TICKS, 0, 0, 0);
+}
+
+static void ground_granted(RcWorld *world, const RcGroundItem *item) {
+    RcPayloadItemEvent payload = {
+        .item_id = (uint32_t)item->item_id,
+        .quantity = (uint32_t)item->quantity,
+        .ground_uid = item->uid,
+        .slot = UINT8_MAX,
+    };
+    rc_event_fire(world, RC_EVT_DROP_GRANTED, &payload);
+}
+
+static RcGroundGrantResult ground_grant_transaction(RcWorld *world,
+    const RcGroundGrant *grants, int count, int x, int y, int plane,
+    int owner_uid, RcGroundPolicy policy, RcItemTransaction *tx) {
+    if (!loot_enabled(world)) return RC_GROUND_GRANT_DISABLED;
+    if (count < 0 || count > RC_MAX_GROUND_ITEMS || (!grants && count)
+            || owner_uid < RC_GROUND_OWNER_NONE
+            || !rc_world_tile_valid(x, y, plane)
+            || policy.delay_ticks < 0 || policy.reveal_ticks < 0
+            || policy.lifetime_ticks <= 0
+            || policy.untradeable_lifetime_ticks <= 0
+            || policy.reveal_ticks > policy.lifetime_ticks)
+        return RC_GROUND_GRANT_INVALID;
+    if (!count) return !tx || rc_item_tx_commit(tx).code == RC_ITEM_RESULT_OK
+        ? RC_GROUND_GRANT_OK : RC_GROUND_GRANT_CONFLICT;
+    for (int i = 0; i < count; i++)
+        if (!rc_item_def_get(grants[i].item_id) || grants[i].quantity <= 0)
+            return RC_GROUND_GRANT_INVALID;
+
+    // No callbacks run until the whole batch fits. Restore only this owned store.
+    RcGroundItem before[RC_MAX_GROUND_ITEMS];
+    memcpy(before, world->ground_items, sizeof(before));
+    int before_count = world->ground_item_count;
+    int before_uid = world->next_ground_item_uid;
+    for (int i = 0; i < count; i++) {
+        int tradeable = ground_item_is_tradeable(grants[i].item_id);
+        int visibility = owner_uid == RC_GROUND_OWNER_NONE ? RC_GROUND_VIS_PUBLIC
+                       : tradeable ? RC_GROUND_VIS_PRIVATE
+                                   : RC_GROUND_VIS_PRIVATE_PERMANENT;
+        // Delayed grants must reserve distinct slots, not change visible piles.
+        int ok = spawn_ground_item_quantity(world, grants[i].item_id,
+            grants[i].quantity, grants[i].state_id, x, y, plane,
+            owner_uid, owner_uid, visibility,
+            visibility == RC_GROUND_VIS_PRIVATE ? policy.reveal_ticks : 0,
+            tradeable ? policy.lifetime_ticks : policy.untradeable_lifetime_ticks,
+            0, 0, policy.delay_ticks);
+        if (!ok) {
+            memcpy(world->ground_items, before, sizeof(before));
+            world->ground_item_count = before_count;
+            world->next_ground_item_uid = before_uid;
+            return RC_GROUND_GRANT_CAPACITY;
+        }
+    }
+    if (tx && rc_item_tx_commit(tx).code != RC_ITEM_RESULT_OK) {
+        memcpy(world->ground_items, before, sizeof(before));
+        world->ground_item_count = before_count;
+        world->next_ground_item_uid = before_uid;
+        return RC_GROUND_GRANT_CONFLICT;
+    }
+    int receipt_count = 0;
+    for (int i = 0; i < world->ground_item_count; i++) {
+        RcGroundItem receipt = world->ground_items[i];
+        if (!receipt.active) continue;
+        if (before[i].active && before[i].uid == receipt.uid)
+            receipt.quantity -= before[i].quantity;
+        if (receipt.quantity > 0) before[receipt_count++] = receipt;
+    }
+    for (int i = 0; i < receipt_count; i++) ground_granted(world, &before[i]);
+    return RC_GROUND_GRANT_OK;
+}
+
+RcGroundGrantResult rc_ground_grant(RcWorld *world,
+    const RcGroundGrant *grants, int count, int x, int y, int plane,
+    int owner_uid, RcGroundPolicy policy) {
+    return ground_grant_transaction(world, grants, count, x, y, plane,
+                                    owner_uid, policy, NULL);
+}
+
+RcGroundGrantResult rc_item_tx_commit_ground(RcItemTransaction *tx,
+    const RcGroundGrant *grants, int count, int x, int y, int plane,
+    int owner_uid, RcGroundPolicy policy) {
+    if (!tx || !tx->valid) return RC_GROUND_GRANT_INVALID;
+    return ground_grant_transaction(tx->world, grants, count, x, y, plane,
+                                    owner_uid, policy, tx);
+}
+
+void rc_ground_item_advance(RcGroundItem *g, RcTick elapsed) {
+    if (!g || !elapsed) return;
+    if (!g->active) {
+        if (!g->static_spawn || g->respawn_timer <= 0) return;
+        if (elapsed < (RcTick)g->respawn_timer) {
+            g->respawn_timer -= (int)elapsed;
+            return;
+        }
+        g->respawn_timer = 0;
+        g->quantity = g->spawn_quantity;
+        g->active = true;
+        g->version = g->version == INT_MAX ? 1 : g->version + 1;
+        return;
+    }
+    if (g->arrival_timer > 0) {
+        if (elapsed <= (RcTick)g->arrival_timer) {
+            g->arrival_timer -= (int)elapsed;
+            return;
+        }
+        elapsed -= (RcTick)g->arrival_timer;
+        g->arrival_timer = 0;
+    }
+    if (g->reveal_timer > 0) {
+        if (elapsed >= (RcTick)g->reveal_timer) {
+            g->reveal_timer = 0;
+            g->visibility = RC_GROUND_VIS_PUBLIC;
+            g->owner_uid = RC_GROUND_OWNER_NONE;
+            g->version = g->version == INT_MAX ? 1 : g->version + 1;
+        } else g->reveal_timer -= (int)elapsed;
+    }
+    if (g->despawn_timer > 0) {
+        if (elapsed >= (RcTick)g->despawn_timer) {
+            g->despawn_timer = 0;
+            g->active = false;
+            g->quantity = 0;
+            g->version = g->version == INT_MAX ? 1 : g->version + 1;
+        } else g->despawn_timer -= (int)elapsed;
+    }
+}
+
+void rc_ground_items_tick(RcWorld *world) {
+    for (int i = 0; i < world->ground_item_count; i++) {
+        RcGroundItem *g = &world->ground_items[i];
+        if (world->tick < g->timer_start_tick) continue;
+        rc_ground_item_advance(g, 1);
+    }
 }
 
 void rc_clear_static_ground_items(RcWorld *world) {
@@ -1354,6 +1477,7 @@ int rc_load_ground_item_spawns_rect_stats(RcWorld *world, const char *path,
         const unsigned char *p = record;
         uint32_t source_order = 0;
         uint32_t item_id_u = 0, quantity_u = 0, x_u = 0, y_u = 0;
+        uint32_t respawn_ticks = 0;
         uint8_t plane = 0, flags = 0;
         if (!read_u32(&p, record + slice.record_size, &source_order)
                 || !read_u32(&p, record + slice.record_size, &item_id_u)
@@ -1361,13 +1485,13 @@ int rc_load_ground_item_spawns_rect_stats(RcWorld *world, const char *path,
                 || !read_u32(&p, record + slice.record_size, &x_u)
                 || !read_u32(&p, record + slice.record_size, &y_u)
                 || !read_u8(&p, record + slice.record_size, &plane)
-                || !read_u8(&p, record + slice.record_size, &flags)) {
+                || !read_u8(&p, record + slice.record_size, &flags)
+                || !read_u32(&p, record + slice.record_size, &respawn_ticks)) {
             rc_spawn_index_slice_free(&slice);
             return -1;
         }
         int32_t x = (int32_t)x_u;
         int32_t y = (int32_t)y_u;
-        (void)flags;
         if (!rc_world_tile_valid(x, y, plane)) {
             if (stats) stats->skipped_invalid++;
             continue;
@@ -1379,16 +1503,24 @@ int rc_load_ground_item_spawns_rect_stats(RcWorld *world, const char *path,
             continue;
         }
         if (stats) stats->matched_filter++;
-        if (item_id_u > INT_MAX || quantity_u == 0 || quantity_u > INT_MAX) {
+        if (item_id_u > INT_MAX || !rc_item_def_get((int)item_id_u)
+                || quantity_u == 0 || quantity_u > INT_MAX || flags
+                || respawn_ticks == 0 || respawn_ticks > INT_MAX) {
             if (stats) stats->skipped_invalid++;
             continue;
         }
+        int first_uid = world->next_ground_item_uid;
         int ok = spawn_ground_item_quantity(
             world, (int)item_id_u, (int)quantity_u, 0, x, y, (int)plane,
             RC_GROUND_OWNER_NONE, RC_GROUND_OWNER_NONE,
             RC_GROUND_VIS_PUBLIC, 0, 0, 1,
-            rc_spawn_index_record_key(path, source_order, 0));
+            rc_spawn_index_record_key(path, source_order, 0), 0);
         if (ok) {
+            for (int j = 0; j < world->ground_item_count; j++) {
+                RcGroundItem *g = &world->ground_items[j];
+                if (g->static_spawn && g->uid >= first_uid)
+                    g->respawn_ticks = (int)respawn_ticks;
+            }
             spawned++;
             if (stats) stats->spawned++;
         } else if (stats) {
@@ -1423,42 +1555,30 @@ RcItemActionResult rc_player_drop_item_expected(RcWorld *world, int inv_slot,
             && item.generation != expected_generation)
         return record_item_result(world, item_result(
             RC_ITEM_RESULT_STALE, item.item_id, inv_slot));
-    int tradeable = ground_item_is_tradeable(item.item_id);
-    int visibility = tradeable ? RC_GROUND_VIS_PRIVATE
-                               : RC_GROUND_VIS_PRIVATE_PERMANENT;
-    int reveal_timer = tradeable ? RC_GROUND_ITEM_REVEAL_TICKS : 0;
-    if (!ground_item_can_spawn_quantity(
-            world, item.item_id, item.quantity, item.state_id,
-            player->x, player->y, player->plane,
-            RC_GROUND_ITEM_LOCAL_OWNER, visibility)) {
+    const RcItemDef *def = rc_item_def_get(item.item_id);
+    if (!def || strcmp(def->inventory_actions[4], "Drop") != 0)
         return record_item_result(world, item_result(
-            RC_ITEM_RESULT_CAPACITY, item.item_id, inv_slot));
-    }
+            RC_ITEM_RESULT_ACTION_DENIED, item.item_id, inv_slot));
     RcItemTransaction tx;
     (void)rc_item_tx_begin(&tx, world);
     RcItemActionResult result = rc_item_tx_remove_slot(
         &tx, inv_slot, item.quantity, expected_generation);
     if (result.code != RC_ITEM_RESULT_OK)
         return record_item_result(world, result);
-    result = rc_item_tx_commit(&tx);
-    if (result.code != RC_ITEM_RESULT_OK)
-        return record_item_result(world, result);
-    if (!spawn_ground_item_quantity(world, item.item_id, item.quantity,
-                                    item.state_id,
-                                    player->x, player->y, player->plane,
-                                    RC_GROUND_ITEM_LOCAL_OWNER,
-                                    RC_GROUND_ITEM_LOCAL_OWNER,
-                                    visibility, reveal_timer,
-                                    RC_GROUND_ITEM_DESPAWN_TICKS, 0, 0)) {
-        fprintf(stderr,
-                "item drop invariant failed after successful preflight\n");
+    RcGroundGrant grant = {item.item_id, item.quantity, item.state_id};
+    RcGroundPolicy policy = {RC_GROUND_ITEM_REVEAL_TICKS,
+        RC_GROUND_ITEM_DESPAWN_TICKS, 0, RC_GROUND_ITEM_DESPAWN_TICKS};
+    RcGroundGrantResult ground = rc_item_tx_commit_ground(&tx, &grant, 1,
+        player->x, player->y, player->plane, RC_GROUND_ITEM_LOCAL_OWNER, policy);
+    if (ground != RC_GROUND_GRANT_OK) {
         return record_item_result(world, item_result(
-            RC_ITEM_RESULT_CONFLICT, item.item_id, inv_slot));
+            ground == RC_GROUND_GRANT_CAPACITY ? RC_ITEM_RESULT_CAPACITY
+            : RC_ITEM_RESULT_CONFLICT, item.item_id, inv_slot));
     }
     RcPayloadItemEvent payload = {
         .item_id = (uint32_t)item.item_id,
-        .quantity = (uint16_t)(item.quantity > 65535 ? 65535
-                                                     : item.quantity),
+        .quantity = (uint32_t)item.quantity,
+        .ground_uid = -1,
         .slot = (uint8_t)inv_slot,
     };
     rc_event_fire(world, RC_EVT_ITEM_DROPPED, &payload);
@@ -1493,12 +1613,13 @@ int rc_player_take_ground_item(RcWorld *world, int ground_item_idx,
     RcPlayer *player = &world->player;
     if (!g->active || g->item_id < 0 || g->quantity <= 0)
         return RC_GROUND_TAKE_INVALID;
-    if (!ground_item_visible_to_local(g)) return RC_GROUND_TAKE_INVALID;
+    if (!rc_ground_item_visible(g, RC_GROUND_OWNER_LOCAL_PLAYER))
+        return RC_GROUND_TAKE_INVALID;
     if ((expected_uid >= 0 && g->uid != expected_uid) ||
             (expected_version >= 0 && g->version != expected_version)) {
         return RC_GROUND_TAKE_STALE;
     }
-    if (g->x != player->x || g->y != player->y || g->plane != player->plane)
+    if (!rc_ground_item_reachable(world, g->x, g->y, g->plane))
         return RC_GROUND_TAKE_INVALID;
     if (!inventory_can_add(player->inventory, g->item_id, g->quantity,
                            g->state_id))
@@ -1525,10 +1646,13 @@ int rc_player_take_ground_item(RcWorld *world, int ground_item_idx,
     }
     g->active = false;
     g->quantity = 0;
+    g->respawn_timer = g->static_spawn ? g->respawn_ticks : 0;
+    g->timer_start_tick = world->tick + (world->in_tick ? 1u : 0u);
     g->version++;
     RcPayloadItemEvent payload = {
         .item_id = (uint32_t)item_id,
-        .quantity = (uint16_t)(quantity > 65535 ? 65535 : quantity),
+        .quantity = (uint32_t)quantity,
+        .ground_uid = g->uid,
         .slot = (uint8_t)slot,
     };
     rc_event_fire(world, RC_EVT_ITEM_PICKED_UP, &payload);
@@ -1538,14 +1662,17 @@ int rc_player_take_ground_item(RcWorld *world, int ground_item_idx,
     return RC_GROUND_TAKE_OK;
 }
 
-RcItemActionResult rc_player_pickup_item(RcWorld *world, int ground_item_idx) {
+RcItemActionResult rc_player_pickup_item_expected(RcWorld *world,
+    int ground_item_idx, int uid, int version) {
+    if (!world || ground_item_idx < 0
+            || ground_item_idx >= world->ground_item_count)
+        return record_item_result(world, item_result(
+            RC_ITEM_RESULT_INVALID, -1, ground_item_idx));
+    const RcGroundItem *expected = &world->ground_items[ground_item_idx];
+    if (expected->uid != uid || expected->version != version)
+        return record_item_result(world, item_result(
+            RC_ITEM_RESULT_STALE, expected->item_id, ground_item_idx));
     if (rc_player_command_should_queue(world)) {
-        int uid = -1, version = -1;
-        if (world && ground_item_idx >= 0
-                && ground_item_idx < world->ground_item_count) {
-            uid = world->ground_items[ground_item_idx].uid;
-            version = world->ground_items[ground_item_idx].version;
-        }
         int args[8] = {ground_item_idx, uid, version, 0, 0, 0, 0, 0};
         RcItemResultCode code = rc_player_command_submit(
             world, RC_PLAYER_COMMAND_PICKUP_ITEM, RC_ACTION_CATEGORY_NORMAL,
@@ -1564,7 +1691,8 @@ RcItemActionResult rc_player_pickup_item(RcWorld *world, int ground_item_idx) {
     RcGroundItem *g = &world->ground_items[ground_item_idx];
     RcPlayer *player = &world->player;
     if (!g->active || g->item_id < 0 || g->quantity <= 0
-            || !ground_item_visible_to_local(g) || g->plane != player->plane)
+            || !rc_ground_item_visible(g, RC_GROUND_OWNER_LOCAL_PLAYER)
+            || g->plane != player->plane)
         return record_item_result(world, item_result(
             RC_ITEM_RESULT_INVALID, g->item_id, ground_item_idx));
     if (g->x != player->x || g->y != player->y
@@ -1586,7 +1714,7 @@ RcItemActionResult rc_player_pickup_item(RcWorld *world, int ground_item_idx) {
         target.component_id = -1;
         target.ground_item_instance = ground_item_idx;
         rc_interaction_begin(player, 0, RC_INTERACTION_OP1, "Take",
-                             &target, 0);
+                             &target, 1);
         return record_item_result(world, item_result(
             RC_ITEM_RESULT_QUEUED, g->item_id, ground_item_idx));
     }
@@ -1598,4 +1726,11 @@ RcItemActionResult rc_player_pickup_item(RcWorld *world, int ground_item_idx) {
     else if (take == RC_GROUND_TAKE_STALE) result.code = RC_ITEM_RESULT_STALE;
     else result.code = RC_ITEM_RESULT_INVALID;
     return record_item_result(world, result);
+}
+
+RcItemActionResult rc_player_pickup_item(RcWorld *world, int index) {
+    const RcGroundItem *g = world && index >= 0 && index < world->ground_item_count
+                         ? &world->ground_items[index] : NULL;
+    return rc_player_pickup_item_expected(world, index, g ? g->uid : -1,
+                                          g ? g->version : -1);
 }

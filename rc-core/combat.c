@@ -1467,8 +1467,13 @@ static void combat_tick_player_attack(RcWorld *world) {
     int ammo_cost = world->combat_hooks.player_ranged_resource_cost
         ? world->combat_hooks.player_ranged_resource_cost(p, special) : 1;
     bool paid = true;
-    if (resource_slot >= 0)
-        paid = ammo_cost > 0 && equipment_consume(world, resource_slot, ammo_cost);
+    if (resource_slot >= 0) {
+        paid = ammo_cost > 0 && (world->combat_hooks.consume_ranged_resource
+            ? world->combat_hooks.consume_ranged_resource(world, resource_slot,
+                ammo_cost, target->x, target->y, target->plane, delays[count - 1],
+                &resource_failure)
+            : equipment_consume(world, resource_slot, ammo_cost));
+    }
     else if (style == COMBAT_MAGIC && spell)
         paid = content_player_consume_spell_runes(world, p, spell);
     else if (world->combat_hooks.consume_weapon_charge)
@@ -1477,7 +1482,8 @@ static void combat_tick_player_attack(RcWorld *world) {
         memset(&target->pending_hits[hit_index], 0, sizeof(RcPendingHit) * count);
         target->num_pending_hits = hit_index;
         world->rng_state = rng_before;
-        reject_launch(world, player_actor, "resource transaction rejected; attack not launched");
+        reject_launch(world, player_actor, resource_failure ? resource_failure
+            : "resource transaction rejected; attack not launched");
         return;
     }
 

@@ -4,6 +4,9 @@
 #include "combat.h"
 #include "prayer.h"
 #include "npc.h"
+#include "config.h"
+#include "pathfinding.h"
+#include "rng.h"
 #include <string.h>
 
 enum { ARROW, BOLT, JAVELIN, OGRE, TRAINING, KEBBIT, RACK, ANTLER, ATLATL, TAR, BONE };
@@ -78,6 +81,54 @@ static const struct { const char *name; int kind, tier; } weapons[] = {
     {"Red salamander", TAR, 3}, {"Black salamander", TAR, 4},
     {"Tecu salamander", TAR, 5},
 };
+
+static bool recoverable_ammunition(const RcItemDef *def) {
+    if (!def) return false;
+    if (def->equip_slot == EQUIP_WEAPON && def->weapon_type == 23
+            && (strstr(def->name, "dart") || strstr(def->name, "knife"))) return true;
+    for (unsigned i = 0; i < sizeof(ammunition) / sizeof(ammunition[0]); i++) {
+        if (ammunition[i].kind != ARROW && ammunition[i].kind != BOLT) continue;
+        for (int j = 0; j < 32 && ammunition[i].ids[j]; j++)
+            if (ammunition[i].ids[j] == def->id) return true;
+    }
+    return false;
+}
+
+int rc_content_consume_ammunition(RcWorld *world, int slot, int count,
+    int x, int y, int plane, int delay, const char **failure) {
+    *failure = NULL;
+    if (!world || slot < 0 || slot >= RC_EQUIP_COUNT || count <= 0 || count > 4) {
+        *failure = "Invalid ammunition payment.";
+        return 0;
+    }
+    RcInvSlot ammo = world->player.equipment[slot];
+    RcItemTransaction tx;
+    if (rc_item_tx_begin(&tx, world).code != RC_ITEM_RESULT_OK
+            || rc_item_tx_remove_equipment(&tx, slot, count, ammo.generation).code
+                != RC_ITEM_RESULT_OK) {
+        *failure = "Ammunition changed before the attack could launch.";
+        return 0;
+    }
+    uint32_t rng = world->rng_state;
+    int recovered = 0;
+    if ((world->enabled & RC_SUB_LOOT)
+            && recoverable_ammunition(rc_item_def_get(ammo.item_id))
+            && !rc_tile_blocked(&world->map, x, y, plane))
+        for (int i = 0; i < count; i++)
+            if (rc_rng_range(&world->rng_state, 4) != 0) recovered++;
+    if (!recovered) {
+        if (rc_item_tx_commit(&tx).code == RC_ITEM_RESULT_OK) return 1;
+    } else {
+        RcGroundGrant grant = {ammo.item_id, recovered, ammo.state_id};
+        RcGroundPolicy policy = {100, 200, delay, 300};
+        RcGroundGrantResult result = rc_item_tx_commit_ground(&tx, &grant, 1,
+            x, y, plane, RC_GROUND_OWNER_LOCAL_PLAYER, policy);
+        if (result == RC_GROUND_GRANT_OK) return 1;
+    }
+    world->rng_state = rng;
+    *failure = "Cannot reserve recovered ammunition; attack and payment cancelled.";
+    return 0;
+}
 
 int rc_content_ranged_resource_slot(const RcPlayer *player, const char **failure) {
     const RcItemDef *weapon = player

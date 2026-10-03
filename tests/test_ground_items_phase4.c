@@ -34,7 +34,8 @@ static RcWorld *phase4_world(void) {
 
 static int first_untradeable_item(void) {
     for (int i = 0; i < RC_MAX_ITEM_DEFS; i++) {
-        if (g_item_defs[i].loaded && !g_item_defs[i].tradeable) {
+        if (g_item_defs[i].loaded && !g_item_defs[i].tradeable
+                && strcmp(g_item_defs[i].inventory_actions[4], "Drop") == 0) {
             return g_item_defs[i].id;
         }
     }

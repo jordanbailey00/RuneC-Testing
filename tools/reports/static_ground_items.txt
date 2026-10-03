@@ -3,4 +3,5 @@ Static Ground Items
 source: content/world/static_ground_items.tsv
 authority: runec_owned_static_ground_item_source
 rows: 1829
+default_respawn_ticks: 100 (RuneC policy, not verified per-spawn timing)
 output: data/spawns/world.ground-items.indexed.bin

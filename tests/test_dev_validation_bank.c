@@ -67,6 +67,7 @@ int main(void) {
     cfg.subsystems = RC_SUB_INVENTORY | RC_SUB_EQUIPMENT |
                      RC_SUB_STORAGE | RC_SUB_COMBAT;
     cfg.items_path = ITEM_PATH;
+    cfg.npc_defs_path = RC_TEST_SOURCE_DIR "/data/defs/npc_defs.bin";
     cfg.spells_path = SPELL_PATH;
     cfg.combat_profiles_path = VISUALS_PATH;
     cfg.seed = 12345;
@@ -220,7 +221,50 @@ int main(void) {
 
     const RuneCDevTransport *kbd =
         runec_dev_validation_find_transport("kbd");
-    assert(kbd && kbd->npc_id == 2266);
+    assert(kbd && kbd->npc_id == 239);
+    const struct { int id; const char *name; int size; } bosses[] = {
+        {239, "King Black Dragon", 5},
+        {2215, "General Graardor", 4},
+        {2216, "Sergeant Strongstack", 1},
+        {2217, "Sergeant Steelwill", 1},
+        {2218, "Sergeant Grimspike", 1},
+        {8061, "Vorkath", 7},
+        {3127, "TzTok-Jad", 5},
+    };
+    int transport_count;
+    const RuneCDevTransport *transports = runec_dev_validation_transports(&transport_count);
+    for (int t = 0; t < transport_count; t++) {
+        int count;
+        const RuneCDevEncounterNpc *rows =
+            runec_dev_validation_encounter_npcs(&transports[t], &count);
+        if (transports[t].npc_id < 0) { assert(count == 0); continue; }
+        assert(count > 0 && rows[0].npc_id == transports[t].npc_id);
+        assert(rows[0].size == transports[t].npc_size);
+        for (int n = 0; n < count; n++) {
+            const RcNpcDef *def = rc_npc_def_get(rc_npc_def_find(rows[n].npc_id));
+            assert(def && def->size == rows[n].size);
+            bool matched = false;
+            for (unsigned b = 0; b < sizeof(bosses) / sizeof(bosses[0]); b++) {
+                if (rows[n].npc_id != bosses[b].id) continue;
+                assert(strcmp(def->name, bosses[b].name) == 0);
+                assert(def->size == bosses[b].size);
+                matched = true;
+            }
+            assert(matched && "unreviewed dev encounter NPC identity");
+        }
+    }
+    rc_test_open_mapsquare(world, kbd->target_x, kbd->target_y, kbd->plane);
+    assert(runec_dev_validation_prepare_encounter(world, kbd) == 1);
+    int kbd_index = rc_world_find_npc_near(world, 239, kbd->target_x, kbd->target_y, 0, 0);
+    assert(kbd_index >= 0);
+    RcNpc *dragon = &world->npcs[kbd_index];
+    dragon->is_dead = true;
+    dragon->loot_prepared = dragon->player_loot_credit = true;
+    dragon->poison_damage = 6;
+    assert(runec_dev_validation_prepare_encounter(world, kbd) == 1);
+    assert(!dragon->is_dead && !dragon->loot_prepared && !dragon->player_loot_credit);
+    assert(!dragon->poison_damage && dragon->current_hp == 240);
+    assert(rc_world_find_npc_near(world, 2266, kbd->target_x, kbd->target_y, 0, 8) < 0);
 
     const RuneCDevTransport *graardor =
         runec_dev_validation_find_transport("graardor");

@@ -36,6 +36,17 @@ presentation responsibilities.
 
 ## Key files
 
+Scene right-click menus collect overlapping NPCs, the picked object, and
+visible ground piles independently. Each row retains its own target identity;
+long menus have Previous/More options. Left-click priority is unchanged. Take
+uses the core's UID/version checks and ordinary reach, visibility and capacity
+rules, even when an NPC occupies the item's tile.
+
+The playable configuration loads `defs/drops.bin`, `rdt.bin`, `gdt.bin` and
+`mrdt.bin` through the core. Overrides are `RUNEC_DROPS`, `RUNEC_RDT`,
+`RUNEC_GDT` and `RUNEC_MRDT`. A missing or rejected NPC table emits an explicit
+death diagnostic; enabling loot is not a claim that every table is verified.
+
 - `viewer.c`
   - main window lifecycle
   - input handling
@@ -145,6 +156,15 @@ presentation responsibilities.
   The exporter owns camera angles, perspective, face ordering, lighting,
   textures, stack variants and note/bought/placeholder composition. Missing
   PNGs are logged once and shown as a question mark, not a substitute item.
+- Ground piles use B237 item-specific models from `data/models/ground/`,
+  including cache-linked notes, recolors, textures, scaling and quantity forms.
+  These are loaded on demand with a bounded cache and share `items.atlas`;
+  absent models produce a diagnostic, not a gold-box substitute. Rebuild with
+  `tools/cache_pipeline/export_ground_item_models.py --cache <b237-cache>`
+  using the same cache as the equipment exporter. Packs include this directory.
+- Testing teleports activate destination collision before selecting a landing
+  tile. Landings must have an exit and a route to the boss footprint; a failed
+  search rejects the teleport instead of using an unchecked default coordinate.
 - `rc-viewer` expects to be launched with the project root as the
   working directory because it loads data by relative path.
 - It depends on runtime assets such as:

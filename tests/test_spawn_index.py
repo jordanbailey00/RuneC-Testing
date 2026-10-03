@@ -67,9 +67,9 @@ class SpawnIndexTests(unittest.TestCase):
 
     def test_ground_items_round_trip(self) -> None:
         rows = [
-            (995, 100, 3213, 3428, 0, 0),
-            (2357, 1, 3208, 3425, 0, 0),
-            (995, 25, 3213, 3428, 1, 0),
+            (995, 100, 3213, 3428, 0, 0, 100),
+            (2357, 1, 3208, 3425, 0, 0, 50),
+            (995, 25, 3213, 3428, 1, 0, 100),
         ]
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "world.ground-items.indexed.bin"
@@ -88,7 +88,7 @@ class SpawnIndexTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "bad.bin"
             spawn_index.write_ground_item_spawns(
-                path, [(995, 1, 3200, 3200, 0, 0)]
+                path, [(995, 1, 3200, 3200, 0, 0, 100)]
             )
             with path.open("ab") as handle:
                 handle.write(b"x")

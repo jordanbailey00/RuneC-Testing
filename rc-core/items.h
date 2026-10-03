@@ -156,6 +156,32 @@ int rc_player_take_ground_item(RcWorld *world, int ground_item_idx,
                                int expected_uid, int expected_version);
 int rc_ground_item_spawn(RcWorld *world, int item_id, int quantity,
                          int x, int y, int plane, int owner_uid);
+typedef struct {
+    int reveal_ticks, lifetime_ticks, delay_ticks;
+    int untradeable_lifetime_ticks;
+} RcGroundPolicy;
+
+typedef enum {
+    RC_GROUND_GRANT_OK = 0,
+    RC_GROUND_GRANT_DISABLED,
+    RC_GROUND_GRANT_INVALID,
+    RC_GROUND_GRANT_CAPACITY,
+    RC_GROUND_GRANT_CONFLICT,
+} RcGroundGrantResult;
+
+// A batch is committed in full or leaves the ground store unchanged.
+RcGroundGrantResult rc_ground_grant(RcWorld *world,
+    const RcGroundGrant *grants, int count, int x, int y, int plane,
+    int owner_uid, RcGroundPolicy policy);
+RcGroundGrantResult rc_item_tx_commit_ground(RcItemTransaction *tx,
+    const RcGroundGrant *grants, int count, int x, int y, int plane,
+    int owner_uid, RcGroundPolicy policy);
+int rc_ground_item_visible(const RcGroundItem *item, int owner_uid);
+int rc_ground_item_reachable(const RcWorld *world, int x, int y, int plane);
+void rc_ground_item_advance(RcGroundItem *item, RcTick elapsed);
+void rc_ground_items_tick(RcWorld *world);
+RcItemActionResult rc_player_pickup_item_expected(RcWorld *world, int index,
+                                                 int uid, int version);
 int rc_load_ground_item_spawns_rect_stats(RcWorld *world, const char *path,
                                           int min_x, int min_y,
                                           int max_x, int max_y,

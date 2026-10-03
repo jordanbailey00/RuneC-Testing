@@ -256,9 +256,10 @@ void rc_content_magic_hit(RcWorld *world, RcNpc *target,
     int heal = 0;
     if (spell) {
         if (spell->effect_flags & RC_SPELL_EFFECT_HEAL) heal = damage / 4;
-        if (spell->effect_flags & RC_SPELL_EFFECT_POISON)
-            rc_npc_apply_poison(world, target, strstr(spell->name, "Blitz") ||
-                strstr(spell->name, "Barrage") ? 4 : 2);
+        if ((spell->effect_flags & RC_SPELL_EFFECT_POISON)
+                && rc_npc_apply_poison(world, target, strstr(spell->name, "Blitz") ||
+                    strstr(spell->name, "Barrage") ? 4 : 2))
+            target->player_loot_credit = true;
         if (spell->effect_flags & RC_SPELL_EFFECT_FREEZE) {
             int ticks = !strcmp(spell->name, "Bind") ? 8 :
                 !strcmp(spell->name, "Snare") ? 16 :

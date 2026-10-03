@@ -634,6 +634,7 @@ int rc_world_activate_area(RcWorld *world, const RcActiveAreaRequest *request,
             request->min_plane, request->max_plane, &ground_item_stats);
         page_load_ms += monotonic_ms() - page_load_started_ms;
         if (spawned_ground_items < 0
+                || ground_item_stats.skipped_invalid > 0
                 || ground_item_stats.skipped_capacity > 0) {
             goto fail;
         }

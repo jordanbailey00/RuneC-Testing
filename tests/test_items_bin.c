@@ -86,6 +86,8 @@ int main(void) {
     int max_requirements = 0;
     for (int item_id = 0; item_id < RC_MAX_ITEM_DEFS; item_id++) {
         const RcItemDef *def = rc_item_def_get(item_id);
+        if (def && def->noted)
+            assert(def->stackable && "all banknotes must stack in ground and inventory containers");
         if (def && def->req_count > max_requirements)
             max_requirements = def->req_count;
     }

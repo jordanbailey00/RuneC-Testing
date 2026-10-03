@@ -1,4 +1,5 @@
 import copy
+import struct
 import sys
 import unittest
 from tempfile import TemporaryDirectory
@@ -11,6 +12,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools/cache_pipeline"))
 import export_item_sprites_b237 as sprites
+import export_ground_item_models as ground
 
 
 def triangle():
@@ -20,6 +22,56 @@ def triangle():
 
 
 class ItemSprites(unittest.TestCase):
+    def test_ground_models_preserve_item_identity_and_overrides(self):
+        source = triangle()
+        defs = {1: sprites.ItemSpriteDef(1, inventory_model=7, resize_x=256,
+                    recolor_src=[5000], recolor_dst=[6000], ambient=5, contrast=2)}
+        result = ground.ground_model(1, defs, lambda _: source)
+        self.assertEqual(result.model_id, 1)
+        self.assertEqual(result.vertices_x, [-40, 0, 40])
+        self.assertEqual(result.face_colors, [6000])
+        self.assertEqual((result._export_ambient, result._export_contrast), (69, 778))
+        self.assertEqual(source.face_colors, [5000])
+        self.assertEqual(source.vertices_x, [-20, 0, 20])
+        with self.assertRaisesRegex(ValueError, "ground item 1: missing cache model 7"):
+            ground.ground_model(1, defs, lambda _: None)
+        defs[1].inventory_model = -1
+        self.assertIsNone(ground.ground_model(1, defs, lambda _: source))
+
+    def test_ground_linked_forms_use_template_geometry(self):
+        defs = {1: sprites.ItemSpriteDef(1, inventory_model=7, recolor_dst=[70]),
+                2: sprites.ItemSpriteDef(2, inventory_model=8, recolor_dst=[80]),
+                3: sprites.ItemSpriteDef(3)}
+        for kind in ("note", "bought", "placeholder"):
+            defs[3] = sprites.ItemSpriteDef(3)
+            setattr(defs[3], kind + "_id", 1)
+            setattr(defs[3], kind + "_template_id", 2)
+            item = ground.ground_appearance(3, defs)
+            self.assertEqual(item.inventory_model, 8)
+            self.assertEqual(item.recolor_dst, [70] if kind == "bought" else [80])
+            self.assertEqual(defs[3].inventory_model, -1)
+        defs[3].placeholder_template_id = 999
+        with self.assertRaises(KeyError):
+            ground.ground_appearance(3, defs)
+
+    def test_ground_export_writes_native_individual_models(self):
+        class Store:
+            def __init__(self, _path): pass
+            def read_group(self, *_args): return {1: b"\x01\x00\x07\x00", 2: b"\x00"}
+        with TemporaryDirectory() as tmp, \
+             patch.object(sys, "argv", ["ground", "--cache", tmp, "--output", tmp]), \
+             patch.object(ground, "RcCacheStore", Store), \
+             patch.object(ground, "load_texture_sprites", return_value={}), \
+             patch.object(ground, "load_texture_average_colors", return_value={}), \
+             patch.object(ground, "load_model", return_value=triangle()):
+            ground.main()
+            payload = (Path(tmp) / "1.models").read_bytes()
+            magic, count, offset = struct.unpack_from("<III", payload)
+            self.assertEqual((magic, count), (0x4D444C33, 1))
+            self.assertEqual(struct.unpack_from("<I", payload, offset)[0], 1)
+            self.assertFalse((Path(tmp) / "2.models").exists())
+            self.assertFalse((Path(tmp) / "1.atlas").exists())
+
     def test_metadata_axes_signed_offsets_and_templates(self):
         d = sprites.decode_item_sprite_def(1, bytes.fromhex(
             "01 000a 04 0800 05 0100 06 0200 07 fffb 08 0007 5f 0300 "

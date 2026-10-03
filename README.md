@@ -54,11 +54,20 @@ cmake --build build --parallel
 ./build/rc-viewer
 ```
 
+Run these commands from your checkout root; the directory name is not fixed.
+After moving or renaming an existing checkout, regenerate CMake's local build
+metadata (`cmake --fresh -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo` with
+CMake 3.24+, or configure a new build directory), then rebuild. Do not copy
+another machine's `build/` directory. Source paths are derived at configure/run
+time, and OpenGL is discovered through CMake rather than a distro-specific path.
+
 `runtime-data.lock` points to the official early-v1 runtime-data release.
 `./scripts/setup-data.sh` downloads the locked manifest and packs, verifies
 checksums, and installs them into the local ignored `data/` directory.
 Maintainer/dev checkouts can still generate `dist-data/` locally and install
 from it with `--offline dist-data`.
+The latest loot definitions and per-item ground models require the updated
+maintainer packs; they are not yet included in that published early-v1 lock.
 
 ## Validation Tools
 

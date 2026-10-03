@@ -1,0 +1,2000 @@
+{
+  "format": "runec-loot-rejections-v1",
+  "snapshot": "2026-09-14",
+  "policy": "Reject the entire affected NPC death table before RNG or ground grants; no old-table fallback.",
+  "scope": "Explicit unpublished-rate labels and outdated DROP sections. Numeric estimates, conditional rates, item/quantity bindings and roll groups still require review; absence here is NOT approval.",
+  "source_hashes": {
+    "dropsline": "01a544f4e377403c3356dfc25d1b9154711331e4999de238b5c7929e6a799b8d",
+    "infobox_monster": "fe44f5a4721949c3fd61a5f60658bd6aca3b103756c7d0f5592b80da7b8c366d",
+    "infobox_item": "b649f888464b217ef86d27c952e8d589f49be83f116242510a0b9e6fd17be856"
+  },
+  "tables": [
+    {
+      "table": "Al Kharid warrior",
+      "npc_ids": [
+        3292
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15321509",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Energy potion(3)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Anja",
+      "npc_ids": [
+        3285
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15313905",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Energy potion(3)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Banshee",
+      "npc_ids": [
+        414
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15339675",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Energy potion(2)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        },
+        {
+          "item": "Energy potion(4)",
+          "rarity": "Unknown",
+          "quantity": "2 (noted)"
+        }
+      ]
+    },
+    {
+      "table": "Black jaguar",
+      "npc_ids": [
+        12978
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15200507",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (medium)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Buffalo",
+      "npc_ids": [
+        13004
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15200505",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (beginner)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        },
+        {
+          "item": "Clue scroll (easy)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Cave crawler",
+      "npc_ids": [
+        406,
+        407,
+        408,
+        409,
+        13800,
+        13801
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15338366",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Energy potion(3)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        },
+        {
+          "item": "Energy potion(4)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        },
+        {
+          "item": "Frozen tear",
+          "rarity": "Unknown",
+          "quantity": "5"
+        }
+      ]
+    },
+    {
+      "table": "Chasm Crawler",
+      "npc_ids": [
+        7389,
+        14031
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15338365",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Energy potion(3)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        },
+        {
+          "item": "Energy potion(4)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Chilled jelly",
+      "npc_ids": [
+        13799
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15339568",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Frozen tear",
+          "rarity": "Rare",
+          "quantity": "8"
+        }
+      ]
+    },
+    {
+      "table": "Cockathrice",
+      "npc_ids": [
+        7393
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15338369",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Energy potion(2)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        },
+        {
+          "item": "Energy potion(4)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Cockatrice",
+      "npc_ids": [
+        419
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15338368",
+      "reasons": [
+        "unpublished_rate",
+        "outdated_drop_section"
+      ],
+      "outdated_notes": [
+        "Cockatrice now drop energy potions with the Summer Sweep-up part 3"
+      ],
+      "drops": [
+        {
+          "item": "Energy potion(2)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        },
+        {
+          "item": "Energy potion(4)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Crawling Hand",
+      "npc_ids": [
+        448,
+        449,
+        450,
+        451,
+        452,
+        453,
+        454,
+        455,
+        456,
+        457
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15341063",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Energy potion(2)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        },
+        {
+          "item": "Energy potion(4)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Crushing hand",
+      "npc_ids": [
+        7388
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15338295",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Energy potion(2)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        },
+        {
+          "item": "Energy potion(4)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Crystalline Bat",
+      "npc_ids": [
+        9028
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15273366",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Raw paddlefish",
+          "rarity": "Common",
+          "quantity": "1, 3"
+        },
+        {
+          "item": "Grym leaf",
+          "rarity": "Common",
+          "quantity": "1"
+        },
+        {
+          "item": "Weapon frame",
+          "rarity": "Common",
+          "quantity": "1"
+        },
+        {
+          "item": "Teleport crystal (The Gauntlet)",
+          "rarity": "Uncommon",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Crystalline Bear",
+      "npc_ids": [
+        9032
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15272617",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Raw paddlefish",
+          "rarity": "Common",
+          "quantity": "5"
+        },
+        {
+          "item": "Teleport crystal (The Gauntlet)",
+          "rarity": "Uncommon",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Crystalline Dark Beast",
+      "npc_ids": [
+        9034
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15316459",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Raw paddlefish",
+          "rarity": "Common",
+          "quantity": "5"
+        },
+        {
+          "item": "Teleport crystal (The Gauntlet)",
+          "rarity": "Uncommon",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Crystalline Dragon",
+      "npc_ids": [
+        9033
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15272619",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Raw paddlefish",
+          "rarity": "Common",
+          "quantity": "5"
+        },
+        {
+          "item": "Teleport crystal (The Gauntlet)",
+          "rarity": "Uncommon",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Crystalline Rat",
+      "npc_ids": [
+        9026
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15273369",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Raw paddlefish",
+          "rarity": "Common",
+          "quantity": "1, 3"
+        },
+        {
+          "item": "Grym leaf",
+          "rarity": "Common",
+          "quantity": "1"
+        },
+        {
+          "item": "Weapon frame",
+          "rarity": "Common",
+          "quantity": "1"
+        },
+        {
+          "item": "Teleport crystal (The Gauntlet)",
+          "rarity": "Uncommon",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Crystalline Scorpion",
+      "npc_ids": [
+        9030
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15272613",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Raw paddlefish",
+          "rarity": "Common",
+          "quantity": "4"
+        },
+        {
+          "item": "Weapon frame",
+          "rarity": "Common",
+          "quantity": "1"
+        },
+        {
+          "item": "Teleport crystal (The Gauntlet)",
+          "rarity": "Uncommon",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Crystalline Spider",
+      "npc_ids": [
+        9027
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15273368",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Raw paddlefish",
+          "rarity": "Common",
+          "quantity": "1, 3"
+        },
+        {
+          "item": "Grym leaf",
+          "rarity": "Common",
+          "quantity": "1"
+        },
+        {
+          "item": "Weapon frame",
+          "rarity": "Common",
+          "quantity": "1"
+        },
+        {
+          "item": "Teleport crystal (The Gauntlet)",
+          "rarity": "Uncommon",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Crystalline Unicorn",
+      "npc_ids": [
+        9029
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15272612",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Raw paddlefish",
+          "rarity": "Common",
+          "quantity": "4"
+        },
+        {
+          "item": "Weapon frame",
+          "rarity": "Common",
+          "quantity": "1"
+        },
+        {
+          "item": "Teleport crystal (The Gauntlet)",
+          "rarity": "Uncommon",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Crystalline Wolf",
+      "npc_ids": [
+        9031
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15272615",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Raw paddlefish",
+          "rarity": "Common",
+          "quantity": "4"
+        },
+        {
+          "item": "Weapon frame",
+          "rarity": "Common",
+          "quantity": "1"
+        },
+        {
+          "item": "Teleport crystal (The Gauntlet)",
+          "rarity": "Uncommon",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Cuffs",
+      "npc_ids": [
+        3279
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15313898",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Energy potion(3)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Dark wizard",
+      "npc_ids": [
+        510,
+        512,
+        2056,
+        2057,
+        2058,
+        2059,
+        5086,
+        5087,
+        5088,
+        5089
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15314900",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Energy potion(2)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        },
+        {
+          "item": "Energy potion(3)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        },
+        {
+          "item": "Energy potion(4)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        },
+        {
+          "item": "Energy potion(3)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        },
+        {
+          "item": "Energy potion(4)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Death wing",
+      "npc_ids": [
+        509
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15199521",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (beginner)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Desert Lizard",
+      "npc_ids": [
+        459,
+        460,
+        461,
+        12003
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15339653",
+      "reasons": [
+        "unpublished_rate",
+        "outdated_drop_section"
+      ],
+      "outdated_notes": [
+        "Desert lizards now drop energy potions with the Summer Sweep-up part 3"
+      ],
+      "drops": [
+        {
+          "item": "Energy potion(3)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        },
+        {
+          "item": "Energy potion(2)",
+          "rarity": "Unknown",
+          "quantity": "6 (noted)"
+        }
+      ]
+    },
+    {
+      "table": "Dire gryphon",
+      "npc_ids": [
+        14859
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15341249",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (hard)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Drunken man",
+      "npc_ids": [
+        3263
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15322207",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Energy potion(3)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Elder aquanite",
+      "npc_ids": [
+        15502,
+        15503
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15339683",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (hard)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Elite Black Knight",
+      "npc_ids": [
+        13463,
+        13464,
+        13480,
+        13481
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15343621",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (hard)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Elite Dark Mage",
+      "npc_ids": [
+        13469,
+        13470
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15315206",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (hard)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Elite Dark Ranger",
+      "npc_ids": [
+        13467,
+        13468
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15315204",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (hard)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Elite Dark Warrior",
+      "npc_ids": [
+        13465,
+        13466
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15315205",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (hard)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Farmer",
+      "npc_ids": [
+        3114,
+        3243,
+        3244,
+        11918,
+        11919,
+        11920,
+        11921
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15321505",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Energy potion(3)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        },
+        {
+          "item": "Energy potion(3)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Flawed Golem",
+      "npc_ids": [
+        10695,
+        10696
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15270680",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (beginner)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Fox",
+      "npc_ids": [
+        3901
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15200046",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Copper's crimson collar",
+          "rarity": "Common",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Frost Nagua",
+      "npc_ids": [
+        13728,
+        13787,
+        13788
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15341239",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (hard)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Ghost (Grave of Scorpius)",
+      "npc_ids": [
+        5370
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15233214",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (beginner)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Giant lobster (Ghosts Ahoy)",
+      "npc_ids": [
+        2994
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15272821",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (beginner)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Goblin",
+      "npc_ids": [
+        3028,
+        3029,
+        3030,
+        3031,
+        3032,
+        3033,
+        3034,
+        3035,
+        3036,
+        3037,
+        3038,
+        3039,
+        3040,
+        3041,
+        3042,
+        3043,
+        3044,
+        3045,
+        3046,
+        3051,
+        3052,
+        3053,
+        3054,
+        3073,
+        3074,
+        3075,
+        3076,
+        5192,
+        5193,
+        5195,
+        5196,
+        5197,
+        5198,
+        5199,
+        5200,
+        5201,
+        5202,
+        5203,
+        5204,
+        5205,
+        5206,
+        5207,
+        5208
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15318086",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Energy potion(1)",
+          "rarity": "Common",
+          "quantity": "1"
+        },
+        {
+          "item": "Energy potion(2)",
+          "rarity": "Common",
+          "quantity": "1"
+        },
+        {
+          "item": "Energy potion(4)",
+          "rarity": "Common",
+          "quantity": "1"
+        },
+        {
+          "item": "Energy potion(1)",
+          "rarity": "Common",
+          "quantity": "1"
+        },
+        {
+          "item": "Energy potion(2)",
+          "rarity": "Common",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Goblin guard",
+      "npc_ids": [
+        5369
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15336205",
+      "reasons": [
+        "outdated_drop_section"
+      ],
+      "outdated_notes": [
+        "Now drops energy potions with summer sweeup"
+      ],
+      "drops": []
+    },
+    {
+      "table": "Grimy Lizard",
+      "npc_ids": [
+        13029,
+        14430
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15339648",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (medium)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Guardian of Armadyl",
+      "npc_ids": [
+        3445,
+        3446
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15293545",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Armadyl pendant",
+          "rarity": "Common",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Hengel",
+      "npc_ids": [
+        3284
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15313906",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Energy potion(3)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Hermit crab",
+      "npc_ids": [
+        14852
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15286280",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (easy)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Ice giant",
+      "npc_ids": [
+        2085,
+        2086,
+        2087,
+        2088,
+        2089,
+        7878,
+        7879,
+        7880,
+        13796,
+        13797
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15199301",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Frozen tear",
+          "rarity": "Unknown",
+          "quantity": "6"
+        }
+      ]
+    },
+    {
+      "table": "Ice spider",
+      "npc_ids": [
+        3022,
+        10722,
+        13798
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15231530",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Frozen tear",
+          "rarity": "Unknown",
+          "quantity": "6"
+        }
+      ]
+    },
+    {
+      "table": "Ice warrior",
+      "npc_ids": [
+        2841,
+        2842,
+        2851,
+        13802
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15275444",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Frozen tear",
+          "rarity": "Unknown",
+          "quantity": "6"
+        }
+      ]
+    },
+    {
+      "table": "Jaguar",
+      "npc_ids": [
+        12976
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15200503",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (medium)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Jaguar cub",
+      "npc_ids": [
+        12977
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15200504",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (easy)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Jeff",
+      "npc_ids": [
+        3282
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15313901",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Energy potion(3)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Jungle spider (Ape Atoll)",
+      "npc_ids": [
+        5243
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15322116",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (beginner)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Killerwatt",
+      "npc_ids": [
+        469,
+        470
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15341252",
+      "reasons": [
+        "outdated_drop_section"
+      ],
+      "outdated_notes": [
+        "Killerwatts now drop energy potions with the Summer Sweep-up part 3"
+      ],
+      "drops": []
+    },
+    {
+      "table": "Lizard",
+      "npc_ids": [
+        458
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15339651",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Energy potion(3)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        },
+        {
+          "item": "Energy potion(2)",
+          "rarity": "Unknown",
+          "quantity": "6 (noted)"
+        }
+      ]
+    },
+    {
+      "table": "Magma strykewyrm",
+      "npc_ids": [
+        15504
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15341057",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (hard)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Man",
+      "npc_ids": [
+        3014,
+        3106,
+        3107,
+        3108,
+        3109,
+        3110,
+        3261,
+        3264,
+        3265,
+        3652,
+        6815,
+        6818,
+        6987,
+        6988,
+        6989,
+        11057,
+        11058,
+        14920
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15337969",
+      "reasons": [
+        "unpublished_rate",
+        "outdated_drop_section"
+      ],
+      "outdated_notes": [
+        "Men/women/rogues/al kharid warriors/other humans NPCs with these same drop tables now drop energy potions following summer sweepup part 3"
+      ],
+      "drops": [
+        {
+          "item": "Energy potion(3)",
+          "rarity": "Common",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Molanisk",
+      "npc_ids": [
+        1
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15341257",
+      "reasons": [
+        "unpublished_rate",
+        "outdated_drop_section"
+      ],
+      "outdated_notes": [
+        "Molanisks now drop energy potions with the Summer Sweep-up part 3, replaced coin drop"
+      ],
+      "drops": [
+        {
+          "item": "Energy potion(3)",
+          "rarity": "Common",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Moonlight Cockatrice",
+      "npc_ids": [
+        13030
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15342683",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (medium)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Mutated Terrorbird",
+      "npc_ids": [
+        12464
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15341106",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (hard)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Mutated Tortoise",
+      "npc_ids": [
+        12465
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15341107",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (hard)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Narf",
+      "npc_ids": [
+        3280
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15313900",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Energy potion(3)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Nex",
+      "npc_ids": [
+        11278,
+        11279,
+        11280,
+        11281,
+        11282
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15337120",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Air rune",
+          "rarity": "Uncommon",
+          "quantity": "123\u201310000"
+        },
+        {
+          "item": "Fire rune",
+          "rarity": "Uncommon",
+          "quantity": "1\u201310000"
+        },
+        {
+          "item": "Blood rune",
+          "rarity": "Common",
+          "quantity": "84\u2013876"
+        },
+        {
+          "item": "Death rune",
+          "rarity": "Common",
+          "quantity": "85\u2013986"
+        },
+        {
+          "item": "Water rune",
+          "rarity": "Uncommon",
+          "quantity": "193\u201310000"
+        },
+        {
+          "item": "Soul rune",
+          "rarity": "Common",
+          "quantity": "86\u2013592"
+        },
+        {
+          "item": "Dragon bolts (unf)",
+          "rarity": "Common",
+          "quantity": "12\u2013283"
+        },
+        {
+          "item": "Onyx bolts (e)",
+          "rarity": "Uncommon",
+          "quantity": "11\u201329"
+        },
+        {
+          "item": "Steel cannonball",
+          "rarity": "Common",
+          "quantity": "42\u20132252"
+        },
+        {
+          "item": "Air orb",
+          "rarity": "Common",
+          "quantity": "6\u2013100 (noted)"
+        },
+        {
+          "item": "Coal",
+          "rarity": "Uncommon",
+          "quantity": "23\u20132354 (noted)"
+        },
+        {
+          "item": "Runite ore",
+          "rarity": "Uncommon",
+          "quantity": "2\u201330 (noted)"
+        },
+        {
+          "item": "Uncut ruby",
+          "rarity": "Common",
+          "quantity": "3\u201380 (noted)"
+        },
+        {
+          "item": "Uncut diamond",
+          "rarity": "Common",
+          "quantity": "3\u201364 (noted)"
+        },
+        {
+          "item": "Wine of Zamorak",
+          "rarity": "Common",
+          "quantity": "4\u201364 (noted)"
+        },
+        {
+          "item": "Shark",
+          "rarity": "Common",
+          "quantity": "10"
+        },
+        {
+          "item": "Prayer potion(4)",
+          "rarity": "Common",
+          "quantity": "3"
+        },
+        {
+          "item": "Saradomin brew(4)",
+          "rarity": "Common",
+          "quantity": "1\u201310"
+        },
+        {
+          "item": "Super restore(4)",
+          "rarity": "Common",
+          "quantity": "1\u20135"
+        },
+        {
+          "item": "Coins",
+          "rarity": "Uncommon",
+          "quantity": "8539\u201326748"
+        },
+        {
+          "item": "Ecumenical key shard",
+          "rarity": "Common",
+          "quantity": "6\u201339"
+        }
+      ]
+    },
+    {
+      "table": "Penda",
+      "npc_ids": [
+        4109
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15309431",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Energy potion(3)",
+          "rarity": "Common",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Poison spider",
+      "npc_ids": [
+        3023,
+        5373,
+        11999
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15199591",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (beginner)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Porcupine",
+      "npc_ids": [
+        13968
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15200517",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (beginner)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Possessed Priest",
+      "npc_ids": [
+        4210
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15199218",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Coins",
+          "rarity": "Uncommon",
+          "quantity": "1\u20131260"
+        }
+      ]
+    },
+    {
+      "table": "Pygmy kraken",
+      "npc_ids": [
+        15206
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15304625",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (medium)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Rogue",
+      "npc_ids": [
+        526,
+        6603
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15314913",
+      "reasons": [
+        "unpublished_rate",
+        "outdated_drop_section"
+      ],
+      "outdated_notes": [
+        "Men/women/rogues/al kharid warriors/other humans NPCs with these same drop tables now drop energy potions following summer sweepup part 3"
+      ],
+      "drops": [
+        {
+          "item": "Energy potion(3)",
+          "rarity": "Common",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Rusty",
+      "npc_ids": [
+        3281
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15313903",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Energy potion(3)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Scorpia's guardian",
+      "npc_ids": [
+        6617
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15265728",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (beginner)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Screaming banshee",
+      "npc_ids": [
+        7390
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15339674",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Energy potion(2)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        },
+        {
+          "item": "Energy potion(4)",
+          "rarity": "Unknown",
+          "quantity": "2 (noted)"
+        }
+      ]
+    },
+    {
+      "table": "Skeleton (Melzar's Maze)",
+      "npc_ids": [
+        3972,
+        3973,
+        3974
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15200114",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Coins",
+          "rarity": "Common",
+          "quantity": "2"
+        },
+        {
+          "item": "Coins",
+          "rarity": "Common",
+          "quantity": "3"
+        },
+        {
+          "item": "Coins",
+          "rarity": "Common",
+          "quantity": "4"
+        }
+      ]
+    },
+    {
+      "table": "Small Lizard",
+      "npc_ids": [
+        462,
+        463,
+        12004
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15339652",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Energy potion(3)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        },
+        {
+          "item": "Energy potion(2)",
+          "rarity": "Unknown",
+          "quantity": "6 (noted)"
+        }
+      ]
+    },
+    {
+      "table": "Spider (Ape Atoll)",
+      "npc_ids": [
+        5238,
+        5239
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15200116",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (beginner)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Spider (Ungael)",
+      "npc_ids": [
+        8137,
+        8138
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15330818",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (beginner)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Spined kraken",
+      "npc_ids": [
+        15208
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15276867",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (hard)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Thief",
+      "npc_ids": [
+        1448,
+        3252,
+        3253,
+        4247,
+        5217,
+        5218,
+        5219,
+        5220,
+        7914,
+        7915,
+        7916
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15313907",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Energy potion(3)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Tiger shark",
+      "npc_ids": [
+        15198
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15234665",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (hard)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Vitreous Chilled Jelly",
+      "npc_ids": [
+        15501
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15339565",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Frozen tear",
+          "rarity": "Rare",
+          "quantity": "8\u201312"
+        }
+      ]
+    },
+    {
+      "table": "Warped Tortoise",
+      "npc_ids": [
+        12490
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15341109",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (hard)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "White jaguar",
+      "npc_ids": [
+        12979
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15200509",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (medium)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Wolf",
+      "npc_ids": [
+        106,
+        110,
+        2490,
+        2491,
+        3912
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15343223",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Clue scroll (beginner)",
+          "rarity": "Rare",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Woman",
+      "npc_ids": [
+        3015,
+        3111,
+        3112,
+        3113,
+        6990,
+        6991,
+        6992,
+        10728,
+        11053,
+        11054,
+        14921
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15337968",
+      "reasons": [
+        "unpublished_rate",
+        "outdated_drop_section"
+      ],
+      "outdated_notes": [
+        "Men/women/rogues/al kharid warriors/other humans NPCs with these same drop tables now drop energy potions following summer sweepup part 3"
+      ],
+      "drops": [
+        {
+          "item": "Energy potion(3)",
+          "rarity": "Common",
+          "quantity": "1"
+        }
+      ]
+    },
+    {
+      "table": "Zemouregal Summon",
+      "npc_ids": [
+        15558,
+        15559,
+        15560,
+        15561,
+        15562,
+        15563
+      ],
+      "source": "https://oldschool.runescape.wiki/?oldid=15328522",
+      "reasons": [
+        "unpublished_rate"
+      ],
+      "outdated_notes": [],
+      "drops": [
+        {
+          "item": "Archaic emblem (tier 1)",
+          "rarity": "Unknown",
+          "quantity": "1"
+        }
+      ]
+    }
+  ],
+  "binding_gaps": [
+    {
+      "table": "Hermit crab",
+      "npc_ids": [
+        14853,
+        14854,
+        14855,
+        14856
+      ],
+      "reason": "Wiki ID exists in B237 but its NPC name did not match; no guessed binding"
+    }
+  ]
+}
