@@ -1,10 +1,10 @@
-# Runtime data lock for the current RuneC early-v1 data release.
+# Runtime data lock for RuneC-Testing; live RuneC releases are independent.
 
 format = "runec-runtime-data-lock-v1"
-status = "released"
-official_release = true
+status = "prerelease"
+official_release = false
 data_version = "v1"
-release_status = "publishable"
+release_status = "blocked"
 pipeline_command = "python3 tools/data_pipeline.py all"
 check_command = "python3 tools/data_pipeline.py --check"
 
@@ -18,15 +18,16 @@ local_setup_command = "scripts/setup-data.sh --offline dist-data"
 local_verify_command = "scripts/setup-data.sh --verify"
 
 [release]
-manifest_url = "https://github.com/jordanbailey00/RuneC/releases/download/data-v2026.07.02-b237/manifest.json"
-manifest_sha256 = "9d025bb17fd8882304ddb3678c8a7ff983386b77a5ae236309f6460a28cbe957"
-packs_base_url = "https://github.com/jordanbailey00/RuneC/releases/download/data-v2026.07.02-b237"
-release_tag = "data-v2026.07.02-b237"
+manifest_url = "https://github.com/jordanbailey00/RuneC-Testing/releases/download/data-v2026.10.03-b237/manifest.json"
+manifest_sha256 = "a4997651db6cbd43a5241e0df39a868eefed75c6a7bdcaaecfb9c807b094d97d"
+packs_base_url = "https://github.com/jordanbailey00/RuneC-Testing/releases/download/data-v2026.10.03-b237"
+release_tag = "data-v2026.10.03-b237"
 
 [source_gaps]
 datasets = []
 
 [notes]
-phase = "data-cleanup-official-release"
-official_release_note = "Official early-v1 runtime-data release published as GitHub Release assets."
-source_gap_note = "No formal source-authority gaps remain."
+phase = "testing-full-world-loot-checkpoint"
+official_release_note = "RuneC-Testing dev runtime-data checkpoint; v1 is the compatibility identifier, not the release date. Live RuneC is unchanged."
+source_gap_note = "No formal source-authority gaps remain; rejected loot tables and incomplete content parity remain documented in content/loot and TODO.md."
+release_gate_note = "Explicit Testing use only. Official release remains blocked by unfinished loot, unavailable prayer effects and an outdated gathering-count report; runtime tests do not certify content parity."

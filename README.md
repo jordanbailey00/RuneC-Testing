@@ -46,9 +46,9 @@ builds do not require a separate Raylib install.
 ## Quick Start
 
 ```bash
-git clone https://github.com/jordanbailey00/RuneC.git
-cd RuneC
-./scripts/setup-data.sh
+git clone --branch dev https://github.com/jordanbailey00/RuneC-Testing.git
+cd RuneC-Testing
+RUNEC_DATA_MANIFEST_URL=https://github.com/jordanbailey00/RuneC-Testing/releases/download/data-v2026.10.03-b237/manifest.json ./scripts/setup-data.sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build --parallel
 ./build/rc-viewer
@@ -61,13 +61,20 @@ CMake 3.24+, or configure a new build directory), then rebuild. Do not copy
 another machine's `build/` directory. Source paths are derived at configure/run
 time, and OpenGL is discovered through CMake rather than a distro-specific path.
 
-`runtime-data.lock` points to the official early-v1 runtime-data release.
-`./scripts/setup-data.sh` downloads the locked manifest and packs, verifies
-checksums, and installs them into the local ignored `data/` directory.
+This Testing branch pins its own data release on `RuneC-Testing` through
+`runtime-data.lock`; it does not change the live `RuneC` repository or releases.
+The command above explicitly opts into this Testing prerelease. Setup verifies
+the locked manifest checksum and every pack, then installs them into the local
+ignored `data/` directory. Plain setup intentionally refuses automatic download
+while the official release gate is blocked.
 Maintainer/dev checkouts can still generate `dist-data/` locally and install
 from it with `--offline dist-data`.
-The latest loot definitions and per-item ground models require the updated
-maintainer packs; they are not yet included in that published early-v1 lock.
+The pinned `data-v2026.10.03-b237` release includes the complete four-plane
+world, updated loot definitions and per-item ground models. Unverified loot
+tables remain explicitly rejected; this release is not full gameplay parity.
+The official release gate still flags unfinished loot, unavailable prayer
+effects, and an outdated gathering-count report. Runtime tests passing does not
+resolve those content/reporting gaps. No installer or gameplay logic changed.
 
 ## Validation Tools
 
@@ -156,8 +163,7 @@ data/          Local runtime data install populated by scripts/setup-data.sh.
 RuneC does not track generated runtime data in Git. Run this once after cloning:
 
 ```bash
-python3 tools/data_pipeline.py pack-runtime-data
-./scripts/setup-data.sh --offline dist-data
+RUNEC_DATA_MANIFEST_URL=https://github.com/jordanbailey00/RuneC-Testing/releases/download/data-v2026.10.03-b237/manifest.json ./scripts/setup-data.sh
 ```
 
 This installs:
@@ -175,13 +181,21 @@ data/
   ui/
 ```
 
-`./scripts/setup-data.sh` downloads the locked manifest and packs by default.
-Use `--offline dist-data` for maintainer-built local packs, or explicit
-`RUNEC_DATA_BASE_URL` / `RUNEC_DATA_MANIFEST_URL` overrides for a temporary
-alternate release location. The script expands packs into loose local runtime
+Official locks allow automatic downloads; this non-official Testing lock
+requires the explicit command above. Use `--offline dist-data` for
+maintainer-built local packs. The script expands packs into loose local runtime
 files so the viewer uses the fast file-loading path. Set
 `RUNEC_DATA_UNPACK=0` to keep only the manifest and packs, or
 `RUNEC_DATA_UNPACK_FORCE=1` to rewrite already extracted files.
+
+When upgrading an existing install, keep the previous `data/` directory as a
+backup and run the explicit Testing command above into a new, empty `data/`
+directory. Do not mix `.pak` files from different releases: duplicate logical
+assets are rejected. The previous release remains available for use with its
+matching code revision.
+Maintainers package existing validated runtime files with
+`python3 tools/pack_runtime_data.py`; normal users do not need raw cache inputs
+or local asset exports.
 
 Runtime asset loading supports both loose files and release packs. The default
 backend is `auto`: loose `data/...` files are used when present, otherwise
