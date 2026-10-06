@@ -63,10 +63,9 @@ typedef enum {
     RC_PLAYER_COMMAND_CAST_ON_OBJECT,
     RC_PLAYER_COMMAND_CAST_ON_GROUND,
     RC_PLAYER_COMMAND_CAST_ON_WIDGET,
-    RC_PLAYER_COMMAND_OPEN_STORAGE_OBJECT,
-    RC_PLAYER_COMMAND_OPEN_STORAGE_NPC,
     RC_PLAYER_COMMAND_CLOSE_STORAGE,
     RC_PLAYER_COMMAND_BANK_DEPOSIT,
+    RC_PLAYER_COMMAND_BANK_DEPOSIT_ALL,
     RC_PLAYER_COMMAND_BANK_WITHDRAW,
     RC_PLAYER_COMMAND_APPLY_RECIPE,
     RC_PLAYER_COMMAND_DROP_ITEM,
@@ -653,7 +652,7 @@ typedef struct {
     int item_id;    // -1 = empty
     int quantity;
     uint32_t state_id;   // 0 = ordinary/default item state
-    uint32_t generation; // changes whenever this slot's item state changes
+    uint32_t generation; // inventory: mutation; bank: stack identity lifetime
 } RcInvSlot;
 
 typedef enum {
@@ -680,6 +679,20 @@ typedef struct {
     int required_skill;
     int required_level;
 } RcItemActionResult;
+
+typedef enum {
+    RC_BANK_OK = 0, RC_BANK_PARTIAL, RC_BANK_INVALID, RC_BANK_DISABLED,
+    RC_BANK_CLOSED, RC_BANK_STALE, RC_BANK_CAPACITY, RC_BANK_UNBANKABLE,
+    RC_BANK_UNREVIEWED, RC_BANK_BAD_NOTE, RC_BANK_CONFLICT, RC_BANK_QUEUE_REJECTED,
+} RcBankResultCode;
+
+typedef struct {
+    uint64_t sequence;
+    RcBankResultCode code;
+    int slot, item_id, requested;
+    int64_t moved;
+    bool withdraw, cannot_note;
+} RcBankResult;
 
 // Skill state
 typedef struct {
@@ -842,6 +855,7 @@ typedef struct {
     uint32_t inventory_revision;
     uint32_t equipment_revision;
     uint32_t bank_revision;
+    uint32_t next_bank_generation;
     uint32_t next_item_generation;
     RcItemActionResult last_item_action;
 
@@ -856,6 +870,10 @@ typedef struct {
     int storage_kind;
     int storage_target;
     int storage_option;
+    uint64_t storage_session;
+    RcInteractionTarget storage_source;
+    int storage_x, storage_y, storage_plane;
+    RcBankResult bank_result;
 
     // Skilling
     int skill_action;
@@ -1238,6 +1256,7 @@ typedef struct RcWorld {
     const struct RcConsumableDef *consumables;
     int consumable_count;
     int (*consumable_prayer_bonus)(const RcPlayer *player);
+    const struct RcStoragePolicy *storage_policy;
     RcItemEquipRequirementHook item_equip_requirement_hook;
     void *item_equip_requirement_ctx;
     RcCombatAttackEvent combat_attack_events[RC_MAX_COMBAT_ATTACK_EVENTS];

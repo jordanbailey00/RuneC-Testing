@@ -876,6 +876,10 @@ static void resolve_npc_hits(RcWorld *world, RcNpc *npc) {
         if (npc->current_hp <= 0) {
             npc->current_hp = 0;
             npc->is_dead = true;
+            if (world->player.storage_session
+                    && world->player.storage_source.kind == RC_INTERACTION_NPC
+                    && world->player.storage_source.entity_uid == npc->uid)
+                rc_storage_close(world);
             npc->death_timer = 3;
             npc->respawn_timer = npc->respawns && def
                                ? def->respawn_ticks : 0;
@@ -1223,9 +1227,7 @@ static void api_commit_interaction_admission(RcWorld *world) {
     rc_traversal_cancel(world, RC_ACTION_CANCEL_REPLACED);
     player->skill_action = 0;
     player->skill_ready_tick = 0;
-    player->storage_kind = RC_STORAGE_NONE;
-    player->storage_target = -1;
-    player->storage_option = -1;
+    rc_storage_close(world);
     if (replacing_storage
             && (player->interact_type == RC_INTERACT_OBJECT
                 || player->interact_type == RC_INTERACT_NPC)) {
@@ -1322,9 +1324,13 @@ static RcInteractionHandlerResult api_default_npc_option_handler(
             RC_INTERACTION_FAIL_NO_HANDLER, "NPC attack handler unavailable");
     }
     api_stop_player_combat(world);
-    if (rc_player_open_storage_npc(world, npc->uid, opt)) {
+    if (rc_storage_open_interaction(world)) {
         return rc_interaction_result_complete();
     }
+    const char *npc_option = rc_npc_def_option(def, opt);
+    if (npc_option && (!strcmp(npc_option, "Bank") || !strcmp(npc_option, "Collect")))
+        return rc_interaction_result_failure(RC_INTERACTION_FAIL_NO_HANDLER,
+                                             "This storage service is not supported.");
     player->interact_type = RC_INTERACT_NPC;
     player->interact_target = npc->uid;
     player->interact_option = opt;
@@ -2235,8 +2241,16 @@ static int api_apply_object_interaction(RcWorld *world, const RcObjectDef *def,
         return 0;
     }
     int applied = 0;
-    if (effective_behavior && rc_player_open_storage_object(world, obj_id, opt))
+    if (rc_storage_kind_for_object(world, obj_id, opt)
+            || (effective_behavior && (effective_behavior->flags
+                & (RC_OBJ_BEHAVIOR_BANK | RC_OBJ_BEHAVIOR_STORAGE)))) {
+        if (!rc_storage_open_interaction(world)) {
+            rc_interaction_publish_message(&world->player,
+                                            "This storage service is not supported.");
+            return 0;
+        }
         applied = 1;
+    }
     if (effective_behavior
             && (effective_behavior->flags & RC_OBJ_BEHAVIOR_DOOR)
             && !planned_traversal && !applied) {

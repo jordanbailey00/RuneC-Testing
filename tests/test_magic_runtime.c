@@ -9,6 +9,7 @@
 #include "../rc-content/combat/magic.h"
 #include "../rc-viewer/dev_validation.c"
 #include "storage.h"
+#include "storage_fixture.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -274,7 +275,7 @@ int main(void) {
                      !strcmp(spell->name, "Flames of Zamorak") ? 2417 : 1387;
         equip(w, weapon, rc_content_magic_charge_capacity(weapon));
         reset_attack(w, n);
-        w->player.storage_kind = RC_STORAGE_BANK;
+        test_storage_open(w);
         for (int r = 0; r < spell->rune_count; r++) {
             int slot = -1;
             for (int b = 0; b < RC_BANK_SIZE; b++)

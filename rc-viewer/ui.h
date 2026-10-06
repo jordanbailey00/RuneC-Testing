@@ -75,7 +75,9 @@ typedef enum RuneCUiIntentKind {
     RUNEC_UI_INTENT_COMPONENT_ACTION,
     RUNEC_UI_INTENT_SELECTED_TARGET_CANCEL,
     RUNEC_UI_INTENT_BANK_WITHDRAW,
+    RUNEC_UI_INTENT_BANK_WITHDRAW_ALL_BUT_ONE,
     RUNEC_UI_INTENT_BANK_DEPOSIT,
+    RUNEC_UI_INTENT_BANK_DEPOSIT_ALL,
     RUNEC_UI_INTENT_BANK_CLOSE,
     RUNEC_UI_INTENT_BANK_EXAMINE,
     RUNEC_UI_INTENT_SCENE_PLANE,
@@ -213,6 +215,8 @@ typedef struct RuneCUiState {
     RuneCUiSlot bank[RUNEC_UI_BANK_SLOT_COUNT];
     int bank_open;
     int bank_kind;
+    int bank_noted;
+    uint64_t bank_session;
     int bank_scroll;
     int bank_active_tab;
     RuneCUiContextSourceKind bank_amount_source;

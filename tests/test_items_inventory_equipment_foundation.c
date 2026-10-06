@@ -8,6 +8,7 @@
 #include "events.h"
 #include "items.h"
 #include "storage.h"
+#include "storage_fixture.h"
 
 #define ITEM_PATH RC_TEST_SOURCE_DIR "/data/defs/items.bin"
 
@@ -224,7 +225,7 @@ static void state_survives_ground_handoff(void) {
 static void storage_handoff_preserves_state_and_rolls_back(void) {
     RcWorld *world = make_world();
     RcPlayer *player = &world->player;
-    player->storage_kind = RC_STORAGE_BANK;
+    test_storage_open(world);
     assert_ok(rc_player_inventory_add(world, 995, 1, 0));
     int coins = rc_inv_find(player->inventory, 995);
     player->bank[0] = (RcInvSlot){995, INT_MAX, 0, 0};

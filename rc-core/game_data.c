@@ -912,7 +912,7 @@ static RcGameDataStats rc_collect_game_data_stats(const RcWorldConfig *cfg,
                                                   const RcGameData *data) {
     uint32_t subsystems = cfg->subsystems;
     uint32_t npc_users = RC_SUB_COMBAT | RC_SUB_DIALOGUE | RC_SUB_SHOPS
-                       | RC_SUB_SLAYER | RC_SUB_ENCOUNTER;
+                       | RC_SUB_SLAYER | RC_SUB_ENCOUNTER | RC_SUB_STORAGE;
     uint32_t item_users = RC_SUB_EQUIPMENT | RC_SUB_INVENTORY
                         | RC_SUB_CONSUMABLES | RC_SUB_LOOT
                         | RC_SUB_SKILLS | RC_SUB_SHOPS | RC_SUB_STORAGE;
@@ -1008,7 +1008,7 @@ static uint32_t rc_loaded_capabilities(uint32_t requested,
                                        const RcGameData *data) {
     uint32_t capabilities = requested;
     uint32_t npc_users = RC_SUB_COMBAT | RC_SUB_DIALOGUE | RC_SUB_SHOPS
-                       | RC_SUB_SLAYER | RC_SUB_ENCOUNTER;
+                       | RC_SUB_SLAYER | RC_SUB_ENCOUNTER | RC_SUB_STORAGE;
     if (data->npc_def_count == 0) capabilities &= ~npc_users;
     if ((requested & RC_SUB_PRAYER) && data->prayer_count == 0)
         capabilities &= ~RC_SUB_PRAYER;
@@ -1119,7 +1119,7 @@ RcGameData *rc_game_data_load(const RcWorldConfig *cfg,
     rc_dialogue_data_init(&data->dialogue_data);
 
     uint32_t npc_users = RC_SUB_COMBAT | RC_SUB_DIALOGUE | RC_SUB_SHOPS
-                       | RC_SUB_SLAYER | RC_SUB_ENCOUNTER;
+                       | RC_SUB_SLAYER | RC_SUB_ENCOUNTER | RC_SUB_STORAGE;
     if ((cfg->subsystems & npc_users) && cfg->npc_defs_path) {
         int loaded = rc_load_npc_defs_into(
             cfg->npc_defs_path, data->npc_defs, RC_MAX_NPC_DEFS,
@@ -1690,7 +1690,7 @@ static void rc_game_data_activate_views(const RcGameData *data,
                                         uint32_t subsystems) {
     if (!data) return;
     uint32_t npc_users = RC_SUB_COMBAT | RC_SUB_DIALOGUE | RC_SUB_SHOPS
-                       | RC_SUB_SLAYER | RC_SUB_ENCOUNTER;
+                       | RC_SUB_SLAYER | RC_SUB_ENCOUNTER | RC_SUB_STORAGE;
     uint32_t item_users = RC_SUB_EQUIPMENT | RC_SUB_INVENTORY
                         | RC_SUB_CONSUMABLES | RC_SUB_LOOT
                         | RC_SUB_SKILLS | RC_SUB_SHOPS | RC_SUB_STORAGE;

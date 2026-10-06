@@ -369,6 +369,34 @@ static void test_ground_item_appearances(void) {
     free(v);
 }
 
+static void test_bank_projection(RcWorld *world) {
+    ViewerState *v = calloc(1,sizeof(*v));
+    assert(v);
+    v->world = world;
+    world->player.storage_kind = RC_STORAGE_DEPOSIT_BOX;
+    world->player.storage_session = 42;
+    v->ui.bank_amount_source = RUNEC_UI_CONTEXT_BANK;
+    v->ui.context_source_kind = RUNEC_UI_CONTEXT_BANK;
+    v->ui.context_open = 1;
+    sync_ui_items(v);
+    assert(v->ui.bank_open && v->ui.bank_kind == RC_STORAGE_DEPOSIT_BOX);
+    assert(v->ui.bank_session == 42 && !v->ui.bank_amount_source && !v->ui.context_open);
+    world->player.bank[0] = (RcInvSlot){.item_id=995,.quantity=5,.generation=7};
+    world->player.bank_revision = 99;
+    sync_ui_items(v);
+    assert(v->ui.bank[0].generation == 7);
+    world->player.bank_result = (RcBankResult){.sequence=1,.code=RC_BANK_CAPACITY};
+    sync_ui_player_status(v);
+    assert(v->ui.chat_line_count == 1 && strstr(v->ui.chat_lines[0],"not enough space"));
+    sync_ui_player_status(v);
+    assert(v->ui.chat_line_count == 1);
+    rc_storage_close(world);
+    sync_ui_items(v);
+    assert(!v->ui.bank_open && !v->ui.bank_session);
+    world->player.bank[0] = (RcInvSlot){.item_id=-1};
+    free(v);
+}
+
 static void test_consumable_projection(RcWorld *world) {
     assert(world->enabled & RC_SUB_CONSUMABLES);
     rc_content_consumables_register(world);
@@ -441,6 +469,7 @@ int main(void) {
     assert(world && "the actual viewer config must initialize without a window");
     world->player.x = world->player.y = 3208;
     rc_test_open_mapsquare(world, 3208, 3208, 0);
+    test_bank_projection(world);
     test_consumable_projection(world);
     assert(runec_dev_validation_set_god_mode(world, true));
     test_installed_reward_delivery(world);

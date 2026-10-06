@@ -272,8 +272,15 @@ Bank slots offer Withdraw-1/5/10/X/All/All-but-1, Examine and Cancel;
 inventory slots inside the bank offer the corresponding deposit actions.
 X accepts a positive whole-number amount in the chat input area; Escape cancels.
 Left-click transfers one; Shift-click transfers all. Menus/amount prompts reject
-changed item identities. Transfers still go through the existing queued storage
-API; this does not implement the pending banking audit's notes/access/result work.
+changed item identities. Item/Note buttons select the explicit withdrawal mode.
+Deposit boxes show carried items and deposit-only actions, not bank withdrawals.
+Inventory and equipment icon buttons beside Close deposit each whole container;
+hovering names the action. Worn deposits do not need empty inventory slots.
+Transfers use core's queued storage API; capacity, unsupported item, stale or
+closed-access failures appear in chat. Closing/reopening storage clears old
+quantity prompts and bank menus. A valid unnoteable item withdraws ordinarily
+with an explicit notice. Full bank UI parity, search and placeholders remain out
+of scope.
 Inventory and bank hover labels show the default action, full orange item name,
 and white additional-option count at top left, using the existing crisp bold font.
 Examine, selected item/spell actions, distant ground-item Take, and Walk here

@@ -1,6 +1,7 @@
 #include "combat.h"
 #include "combat_hit.h"
 #include "npc.h"
+#include "storage.h"
 #include "io.h"
 #include "rng.h"
 #include "pathfinding.h"
@@ -942,6 +943,8 @@ void rc_npc_clear_references(RcWorld *world, RcNpcId uid_value) {
     if (!world || uid_value == RC_NPC_NONE || uid_value > INT_MAX) return;
     int uid = (int)uid_value;
     RcPlayer *player = &world->player;
+    if (player->storage_session && player->storage_source.kind == RC_INTERACTION_NPC
+            && player->storage_source.entity_uid == uid) rc_storage_close(world);
     if (player->attack_target == uid) {
         player->attack_target = -1;
         player->attack_target_def_id = -1;

@@ -82,7 +82,20 @@ subsystems**.
 - **quests** — quest state machine, varbit triggers
 - **dialogue** — NPC dialogue state trees
 - **shops** — shop stock and static price/restock metadata
-- **storage** — bank/deposit/storage object access and bank item state
+- **storage** — validated bank/deposit-box sessions and atomic bank transfers.
+  Open through the normal placed-object/NPC interaction, not a direct open API.
+  Queued withdrawals identify a surviving stack; quantity changes alone do not
+  invalidate other clicks. Zero means All, negative amounts reject. Deposits
+  gather matching inventory items while preserving separate scalar states.
+  `rc_bank_withdraw_slot_mode` requests Item/Note, using reciprocal item links.
+  Its keep-one option evaluates the remaining quantity at execution time.
+  `rc_bank_deposit_all` deposits current inventory or equipment in one queued,
+  session-checked transaction, preserving states and refreshing equipment
+  bonuses/unequip events. Unbankable items stay carried; partial results are explicit.
+  Partial capacity moves only the amount that fits. `player.bank_result` gives
+  completed amount and a sequenced reason; queue admission is not completion.
+  Content supplies exact option bindings/bankability; missing policy rejects.
+  `rc_bank_add_item[_tab]` is privileged fixture setup, not player access.
 - **slayer** — task metadata, assignment, unlock/block/prefer filters,
   task progress
 - **encounter** — boss phase/rotation dispatcher + primitive registry
@@ -654,7 +667,7 @@ Each subsystem owns its binary(s):
 | quests | `quests.bin` |
 | dialogue | `dialogue.bin` |
 | shops | `shops.bin` |
-| storage | object behavior data + per-world bank state |
+| storage | `items.bin`, `npc_defs.bin`; object definitions/placements for object access; registered content policy + per-world bank state |
 | traversal | `traversal_edges.bin` |
 | regions | `world.collision-tiles.indexed.bin`, `area_flags.bin` |
 | skills | `recipes.bin`, `skill_drops.bin`, `gathering_nodes.bin` |

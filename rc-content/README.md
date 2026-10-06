@@ -11,6 +11,15 @@ identities, replacement links and effect values. Registration validates the
 installed item definitions and fails openly. Repeat registration after world
 reset. See [consumables](../docs/consumables.md) for support and exclusions.
 
+`storage.c` registers B237 bank/deposit option bindings and bankability from
+`storage_policy.inc`. Regenerate/check with
+`python3 tools/export_storage_policy.py --cache "$RUNEC_B237_CACHE" [--check]`.
+The exporter verifies the B237 `no_bank` parameter signature, preserves item
+parameters and rejects incomplete definitions. Generic Deposit/Collect/Use
+actions do not grant personal-bank access. Core owns arrival, session lifetime,
+amounts, notes, capacity and transactions. Register again after world reset;
+no reference checkout, extra runtime pack or loader fallback is needed.
+
 This layer is what turns the generic engine into an OSRS game while
 still allowing narrow RL builds to link only the content they need.
 An Inferno sim should not need quest code, unrelated bosses, or other

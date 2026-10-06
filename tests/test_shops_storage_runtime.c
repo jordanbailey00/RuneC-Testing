@@ -10,6 +10,9 @@
 #include "objects.h"
 #include "shops.h"
 #include "storage.h"
+#include "storage_fixture.h"
+#include "object_runtime.h"
+#include "world_test_fixture.h"
 
 #define SHOP_PATH RC_TEST_SOURCE_DIR "/data/defs/shops.bin"
 #define ITEM_PATH RC_TEST_SOURCE_DIR "/data/defs/items.bin"
@@ -72,12 +75,6 @@ int main(void) {
     assert(rc_load_item_defs(ITEM_PATH) > 10000);
     const RcObjectBehavior *deposit_b = rc_object_behavior_get(10529);
     assert(deposit_b && (deposit_b->flags & RC_OBJ_BEHAVIOR_STORAGE));
-    assert(rc_storage_kind_for_object(10355, 1) == RC_STORAGE_BANK);
-    assert(rc_storage_kind_for_object(4483, 0) == RC_STORAGE_BANK);
-    assert(rc_storage_kind_for_object(10529, 0) == RC_STORAGE_DEPOSIT_BOX);
-    assert(rc_storage_kind_for_object(10355, 2) == RC_STORAGE_COLLECTION);
-    assert(rc_storage_kind_for_object(30987, 0) == RC_STORAGE_CONTAINER);
-    assert(rc_storage_kind_for_object(1276, 0) == RC_STORAGE_NONE);
 
     RcWorldConfig cfg = rc_preset_base_only();
     cfg.subsystems = RC_SUB_INVENTORY | RC_SUB_SHOPS | RC_SUB_STORAGE
@@ -92,7 +89,19 @@ int main(void) {
     assert(world->enabled & RC_SUB_SHOPS);
     assert(world->enabled & RC_SUB_STORAGE);
 
-    rc_player_interact_object(world, 10355, 1);
+    rc_content_storage_register(world);
+    assert(rc_storage_kind_for_object(world, 10355, 1) == RC_STORAGE_BANK);
+    assert(rc_storage_kind_for_object(world, 4483, 0) == RC_STORAGE_BANK);
+    assert(rc_storage_kind_for_object(world, 10529, 0) == RC_STORAGE_DEPOSIT_BOX);
+    assert(rc_storage_kind_for_object(world, 10355, 2) == RC_STORAGE_NONE);
+    assert(rc_storage_kind_for_object(world, 30987, 0) == RC_STORAGE_NONE);
+    assert(rc_storage_kind_for_object(world, 1276, 0) == RC_STORAGE_NONE);
+    rc_test_open_mapsquare(world, world->player.x, world->player.y, world->player.plane);
+    RcObjectPlacement booth = {.obj_id=10355, .x=world->player.x+1,
+        .y=world->player.y, .plane=world->player.plane, .type=10};
+    uint64_t booth_key;
+    assert(rc_world_object_add(world, &booth, 0, &booth_key) == RC_OBJECT_MUTATION_OK);
+    assert(rc_player_interact_object_placement(world, 10355, booth.x, booth.y, booth.plane, booth_key, 1));
     rc_world_tick(world);
     assert(world->player.storage_kind == RC_STORAGE_BANK);
     assert(world->player.interact_type == 3);
@@ -105,11 +114,11 @@ int main(void) {
     rc_world_tick(world);
     assert(world->player.inventory[0].item_id == -1);
     assert(world->player.bank[0].item_id == 1351);
-    assert(world->player.bank[0].quantity == 1);
+    assert(world->player.bank[0].quantity == 2 && "Deposit-2 gathers two matching axes");
     assert(world->player.bank_tab[0] == 0);
     assert(rc_bank_withdraw_slot(world, 0, 1) == 1);
     rc_world_tick(world);
-    assert(world->player.bank[0].item_id == -1);
+    assert(world->player.bank[0].quantity == 1);
     assert(world->player.bank_tab[0] == 0);
     world->player.bank[5].item_id = 995;
     world->player.bank[5].quantity = 10;
@@ -125,8 +134,13 @@ int main(void) {
     assert(other_tab_slot >= 0 && other_tab_slot != tab_slot);
     assert(world->player.bank_tab[other_tab_slot] == 2);
 
-    rc_player_interact_object(world, 10529, 0);
-    rc_world_tick(world);
+    assert(rc_world_object_revert(world, booth_key) == RC_OBJECT_MUTATION_OK);
+    RcObjectPlacement box = booth;
+    box.obj_id = 10529;
+    uint64_t box_key;
+    assert(rc_world_object_add(world, &box, 0, &box_key) == RC_OBJECT_MUTATION_OK);
+    assert(rc_player_interact_object_placement(world, 10529, box.x, box.y, box.plane, box_key, 0));
+    for (int i = 0; i < 10 && !world->player.storage_session; i++) rc_world_tick(world);
     assert(world->player.storage_kind == RC_STORAGE_DEPOSIT_BOX);
     assert(rc_bank_withdraw_slot(world, 0, 1) == 1);
     rc_world_tick(world);
@@ -135,11 +149,8 @@ int main(void) {
     assert(rc_bank_deposit_slot(world, 0, 0) == 1);
     rc_world_tick(world);
     assert(world->player.inventory[0].item_id == -1);
-    assert(rc_bank_deposit_slot(world, 1, 0) == 1);
-    rc_world_tick(world);
-    assert(world->player.inventory[1].item_id == -1);
-    assert(rc_bank_deposit_slot(world, 2, 0) == 1);
-    rc_world_tick(world);
+    assert(world->player.inventory[1].item_id == 995);
+    assert(world->player.inventory[1].quantity == 4);
     assert(world->player.inventory[2].item_id == -1);
     int axe_bank_slot = -1;
     for (int i = 0; i < RC_BANK_SIZE; i++) {
@@ -154,9 +165,11 @@ int main(void) {
     assert(rc_player_close_storage(world) == 1);
     rc_world_tick(world);
     assert(world->player.storage_kind == RC_STORAGE_NONE);
-    assert(rc_player_open_storage_object(world, 10355, 1) == 1);
+    assert(rc_world_object_revert(world, box_key) == RC_OBJECT_MUTATION_OK);
+    assert(rc_world_object_add(world, &booth, 0, &booth_key) == RC_OBJECT_MUTATION_OK);
+    assert(rc_player_interact_object_placement(world, 10355, booth.x, booth.y, booth.plane, booth_key, 1));
     assert(world->player.storage_kind == RC_STORAGE_NONE);
-    rc_world_tick(world);
+    for (int i = 0; i < 10 && !world->player.storage_session; i++) rc_world_tick(world);
     assert(world->player.storage_kind == RC_STORAGE_BANK);
     assert(rc_player_close_storage(world) == 1);
     rc_world_tick(world);
@@ -167,7 +180,7 @@ int main(void) {
     int bank_option = -1;
     for (int i = 0; defs && i < def_count && def_idx < 0; i++) {
         for (int option = 0; option < RC_NPC_OPTION_COUNT; option++) {
-            if (rc_storage_kind_for_npc(&defs[i], option)
+            if (rc_storage_kind_for_npc(world, &defs[i], option)
                     == RC_STORAGE_BANK) {
                 def_idx = i;
                 bank_option = option;
@@ -176,17 +189,18 @@ int main(void) {
         }
     }
     assert(def_idx >= 0 && bank_option >= 0);
+    assert(rc_world_object_revert(world, booth_key) == RC_OBJECT_MUTATION_OK);
     int npc_idx = rc_npc_spawn(world, def_idx, world->player.x + 1,
                                world->player.y, world->player.plane);
     assert(npc_idx >= 0);
+    world->npcs[npc_idx].disable_wander = true;
     rc_player_interact_npc(world, world->npcs[npc_idx].uid, bank_option);
     rc_world_tick(world);
     assert(world->player.storage_kind == RC_STORAGE_BANK);
     assert(world->player.storage_target == world->npcs[npc_idx].uid);
     assert(rc_player_close_storage(world) == 1);
     rc_world_tick(world);
-    assert(rc_player_open_storage_npc(
-        world, world->npcs[npc_idx].uid, bank_option) == 1);
+    rc_player_interact_npc(world, world->npcs[npc_idx].uid, bank_option);
     assert(world->player.storage_kind == RC_STORAGE_NONE);
     rc_world_tick(world);
     assert(world->player.storage_kind == RC_STORAGE_BANK);

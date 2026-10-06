@@ -4,6 +4,7 @@
 #include "items.h"
 #include "npc.h"
 #include "storage.h"
+#include "storage_fixture.h"
 #include "world_test_fixture.h"
 #include "../rc-content/content.h"
 #include "../rc-viewer/combat_visuals.h"
@@ -96,7 +97,7 @@ int main(void) {
     assert(p->inventory[weapon].item_id == 28922);
     assert(p->inventory[weapon].state_id == 3);
     assert(rc_inv_find(p->inventory, 28924) == -1);
-    p->storage_kind = RC_STORAGE_BANK;
+    test_storage_open(w);
     assert(rc_bank_deposit_slot(w, weapon, 1) == 1);
     rc_world_tick(w);
     int bank = -1;

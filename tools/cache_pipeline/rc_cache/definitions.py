@@ -328,6 +328,7 @@ class ItemDef(DecodeSummary):
     weight: int = 0
     stackable: bool = False
     tradeable: bool = False
+    params: list[DefinitionParam] = field(default_factory=list)
     members: bool = False
     note_id: int = -1
     note_template_id: int = -1
@@ -466,7 +467,7 @@ def decode_item_definition(item_id: int, data: bytes) -> ItemDef:
         elif op == 211:
             _read_u16_list(buf, read_u8(buf))
         elif op == 249:
-            _skip_params(buf)
+            d.params = _read_params(buf)
         else:
             d.unknown_opcode = op
             break

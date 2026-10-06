@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "../rc-core/storage.h"
+#include "storage_fixture.h"
 #include "../rc-viewer/dev_validation.c"
 #include "world_test_fixture.h"
 
@@ -164,7 +165,7 @@ int main(void) {
     for (int i = 0; i < 5; i++)
         assert(tab_seen[i] > 0);
 
-    world->player.storage_kind = RC_STORAGE_BANK;
+    test_storage_open(world);
     assert(stack_slot >= 0);
     int stack_id = world->player.bank[stack_slot].item_id;
     int stack_before = world->player.bank[stack_slot].quantity;

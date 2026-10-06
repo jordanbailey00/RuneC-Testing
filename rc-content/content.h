@@ -29,6 +29,7 @@
 
 struct RcWorld;
 void rc_content_consumables_register(struct RcWorld *world);
+void rc_content_storage_register(struct RcWorld *world);
 
 // Aggregate entry point — calls every content module register fn
 // that's linked in. Isolated-sim builds link a subset of content

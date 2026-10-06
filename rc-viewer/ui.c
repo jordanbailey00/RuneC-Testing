@@ -1,6 +1,7 @@
 #include "ui.h"
 #include "context_menu.h"
 #include "ui_reference.h"
+#include "../rc-core/storage.h"
 
 #include <ctype.h>
 #include <limits.h>
@@ -1035,14 +1036,13 @@ static void submit_bank_action(RuneCUiState *ui, RuneCUiContextSourceKind kind,
         ui->last_intent.primary = (int)id;
         return;
     }
-    if (amount == BANK_ALL_BUT_ONE) {
-        amount = item->quantity - 1;
-        if (amount <= 0) { ui_add_chat(ui, "There is only one item left."); return; }
-    }
+    int keep_one = amount == BANK_ALL_BUT_ONE;
+    if (keep_one && item->quantity <= 1) { ui_add_chat(ui, "There is only one item left."); return; }
     ui->last_intent.kind = kind == RUNEC_UI_CONTEXT_BANK
-        ? RUNEC_UI_INTENT_BANK_WITHDRAW : RUNEC_UI_INTENT_BANK_DEPOSIT;
+        ? (keep_one ? RUNEC_UI_INTENT_BANK_WITHDRAW_ALL_BUT_ONE : RUNEC_UI_INTENT_BANK_WITHDRAW)
+        : RUNEC_UI_INTENT_BANK_DEPOSIT;
     ui->last_intent.primary = slot;
-    ui->last_intent.secondary = amount;
+    ui->last_intent.secondary = keep_one ? 0 : amount;
 }
 
 static int handle_bank_amount_input(RuneCUiState *ui) {
@@ -1967,7 +1967,17 @@ static Rectangle bank_close_rect(Rectangle panel) {
                        56.0f, 22.0f};
 }
 
+static Rectangle bank_mode_rect(Rectangle panel, int noted) {
+    return (Rectangle){panel.x + 8 + noted * 58, panel.y + 7, 54, 22};
+}
+
+static Rectangle bank_deposit_all_rect(Rectangle panel, int equipment) {
+    return (Rectangle){panel.x + panel.width - 146 + equipment * 38, panel.y + 4, 32, 26};
+}
+
 static int bank_slot_visible_in_tab(const RuneCUiState *ui, int slot) {
+    if (ui && ui->bank_kind == RC_STORAGE_DEPOSIT_BOX)
+        return slot >= 0 && slot < RC_INVENTORY_SIZE && ui->inventory[slot].enabled;
     return ui && slot >= 0 && slot < RUNEC_UI_BANK_SLOT_COUNT
         && ui->bank[slot].enabled
         && ui->bank[slot].category == ui->bank_active_tab;
@@ -2697,7 +2707,8 @@ static int handle_bank_input(RuneCUiState *ui, const RuneCUiLayout *layout,
     if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
         int slot = bank_slot_at(ui, panel, mouse);
         if (slot >= 0) {
-            set_bank_context(ui, mouse, RUNEC_UI_CONTEXT_BANK, slot);
+            set_bank_context(ui, mouse, ui->bank_kind == RC_STORAGE_DEPOSIT_BOX
+                ? RUNEC_UI_CONTEXT_BANK_INVENTORY : RUNEC_UI_CONTEXT_BANK, slot);
             return 1;
         }
         if (ui->active_tab == RUNEC_UI_TAB_INVENTORY) {
@@ -2716,7 +2727,20 @@ static int handle_bank_input(RuneCUiState *ui, const RuneCUiLayout *layout,
             return 1;
         }
 
-        for (int i = 0; i < RUNEC_UI_BANK_TAB_COUNT; i++) {
+        for (int i = 0; ui->bank_kind != RC_STORAGE_DEPOSIT_BOX && i < 2; i++) {
+            if (CheckCollisionPointRec(mouse, bank_mode_rect(panel, i))) {
+                ui->bank_noted = i;
+                return 1;
+            }
+        }
+        for (int i = 0; i < 2; i++) {
+            if (CheckCollisionPointRec(mouse, bank_deposit_all_rect(panel, i))) {
+                ui->last_intent.kind = RUNEC_UI_INTENT_BANK_DEPOSIT_ALL;
+                ui->last_intent.primary = i;
+                return 1;
+            }
+        }
+        for (int i = 0; ui->bank_kind != RC_STORAGE_DEPOSIT_BOX && i < RUNEC_UI_BANK_TAB_COUNT; i++) {
             if (CheckCollisionPointRec(mouse, bank_tab_rect(panel, i))) {
                 if (ui->bank_active_tab != i) {
                     ui->bank_active_tab = i;
@@ -2728,8 +2752,10 @@ static int handle_bank_input(RuneCUiState *ui, const RuneCUiLayout *layout,
 
         int bank_slot = bank_slot_at(ui, panel, mouse);
         if (bank_slot >= 0) {
-            if (ui->bank[bank_slot].enabled) {
-                ui->last_intent.kind = RUNEC_UI_INTENT_BANK_WITHDRAW;
+            int deposit = ui->bank_kind == RC_STORAGE_DEPOSIT_BOX;
+            const RuneCUiSlot *item = deposit ? &ui->inventory[bank_slot] : &ui->bank[bank_slot];
+            if (item->enabled) {
+                ui->last_intent.kind = deposit ? RUNEC_UI_INTENT_BANK_DEPOSIT : RUNEC_UI_INTENT_BANK_WITHDRAW;
                 ui->last_intent.primary = bank_slot;
                 ui->last_intent.secondary =
                     (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT))
@@ -3703,7 +3729,8 @@ static void draw_bank(RuneCUiState *ui, int screen_w, int screen_h,
     DrawRectangleRec((Rectangle){panel.x + 2, panel.y + 2,
                                  panel.width - 4, 30},
                      (Color){64, 48, 31, 245});
-    draw_centered_text(ui, "Bank", (Rectangle){panel.x, panel.y + 6,
+    int deposit = ui->bank_kind == RC_STORAGE_DEPOSIT_BOX;
+    draw_centered_text(ui, deposit ? "Bank deposit box" : "Bank", (Rectangle){panel.x, panel.y + 6,
                                                panel.width, 18},
                        14, OSRS_YELLOW);
 
@@ -3712,7 +3739,22 @@ static void draw_bank(RuneCUiState *ui, int screen_w, int screen_h,
     DrawRectangleLinesEx(close, 1.0f, (Color){170, 130, 76, 255});
     draw_centered_text(ui, "Close", close, 12, OSRS_ORANGE);
 
-    for (int i = 0; i < RUNEC_UI_BANK_TAB_COUNT; i++) {
+    for (int i = 0; i < 2; i++) {
+        Rectangle r = bank_deposit_all_rect(panel, i);
+        int hovered = CheckCollisionPointRec(GetMousePosition(), r);
+        DrawRectangleRec(r, hovered ? (Color){92,67,39,255} : (Color){49,38,26,245});
+        DrawRectangleLinesEx(r, 1, hovered ? OSRS_YELLOW : OSRS_ORANGE);
+        draw_asset_centered(ui, g_tab_icon[i ? RUNEC_UI_TAB_EQUIPMENT : RUNEC_UI_TAB_INVENTORY],
+                            r, 24, 24, WHITE);
+    }
+    for (int i = 0; !deposit && i < 2; i++) {
+        Rectangle r = bank_mode_rect(panel, i);
+        DrawRectangleRec(r, i == ui->bank_noted ? (Color){92,67,39,255} : (Color){49,38,26,245});
+        DrawRectangleLinesEx(r, 1, OSRS_ORANGE);
+        draw_centered_text(ui, i ? "Note" : "Item", r, 12,
+                           i == ui->bank_noted ? OSRS_YELLOW : OSRS_ORANGE);
+    }
+    for (int i = 0; !deposit && i < RUNEC_UI_BANK_TAB_COUNT; i++) {
         Rectangle r = bank_tab_rect(panel, i);
         Color fill = i == ui->bank_active_tab
             ? (Color){92, 67, 39, 255}
@@ -3730,14 +3772,15 @@ static void draw_bank(RuneCUiState *ui, int screen_w, int screen_h,
         int slot = bank_slot_for_visible_index(ui, ui->bank_scroll + i);
         if (slot < 0)
             continue;
-        if (!ui->bank[slot].enabled)
+        const RuneCUiSlot *item = deposit ? &ui->inventory[slot] : &ui->bank[slot];
+        if (!item->enabled)
             continue;
-        draw_inventory_item(ui, &ui->bank[slot], r);
-        if (ui->bank[slot].quantity > 1) {
+        draw_inventory_item(ui, item, r);
+        if (item->quantity > 1) {
             char q[16];
-            format_stack_quantity(ui->bank[slot].quantity, q, sizeof(q));
+            format_stack_quantity(item->quantity, q, sizeof(q));
             draw_text_shadow(ui, q, r.x + 1, r.y - 1, 10,
-                             stack_text_color(ui->bank[slot].quantity));
+                             stack_text_color(item->quantity));
         }
     }
 
@@ -4204,10 +4247,17 @@ static int item_hover_text(RuneCUiState *ui, const RuneCUiLayout *layout,
     if (ui->bank_open) {
         Rectangle panel = bank_panel_rect(width, height, layout);
         if (CheckCollisionPointRec(mouse, panel)) {
+            for (int i = 0; i < 2; i++) {
+                if (CheckCollisionPointRec(mouse, bank_deposit_all_rect(panel, i))) {
+                    copy_text(hover->action, sizeof(hover->action),
+                              i ? "Deposit worn items" : "Deposit inventory");
+                    return 1;
+                }
+            }
             int slot = bank_slot_at(ui, panel, mouse);
             if (slot < 0) return 0;
-            item = &ui->bank[slot];
-            withdraw = 1;
+            withdraw = ui->bank_kind != RC_STORAGE_DEPOSIT_BOX;
+            item = withdraw ? &ui->bank[slot] : &ui->inventory[slot];
         }
     }
     if (!item && ui->active_tab == RUNEC_UI_TAB_INVENTORY) {

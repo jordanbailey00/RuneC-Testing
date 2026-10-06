@@ -68,6 +68,7 @@ static Vector2 test_measure_text(Font font, const char *text, float size, float 
 #include "../../rc-content/content.h"
 #include "items.h"
 #include "storage.h"
+#include "../storage_fixture.h"
 
 static void test_bank_ui(RcWorld *world) {
     RuneCUiState *ui = calloc(1, sizeof(*ui));
@@ -115,7 +116,7 @@ static void test_bank_ui(RcWorld *world) {
     assert(!ui->context_open && ui->last_intent.kind == RUNEC_UI_INTENT_BANK_WITHDRAW);
     assert(ui->last_intent.primary == 4 && ui->last_intent.secondary == 5);
     world->enabled |= RC_SUB_STORAGE;
-    world->player.storage_kind = RC_STORAGE_BANK;
+    test_storage_open(world);
     world->player.bank[4] = (RcInvSlot){.item_id=23685,.quantity=10000};
     assert(rc_bank_withdraw_slot(world,ui->last_intent.primary,ui->last_intent.secondary));
     rc_world_tick(world);
@@ -131,7 +132,8 @@ static void test_bank_ui(RcWorld *world) {
     assert(ui->last_intent.kind == RUNEC_UI_INTENT_NONE);
     ui->bank[4].quantity = 10000;
     submit_bank_action(ui,RUNEC_UI_CONTEXT_BANK,4,23685,7,BANK_ALL_BUT_ONE);
-    assert(ui->last_intent.secondary == 9999);
+    assert(ui->last_intent.kind == RUNEC_UI_INTENT_BANK_WITHDRAW_ALL_BUT_ONE
+           && ui->last_intent.secondary == 0);
     clear_intent(ui);
     submit_bank_action(ui,RUNEC_UI_CONTEXT_BANK,4,23685,6,1);
     assert(ui->last_intent.kind == RUNEC_UI_INTENT_NONE);
@@ -233,6 +235,57 @@ static void test_bank_ui(RcWorld *world) {
         assert(item_hover_text(ui,&layout,1280,720,input_mouse,0,&hover));
     printf("Full-bank hover: %.3f us/frame (100000 queries)\n",
         1000000.0 * (clock()-start) / CLOCKS_PER_SEC / 100000);
+    ui->bank_kind = RC_STORAGE_BANK;
+    Rectangle mode = bank_mode_rect(panel,1);
+    input_mouse = (Vector2){mode.x+4,mode.y+4};
+    input_button = MOUSE_BUTTON_LEFT;
+    assert(runec_ui_handle_input(ui,1280,720) && ui->bank_noted);
+    mode = bank_mode_rect(panel,0);
+    input_mouse = (Vector2){mode.x+4,mode.y+4};
+    assert(runec_ui_handle_input(ui,1280,720) && !ui->bank_noted);
+    ui->bank_scroll = 0;
+    cell = bank_slot_rect(panel,0);
+    input_mouse = (Vector2){cell.x+8,cell.y+8};
+    assert(runec_ui_handle_input(ui,1280,720));
+    assert(ui->last_intent.kind == RUNEC_UI_INTENT_BANK_WITHDRAW && ui->last_intent.secondary == 1);
+    input_shift = 1;
+    assert(runec_ui_handle_input(ui,1280,720));
+    assert(ui->last_intent.kind == RUNEC_UI_INTENT_BANK_WITHDRAW && ui->last_intent.secondary == 0);
+    input_shift = 0;
+    Rectangle tab = bank_tab_rect(panel,1);
+    input_mouse = (Vector2){tab.x+4,tab.y+4};
+    assert(runec_ui_handle_input(ui,1280,720) && ui->bank_active_tab == 1);
+    ui->bank_active_tab = 0;
+    ui->bank_kind = RC_STORAGE_DEPOSIT_BOX;
+    ui->bank_scroll = 0;
+    ui->inventory[0].enabled = 1;
+    cell = bank_slot_rect(panel,0);
+    input_mouse = (Vector2){cell.x+8,cell.y+8};
+    assert(bank_slot_at(ui,panel,input_mouse) == 0);
+    assert(item_hover_text(ui,&layout,1280,720,input_mouse,0,&hover));
+    assert(!strcmp(hover.action,"Deposit-1"));
+    assert(runec_ui_handle_input(ui,1280,720));
+    assert(ui->last_intent.kind == RUNEC_UI_INTENT_BANK_DEPOSIT && ui->last_intent.primary == 0);
+    input_button = MOUSE_BUTTON_RIGHT;
+    assert(runec_ui_handle_input(ui,1280,720));
+    assert(ui->context_source_kind == RUNEC_UI_CONTEXT_BANK_INVENTORY);
+    assert(!strcmp(ui->context_actions[0],"Deposit-1"));
+    ui->context_open = 0;
+    input_button = MOUSE_BUTTON_LEFT;
+    for (int kind = RC_STORAGE_BANK; kind <= RC_STORAGE_DEPOSIT_BOX; kind++) {
+        ui->bank_kind = kind;
+        for (int worn = 0; worn < 2; worn++) {
+            Rectangle button = bank_deposit_all_rect(panel,worn);
+            input_mouse = (Vector2){button.x+4,button.y+4};
+            assert(runec_ui_handle_input(ui,1280,720));
+            assert(ui->last_intent.kind == RUNEC_UI_INTENT_BANK_DEPOSIT_ALL);
+            assert(ui->last_intent.primary == worn);
+            assert(item_hover_text(ui,&layout,1280,720,input_mouse,0,&hover));
+            assert(!strcmp(hover.action,worn ? "Deposit worn items" : "Deposit inventory"));
+            assert(!hover.more_options && !hover.target[0]);
+        }
+    }
+    input_button = -1;
     free(ui);
     world->player.storage_kind = RC_STORAGE_NONE;
     for (int i = 0; i < RC_INVENTORY_SIZE; i++) world->player.inventory[i] = (RcInvSlot){.item_id=-1};

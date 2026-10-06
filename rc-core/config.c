@@ -100,7 +100,7 @@ int rc_world_config_validate(const RcWorldConfig *config,
         } \
     } while (0)
     RC_REQUIRE_PATH(RC_SUB_COMBAT | RC_SUB_DIALOGUE | RC_SUB_SHOPS
-                    | RC_SUB_SLAYER | RC_SUB_ENCOUNTER,
+                    | RC_SUB_SLAYER | RC_SUB_ENCOUNTER | RC_SUB_STORAGE,
                     npc_defs_path, "NPC-backed subsystem");
     RC_REQUIRE_PATH(RC_SUB_EQUIPMENT | RC_SUB_INVENTORY | RC_SUB_CONSUMABLES
                     | RC_SUB_SHOPS | RC_SUB_STORAGE | RC_SUB_LOOT,

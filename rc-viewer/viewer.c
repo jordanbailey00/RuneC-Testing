@@ -441,6 +441,7 @@ typedef struct {
     int context_tile_y;
     uint64_t interaction_outcome_seen;
     uint64_t consume_outcome_seen;
+    uint64_t bank_outcome_seen;
     uint64_t consume_sequence_seen;
     uint64_t traversal_event_seen;
     uint64_t traversal_outcome_seen;
@@ -3789,7 +3790,14 @@ static void sync_ui_items(ViewerState *v) {
     }
 
     v->ui.bank_open = p->storage_kind == RC_STORAGE_BANK ||
-                      p->storage_kind == RC_STORAGE_CONTAINER;
+                      p->storage_kind == RC_STORAGE_DEPOSIT_BOX;
+    if (v->ui.bank_session != p->storage_session) {
+        v->ui.bank_session = p->storage_session;
+        v->ui.bank_amount_source = RUNEC_UI_CONTEXT_NONE;
+        if (v->ui.context_source_kind == RUNEC_UI_CONTEXT_BANK
+                || v->ui.context_source_kind == RUNEC_UI_CONTEXT_BANK_INVENTORY)
+            v->ui.context_open = 0;
+    }
     v->ui.bank_kind = p->storage_kind;
     if (v->ui.bank_open && v->ui.active_tab != RUNEC_UI_TAB_INVENTORY)
         runec_ui_set_active_tab(&v->ui, RUNEC_UI_TAB_INVENTORY);
@@ -3797,13 +3805,17 @@ static void sync_ui_items(ViewerState *v) {
         v->ui.bank_scroll = 0;
     for (int i = 0; i < RUNEC_UI_BANK_SLOT_COUNT; i++) {
         sync_ui_slot(v, &v->ui.bank[i], &p->bank[i], UI_ITEM_CONTAINER_BANK);
-        v->ui.bank[i].generation = p->bank_revision;
         v->ui.bank[i].category = p->bank_tab[i];
     }
 }
 
 static void sync_ui_player_status(ViewerState *v) {
     const RcPlayer *p = &v->world->player;
+    if (v->bank_outcome_seen != p->bank_result.sequence) {
+        v->bank_outcome_seen = p->bank_result.sequence;
+        const char *message = rc_bank_result_message(&p->bank_result);
+        if (message) runec_ui_add_chat_message(&v->ui, message);
+    }
     if (!runec_ui_sync_spellbook(&v->ui, v->world)) {
         fprintf(stderr, "spellbook: invalid book or icon catalog capacity exceeded\n");
         exit(EXIT_FAILURE);
@@ -3958,7 +3970,7 @@ static float npc_pick_height(int size) {
     return 1.9f + 0.45f * (float)(size - 1);
 }
 
-static int npc_default_left_click_option(const RcNpcDef *def) {
+static int npc_default_left_click_option(const RcWorld *world, const RcNpcDef *def) {
     if (!def)
         return -1;
     int attack_opt = -1;
@@ -3969,7 +3981,7 @@ static int npc_default_left_click_option(const RcNpcDef *def) {
             continue;
         if (first_opt < 0)
             first_opt = opt;
-        if (rc_storage_kind_for_npc(def, opt) != RC_STORAGE_NONE)
+        if (rc_storage_kind_for_npc(world, def, opt) != RC_STORAGE_NONE)
             return opt;
         if (attack_opt < 0 && rc_npc_def_option_is_attack(def, opt))
             attack_opt = opt;
@@ -4059,7 +4071,7 @@ static int viewer_npc_default_option_by_uid(const ViewerState *v,
     const RcNpcDef *def = rc_npc_def_for_npc(v ? v->world : NULL, npc);
     if (!def)
         return -1;
-    return npc_default_left_click_option(def);
+    return npc_default_left_click_option(v->world, def);
 }
 
 static const char *viewer_npc_option_label_by_uid(const ViewerState *v,
@@ -4388,7 +4400,7 @@ static int object_pick_candidate(ViewerState *v, const RcObjectPlacement *row,
         score -= 0.25f;
     if (behavior && (behavior->flags & RC_OBJ_BEHAVIOR_TRANSPORT))
         score -= 0.25f;
-    if (option >= 0 && rc_storage_kind_for_object(obj_id, option) !=
+    if (option >= 0 && rc_storage_kind_for_object(v->world, obj_id, option) !=
             RC_STORAGE_NONE) {
         score -= 0.35f;
     }
@@ -4591,7 +4603,7 @@ static int viewer_left_click_npc(ViewerState *v, int npc_uid) {
     const RcNpcDef *def = rc_npc_def_for_npc(v ? v->world : NULL, npc);
     if (!def)
         return 0;
-    int opt = npc_default_left_click_option(def);
+    int opt = npc_default_left_click_option(v->world, def);
     if (opt < 0)
         return 0;
     if (rc_npc_def_option_is_attack(def, opt))
@@ -4904,7 +4916,7 @@ static void build_ui_item_icons(ViewerState *v) {
                                    p->equipment[i].quantity);
     }
     if (p->storage_kind == RC_STORAGE_BANK ||
-            p->storage_kind == RC_STORAGE_CONTAINER) {
+            p->storage_kind == RC_STORAGE_DEPOSIT_BOX) {
         for (int i = 0; i < RUNEC_UI_BANK_SLOT_COUNT; i++) {
             if (p->bank[i].item_id >= 0 && p->bank[i].quantity > 0
                     && p->bank_tab[i] == v->ui.bank_active_tab) {
@@ -9954,12 +9966,16 @@ int main(int argc, char **argv) {
         int ui_capture = runec_ui_handle_input(&v.ui, GetScreenWidth(), GetScreenHeight());
         if (v.ui.last_intent.kind == RUNEC_UI_INTENT_RUN_TOGGLE) {
             (void)rc_player_set_running(v.world, !p->running);
-        } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_BANK_WITHDRAW) {
-            rc_bank_withdraw_slot(v.world, v.ui.last_intent.primary,
-                                  v.ui.last_intent.secondary);
+        } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_BANK_WITHDRAW
+                || v.ui.last_intent.kind == RUNEC_UI_INTENT_BANK_WITHDRAW_ALL_BUT_ONE) {
+            rc_bank_withdraw_slot_mode(v.world, v.ui.last_intent.primary,
+                v.ui.last_intent.secondary, v.ui.bank_noted != 0,
+                v.ui.last_intent.kind == RUNEC_UI_INTENT_BANK_WITHDRAW_ALL_BUT_ONE);
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_BANK_DEPOSIT) {
             rc_bank_deposit_slot(v.world, v.ui.last_intent.primary,
-                                 v.ui.last_intent.secondary);
+                                  v.ui.last_intent.secondary);
+        } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_BANK_DEPOSIT_ALL) {
+            rc_bank_deposit_all(v.world, v.ui.last_intent.primary != 0);
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_BANK_CLOSE) {
             rc_player_close_storage(v.world);
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_BANK_EXAMINE) {

@@ -83,9 +83,7 @@ static void cancel_player_activity(RcWorld *world,
     rc_traversal_cancel(world, reason);
     player->skill_action = 0;
     player->skill_ready_tick = 0;
-    player->storage_kind = RC_STORAGE_NONE;
-    player->storage_target = -1;
-    player->storage_option = -1;
+    rc_storage_close(world);
     world->player_action.active = false;
     world->player_action.owner = RC_ACTION_OWNER_NONE;
     world->player_action.category = RC_ACTION_CATEGORY_SOFT;
@@ -330,23 +328,12 @@ static int execute_command(RcWorld *world, const RcPlayerCommand *command) {
         return rc_player_cast_spell_on_ground_item(world, a[0], a[1]);
     case RC_PLAYER_COMMAND_CAST_ON_WIDGET:
         return rc_player_cast_spell_on_widget(world, a[0], a[1], a[2]);
-    case RC_PLAYER_COMMAND_OPEN_STORAGE_OBJECT:
-        return rc_player_open_storage_object(world, a[0], a[1]) != 0;
-    case RC_PLAYER_COMMAND_OPEN_STORAGE_NPC:
-        return rc_player_open_storage_npc(world, a[0], a[1]) != 0;
     case RC_PLAYER_COMMAND_CLOSE_STORAGE:
         return rc_player_close_storage(world);
     case RC_PLAYER_COMMAND_BANK_DEPOSIT:
-        if (!inventory_reference_matches(world, a[0], (uint32_t)a[2]))
-            return 0;
-        return rc_bank_deposit_slot(world, a[0], a[1]) >= 0;
+    case RC_PLAYER_COMMAND_BANK_DEPOSIT_ALL:
     case RC_PLAYER_COMMAND_BANK_WITHDRAW:
-        if (!world || a[0] < 0 || a[0] >= RC_BANK_SIZE
-                || world->player.bank_revision != (uint32_t)a[2]
-                || world->player.bank[a[0]].item_id != a[3]) {
-            return reject_stale_item_command(world, a[0], 0);
-        }
-        return rc_bank_withdraw_slot(world, a[0], a[1]) >= 0;
+        return rc_bank_execute_command(world, command) >= 0;
     case RC_PLAYER_COMMAND_APPLY_RECIPE: {
         const RcRecipe *recipe = rc_recipe_get(a[0]);
         return recipe && rc_player_apply_recipe(world, recipe);
