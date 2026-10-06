@@ -5,6 +5,12 @@ state machines, and region-specific NPC behavior. It links against
 `rc-core` (the generic engine) and exposes per-module registration
 functions that callers invoke after creating a world.
 
+`consumables.c` registers reviewed B237 food/potion definitions and the prayer
+restoration equipment bonus. Core owns transactions/timers; content owns item
+identities, replacement links and effect values. Registration validates the
+installed item definitions and fails openly. Repeat registration after world
+reset. See [consumables](../docs/consumables.md) for support and exclusions.
+
 This layer is what turns the generic engine into an OSRS game while
 still allowing narrow RL builds to link only the content they need.
 An Inferno sim should not need quest code, unrelated bosses, or other

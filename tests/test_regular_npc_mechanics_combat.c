@@ -320,19 +320,19 @@ int main(void) {
     rc_queue_hit(w->player.pending_hits, &w->player.num_pending_hits,
                  4, 0, COMBAT_MELEE_CRUSH, cave->uid, 0, w->tick);
     rc_resolve_player_hits(w);
-    assert(w->player.poison_damage == 2);
+    assert(w->player.toxin_severity == 10 && !w->player.toxin_venom);
     int hp_before_poison = w->player.current_hp;
-    w->player.poison_tick_counter = 0;
+    w->player.toxin_tick = w->tick;
     rc_combat_tick_player_status(w);
     assert(w->player.current_hp == hp_before_poison - 20);
 
-    w->player.poison_damage = 0;
+    w->player.toxin_severity = 0;
     reset_player_gear(&w->player);
     w->player.equipment[EQUIP_HEAD].item_id = 7;
     rc_queue_hit(w->player.pending_hits, &w->player.num_pending_hits,
                  4, 0, COMBAT_MELEE_CRUSH, cave->uid, 0, w->tick);
     rc_resolve_player_hits(w);
-    assert(w->player.poison_damage == 0);
+    assert(w->player.toxin_severity == 0);
 
     int rev_idx = rc_npc_spawn(w, 4, w->player.x, w->player.y, 0);
     assert(rev_idx >= 0);
@@ -367,8 +367,8 @@ int main(void) {
     w->player.current_hp = 1000;
     w->player.current_prayer_points = 30;
     w->player.active_prayers = PRAYER_PROTECT_MELEE;
-    w->player.poison_damage = 0;
-    w->player.venom_damage = 0;
+    w->player.toxin_severity = 0;
+    w->player.toxin_venom = false;
     w->player.num_pending_hits = 0;
     w->player.skills.boosted_level[SKILL_ATTACK] = 10;
     rc_queue_hit(w->player.pending_hits, &w->player.num_pending_hits,
@@ -376,7 +376,7 @@ int main(void) {
                  w->player.active_prayers, w->tick);
     rc_resolve_player_hits(w);
     assert(w->player.current_hp == 900);
-    assert(w->player.venom_damage == 6);
+    assert(w->player.toxin_venom && w->player.toxin_severity == 6);
     assert(w->player.current_prayer_points == 30);
     assert(w->player.skills.boosted_level[SKILL_ATTACK] == 10);
     assert(araxxor->current_hp == 102);

@@ -42,7 +42,5 @@ int runec_dev_validation_prepare_encounter(RcWorld *world,
                                            const RuneCDevTransport *transport);
 void runec_dev_validation_seed_bank(RcWorld *world);
 int runec_dev_validation_spawn_varrock_bank_dummy(RcWorld *world);
-int runec_dev_validation_bank_withdraw_quantity(const RcWorld *world,
-                                                int bank_slot);
 
 #endif

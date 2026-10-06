@@ -5,6 +5,7 @@
 
 #include "activity_mechanics.h"
 #include "combat.h"
+#include "consumables.h"
 #include "combat_formula.h"
 #include "combat_hit.h"
 #include "items.h"
@@ -346,13 +347,7 @@ static void regular_on_npc_hit_player(RcWorld *world,
     if (((status_tags & (RC_MONSTER_TAG_POISON | RC_MONSTER_TAG_VENOM)) != 0) &&
             !has_status_immunity(p, status_tags)) {
         bool venom = (status_tags & RC_MONSTER_TAG_VENOM) != 0;
-        if (venom) {
-            if (p->venom_damage < 6) p->venom_damage = 6;
-            if (p->venom_tick_counter <= 0) p->venom_tick_counter = 30;
-        } else if (p->poison_damage < 2) {
-            p->poison_damage = 2;
-            p->poison_tick_counter = 30;
-        }
+        rc_player_apply_toxin(world, venom ? 6 : 2, venom);
     }
 
     bool handled_prayer = false;

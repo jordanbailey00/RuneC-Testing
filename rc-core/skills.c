@@ -836,7 +836,10 @@ void rc_stat_restore_tick(RcPlayer *player) {
             int level = skills->boosted_level[i], base = skills->base_level[i];
             if (level < base && restore)
                 skills->boosted_level[i] = level + restore > base ? base : level + restore;
-            else if (level > base && decay) skills->boosted_level[i]--;
+            else if (level > base && decay
+                    && (!(player->divine_mask & (1u << i))
+                        || level > player->divine_boost[i]))
+                skills->boosted_level[i]--;
         }
     }
     skills->boosted_level[SKILL_HITPOINTS] = (player->current_hp + 9) / 10;

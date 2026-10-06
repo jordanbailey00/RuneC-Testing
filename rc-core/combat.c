@@ -1,4 +1,5 @@
 #include "combat.h"
+#include "consumables.h"
 #include "combat_formula.h"
 #include "combat_hit.h"
 #include "combat_profiles.h"
@@ -1647,11 +1648,10 @@ void rc_combat_reset_player_life(RcWorld *world) {
     p->combat.special_pending = false;
     rc_combat_init_player_state(p);
     rc_prayer_reset(p);
-    p->poison_damage = p->poison_tick_counter = 0;
-    p->venom_damage = p->venom_tick_counter = p->disease_tick_counter = 0;
+    rc_consumables_reset(p);
+    p->disease_tick_counter = 0;
     p->freeze_start_tick = p->freeze_expire_tick = 0;
     p->teleblock_start_tick = p->teleblock_expire_tick = 0;
-    p->food_timer = p->potion_timer = p->combo_timer = 0;
     p->ward_of_arceuus_timer = p->hp_regen_counter = 0;
     p->stat_restore_counter = p->stat_boost_counter = 0;
     p->last_hit = p->last_hit_timer = 0;
@@ -1795,30 +1795,7 @@ void rc_combat_tick_player_status(struct RcWorld *world) {
     rc_combat_actor_tick_recent_hits(&p->combat);
     rc_combat_tick_actor_threat(&p->combat);
     if (p->ward_of_arceuus_timer > 0) p->ward_of_arceuus_timer--;
-    if (p->poison_damage > 0) {
-        if (p->poison_tick_counter > 0) {
-            p->poison_tick_counter--;
-        } else {
-            RcPendingHit hit = {.source_idx = RC_HIT_SOURCE_STATUS,
-                .attack_style = COMBAT_NONE, .max_hit = p->poison_damage,
-                .flags = RC_HIT_SUPPRESS_ENCOUNTER_EFFECTS};
-            rc_combat_apply_player_hit(world, &hit, p->poison_damage);
-            p->poison_damage--;
-            p->poison_tick_counter = p->poison_damage > 0 ? 30 : 0;
-        }
-    }
-    if (p->venom_damage > 0) {
-        if (p->venom_tick_counter > 0) {
-            p->venom_tick_counter--;
-        } else {
-            RcPendingHit hit = {.source_idx = RC_HIT_SOURCE_STATUS,
-                .attack_style = COMBAT_NONE, .max_hit = p->venom_damage,
-                .flags = RC_HIT_SUPPRESS_ENCOUNTER_EFFECTS};
-            rc_combat_apply_player_hit(world, &hit, p->venom_damage);
-            if (p->venom_damage < 20) p->venom_damage += 2;
-            p->venom_tick_counter = 30;
-        }
-    }
+    rc_player_toxin_tick(world);
     if (p->disease_tick_counter > 0) {
         p->disease_tick_counter--;
     }

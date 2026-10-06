@@ -1,4 +1,5 @@
 #include "encounter.h"
+#include "consumables.h"
 #include "assets.h"
 #include "types.h"
 #include "events.h"
@@ -532,20 +533,14 @@ static void apply_attack_effect(RcWorld *world, RcActiveEncounter *a,
                 rc_rng_range(&world->rng_state, 99) >= attack->effect_pct) {
             return;
         }
-        if (world->player.poison_damage < attack->effect_min) {
-            world->player.poison_damage = attack->effect_min;
-            world->player.poison_tick_counter = 30;
-        }
+        rc_player_apply_toxin(world, attack->effect_min, false);
     } else if (attack->effect_id == RC_ENC_ATTACK_EFFECT_KNOCKBACK) {
         if (damage == 0) return;
         RcNpc *boss = find_npc_by_uid(world, a->boss_id);
         knock_player_away_from_npc(world, boss, attack->effect_min);
     } else if (attack->effect_id == RC_ENC_ATTACK_EFFECT_VENOM) {
         int venom = attack->effect_min ? attack->effect_min : 6;
-        if (world->player.venom_damage < venom) {
-            world->player.venom_damage = venom;
-            world->player.venom_tick_counter = 30;
-        }
+        rc_player_apply_toxin(world, venom, true);
     } else if (attack->effect_id == RC_ENC_ATTACK_EFFECT_DEACTIVATE_PRAYERS) {
         rc_prayer_disable_all(world, RC_PRAYER_FORCED_OFF);
     }

@@ -101,6 +101,17 @@ int main(void) {
         assert(found && "rune missing from testing bank");
     }
     assert(find_item_by_name("Amethyst arrows") == 21326);
+    const int consumables[] = {385,13441,3144,6685,3024,12625,23685,7218,29143,2446,1891,2301};
+    for (unsigned i = 0; i < sizeof(consumables)/sizeof(consumables[0]); i++) {
+        bool found = false;
+        for (int slot = 0; slot < RC_BANK_SIZE; slot++) {
+            if (world->player.bank[slot].item_id == consumables[i]) {
+                assert(world->player.bank[slot].quantity >= 10000);
+                found = 1;
+            }
+        }
+        assert(found && "consumable validation supplies must be stocked");
+    }
     const int finite_sources[] = {20714, 25574, 30064, 22370};
     for (unsigned i = 0; i < sizeof(finite_sources) / sizeof(finite_sources[0]); i++) {
         bool found = false;
@@ -155,23 +166,22 @@ int main(void) {
 
     world->player.storage_kind = RC_STORAGE_BANK;
     assert(stack_slot >= 0);
+    int stack_id = world->player.bank[stack_slot].item_id;
     int stack_before = world->player.bank[stack_slot].quantity;
-    int stack_withdraw =
-        runec_dev_validation_bank_withdraw_quantity(world, stack_slot);
-    assert(stack_withdraw == stack_before - 1);
-    assert(rc_bank_withdraw_slot(world, stack_slot, stack_withdraw) == 1);
+    assert(rc_bank_withdraw_slot(world, stack_slot, 0) == 1);
     rc_world_tick(world);
-    assert(world->player.bank[stack_slot].quantity == 1);
+    assert(world->player.bank[stack_slot].item_id == -1);
+    assert(world->player.inventory[rc_inv_find(world->player.inventory, stack_id)].quantity == stack_before);
 
     clear_player_items(world);
     assert(gear_slot >= 0);
     int gear_before = world->player.bank[gear_slot].quantity;
-    int gear_withdraw =
-        runec_dev_validation_bank_withdraw_quantity(world, gear_slot);
-    assert(gear_withdraw == gear_before - 1);
-    assert(rc_bank_withdraw_slot(world, gear_slot, gear_withdraw) == 1);
+    assert(rc_bank_withdraw_slot(world, gear_slot, 1) == 1);
     rc_world_tick(world);
-    assert(world->player.bank[gear_slot].quantity == 1);
+    assert(world->player.bank[gear_slot].quantity == gear_before - 1);
+    assert(rc_bank_withdraw_slot(world, gear_slot, 0) == 1);
+    rc_world_tick(world);
+    assert(world->player.bank[gear_slot].item_id == -1 && "last testing item is withdrawable");
 
     assert_validation_item_equips(world, "Oathplate helm", EQUIP_HEAD);
     assert_validation_item_equips(world, "Oathplate chest", EQUIP_BODY);

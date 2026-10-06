@@ -18,6 +18,7 @@
 void rc_content_register_all(struct RcWorld *world) {
     // ---- Combat -----------------------------------------------------
     rc_content_combat_register(world);
+    rc_content_consumables_register(world);
 
     // ---- Encounters -------------------------------------------------
     rc_content_encounter_script_stubs_register(world);

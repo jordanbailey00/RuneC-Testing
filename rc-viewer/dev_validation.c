@@ -261,6 +261,11 @@ static int find_unnoted_item_id_by_name(const char *name) {
 
 static int validation_quantity(int item_id, int requested) {
     const RcItemDef *def = rc_item_def_get(item_id);
+    for (int i = 0; def && i < RC_ITEM_ACTION_COUNT; i++) {
+        if ((!strcmp(def->inventory_actions[i], "Eat")
+                || !strcmp(def->inventory_actions[i], "Drink")) && requested < 10000)
+            return 10000;
+    }
     if (def && def->stackable && requested < 1000)
         return 1000;
     if (requested < 2)
@@ -480,6 +485,9 @@ void runec_dev_validation_seed_bank(RcWorld *world) {
         "Weapon poison(+)", "Weapon poison(++)", "Anti-venom+(4)",
         "Shark", "Anglerfish", "Prayer potion(4)", "Ranging potion(4)",
         "Magic potion(4)", "Super combat potion(4)", "Coins",
+        "Cooked karambwan", "Saradomin brew(4)", "Super restore(4)",
+        "Stamina potion(4)", "Divine super combat potion(4)", "Summer pie",
+        "Cooked moonlight antelope", "Antipoison(4)", "Cake", "Pineapple pizza",
         "Crystal helm", "Crystal body", "Crystal legs",
         "Bow of faerdhinen", "Bow of faerdhinen (c)",
         "Elite void top", "Elite void robe", "Void knight gloves",
@@ -596,16 +604,4 @@ int runec_dev_validation_spawn_varrock_bank_dummy(RcWorld *world) {
     fprintf(stderr, "combat bank: dummy ready at %d,%d,%d uid=%d\n",
             dummy->x, dummy->y, dummy->plane, dummy->uid);
     return idx;
-}
-
-int runec_dev_validation_bank_withdraw_quantity(const RcWorld *world,
-                                                int bank_slot) {
-    if (!world || !runec_dev_validation_enabled()
-            || bank_slot < 0 || bank_slot >= RC_BANK_SIZE) {
-        return -1;
-    }
-    const RcInvSlot *slot = &world->player.bank[bank_slot];
-    if (slot->item_id < 0 || slot->quantity <= 1)
-        return 0;
-    return slot->quantity - 1;
 }

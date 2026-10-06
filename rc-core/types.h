@@ -78,6 +78,7 @@ typedef enum {
     RC_PLAYER_COMMAND_EXAMINE_GROUND_ITEM,
     RC_PLAYER_COMMAND_SELECT_QUICK_PRAYER,
     RC_PLAYER_COMMAND_TOGGLE_QUICK_PRAYERS,
+    RC_PLAYER_COMMAND_CONSUME,
 } RcPlayerCommandKind;
 
 typedef enum {
@@ -813,9 +814,16 @@ typedef struct {
     RcPrayerOutcome prayer_outcome;
 
     // Timers
-    int food_timer;
-    int potion_timer;
-    int combo_timer;
+    RcTick food_ready_tick, potion_ready_tick, combo_ready_tick;
+    RcTick stamina_until;
+    RcTick delayed_food_tick;
+    int delayed_food_heal, delayed_food_energy;
+    bool delayed_food_cure;
+    uint32_t divine_mask;
+    RcTick divine_until[SKILL_COUNT];
+    int divine_boost[SKILL_COUNT];
+    uint64_t consume_sequence, consume_outcome_sequence;
+    int consume_kind, consume_result, consume_item_id;
     int ward_of_arceuus_timer;
     RcTraversalState traversal;
     uint64_t next_traversal_generation;
@@ -868,11 +876,10 @@ typedef struct {
     // Auto-retaliate
     bool auto_retaliate;
 
-    // Combat statuses. Timers are ticks; poison/venom damage is HP.
-    int poison_damage;
-    int poison_tick_counter;
-    int venom_damage;
-    int venom_tick_counter;
+    // One mutually exclusive player toxin. Poison uses severity, venom hit damage.
+    int toxin_severity;
+    bool toxin_venom;
+    RcTick toxin_tick, poison_immune_until, venom_immune_until;
     int disease_tick_counter;
     RcTick teleblock_start_tick;
     RcTick teleblock_expire_tick;
@@ -1228,6 +1235,9 @@ typedef struct RcWorld {
     uint32_t initial_seed;
     bool multi_combat;
     RcCombatContentHooks combat_hooks;
+    const struct RcConsumableDef *consumables;
+    int consumable_count;
+    int (*consumable_prayer_bonus)(const RcPlayer *player);
     RcItemEquipRequirementHook item_equip_requirement_hook;
     void *item_equip_requirement_ctx;
     RcCombatAttackEvent combat_attack_events[RC_MAX_COMBAT_ATTACK_EVENTS];

@@ -867,7 +867,7 @@ int main(void) {
     int kril_melee = find_attack(kril, "Melee Scimitars");
     int kril_drain = find_attack(kril, "Enraged Melee (Prayer-Pierce)");
     assert(kril_melee >= 0 && kril_drain >= 0);
-    w->player.poison_damage = 0;
+    w->player.toxin_severity = 0;
     w->encounter.active[kril_active].last_attack_idx = (uint8_t)kril_melee;
     RcPayloadPlayerDamaged kril_blocked_hit = {
         .source_npc_id = (uint16_t)w->npcs[kril_npc_idx].uid,
@@ -875,7 +875,7 @@ int main(void) {
         .style = COMBAT_MELEE_SLASH,
     };
     rc_event_fire(w, RC_EVT_PLAYER_DAMAGED, &kril_blocked_hit);
-    assert(w->player.poison_damage == 16);
+    assert(w->player.toxin_severity == 80 && !w->player.toxin_venom);
 
     w->player.current_prayer_points = 50;
     w->encounter.active[kril_active].last_attack_idx = (uint8_t)kril_drain;
@@ -1066,14 +1066,15 @@ int main(void) {
     int vork_corrupt = find_attack(vorkath, "Corrupting Dragonfire");
     assert(vork_venom >= 0 && vork_corrupt >= 0);
     w->encounter.active[vork_active].last_attack_idx = (uint8_t)vork_venom;
-    w->player.venom_damage = 0;
+    w->player.toxin_severity = 0;
+    w->player.toxin_venom = false;
     RcPayloadPlayerDamaged vork_hit = {
         .source_npc_id = (uint16_t)w->npcs[vork_idx].uid,
         .damage = 0,
         .style = COMBAT_MAGIC,
     };
     rc_event_fire(w, RC_EVT_PLAYER_DAMAGED, &vork_hit);
-    assert(w->player.venom_damage == 6);
+    assert(w->player.toxin_venom && w->player.toxin_severity == 6);
     w->encounter.active[vork_active].last_attack_idx = (uint8_t)vork_corrupt;
     w->player.active_prayers = PRAYER_PROTECT_MAGIC | PRAYER_PROTECT_RANGE;
     rc_event_fire(w, RC_EVT_PLAYER_DAMAGED, &vork_hit);

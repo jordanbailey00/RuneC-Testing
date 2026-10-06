@@ -1,5 +1,6 @@
 #include "../rc-core/api.h"
 #include "../rc-core/combat.h"
+#include "../rc-core/consumables.h"
 #include "../rc-core/combat_formula.h"
 #include "../rc-core/npc.h"
 #include "../rc-core/combat_hit.h"
@@ -207,9 +208,9 @@ static void test_new_life_and_dead_admission(void) {
     assert(!rc_combat_start_player_vs_npc(w, 0, w->npcs[0].uid));
     assert(rc_queue_hit(w->player.pending_hits, &w->player.num_pending_hits,
                         5, 2, COMBAT_RANGED, w->npcs[0].uid, 0, w->tick));
-    w->player.poison_damage = 6;
+    rc_player_apply_toxin(w, 6, false);
     assert(rc_world_respawn_player(w, 3208, 3208, 0));
-    assert(w->player.num_pending_hits == 0 && w->player.poison_damage == 0);
+    assert(w->player.num_pending_hits == 0 && w->player.toxin_severity == 0);
     assert(w->player.current_prayer_points == w->player.skills.base_level[SKILL_PRAYER] * 10);
     rc_world_tick(w);
     rc_world_tick(w);
@@ -443,13 +444,14 @@ static void test_status_damage_and_poison_capacity(void) {
     int lost = 0;
     assert(rc_event_subscribe(w, RC_EVT_PLAYER_DAMAGED, observe_damage, &lost) == 0);
     w->player.current_hp = w->player.max_hp = 1000;
-    w->player.poison_damage = 3;
-    w->player.venom_damage = 6;
+    rc_player_apply_toxin(w, 3, false);
+    rc_player_apply_toxin(w, 6, true);
+    w->tick = w->player.toxin_tick;
     rc_combat_tick_player_status(w);
-    assert(lost == 90 && w->player.current_hp == 910);
-    assert(w->player.poison_damage == 2 && w->player.venom_damage == 8);
+    assert(lost == 60 && w->player.current_hp == 940);
+    assert(w->player.toxin_venom && w->player.toxin_severity == 8);
     rc_combat_tick_player_status(w);
-    assert(lost == 90 && "status damage must respect its repeat timer");
+    assert(lost == 60 && "one toxin owns damage and its repeat timer");
     RcNpc *n = &w->npcs[0];
     n->poison_damage = 3;
     for (int i = 0; i < RC_MAX_PENDING_HITS; i++)

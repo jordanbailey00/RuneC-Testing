@@ -4,6 +4,7 @@
 #include "../rc-core/assets.h"
 #include "../rc-core/combat.h"
 #include "../rc-core/config.h"
+#include "../rc-core/consumables.h"
 #include "../rc-core/items.h"
 #include "../rc-core/objects.h"
 #include "../rc-core/pathfinding.h"
@@ -439,6 +440,8 @@ typedef struct {
     int context_tile_x;
     int context_tile_y;
     uint64_t interaction_outcome_seen;
+    uint64_t consume_outcome_seen;
+    uint64_t consume_sequence_seen;
     uint64_t traversal_event_seen;
     uint64_t traversal_outcome_seen;
     uint64_t prayer_outcome_seen;
@@ -3726,10 +3729,15 @@ static void sync_ui_slot(const ViewerState *v, RuneCUiSlot *dst,
     dst->icon_item_id = (uint32_t)item_display_id_for_quantity(v, src->item_id,
                                                                src->quantity);
     dst->quantity = src->quantity;
-    snprintf(dst->label, sizeof(dst->label), "%.23s",
+    dst->generation = src->generation;
+    snprintf(dst->label, sizeof(dst->label), "%s",
              def ? def->name : TextFormat("Item %d", src->item_id));
     dst->enabled = 1;
     if (container_kind == UI_ITEM_CONTAINER_INVENTORY) {
+        for (int i = 0; def && i < RC_ITEM_ACTION_COUNT; i++) {
+            if (rc_consumable_action(src->item_id, i))
+                ui_slot_add_action(dst, def->inventory_actions[i], i);
+        }
         if (def && def->equippable && def->equipable_by_player) {
             for (int i = 0; i < RC_ITEM_ACTION_COUNT; i++) {
                 if (item_action_is_equip(def->inventory_actions[i])) {
@@ -3789,6 +3797,7 @@ static void sync_ui_items(ViewerState *v) {
         v->ui.bank_scroll = 0;
     for (int i = 0; i < RUNEC_UI_BANK_SLOT_COUNT; i++) {
         sync_ui_slot(v, &v->ui.bank[i], &p->bank[i], UI_ITEM_CONTAINER_BANK);
+        v->ui.bank[i].generation = p->bank_revision;
         v->ui.bank[i].category = p->bank_tab[i];
     }
 }
@@ -4174,6 +4183,19 @@ static void viewer_start_player_action_anim(ViewerState *v, int anim_id,
     v->player_action_anim_id = anim_id;
     v->player_action_anim_timer = ticks;
     v->player_one_shot_finished = 0;
+}
+
+static void viewer_sync_consumption(ViewerState *v) {
+    const RcPlayer *p = &v->world->player;
+    if (v->consume_outcome_seen != p->consume_outcome_sequence) {
+        v->consume_outcome_seen = p->consume_outcome_sequence;
+        if (p->consume_result != RC_CONSUME_OK)
+            runec_ui_add_chat_message(&v->ui, rc_consume_result_message(p->consume_result));
+    }
+    if (v->consume_sequence_seen != p->consume_sequence) {
+        v->consume_sequence_seen = p->consume_sequence;
+        viewer_start_player_action_anim(v, p->consume_kind == RC_CONSUME_DRINK ? 830 : 829, 3);
+    }
 }
 
 static void viewer_start_object_action_visual(ViewerState *v,
@@ -8683,7 +8705,7 @@ static void handle_input(ViewerState *v, int ui_capture) {
         if (v->cam_dist > 300) v->cam_dist = 300;
     }
 
-    if (!v->ui.chat_focused) {
+    if (!v->ui.chat_focused && !v->ui.bank_amount_source) {
         if (IsKeyPressed(KEY_FOUR)) { v->cam_yaw = 0; v->cam_pitch = 1.35f; v->cam_dist = 120; }
         if (IsKeyPressed(KEY_FIVE)) { v->cam_yaw = 0; v->cam_pitch = 0.6f; v->cam_dist = 50; }
         if (IsKeyPressed(KEY_L)) v->camera_locked = !v->camera_locked;
@@ -8824,7 +8846,7 @@ static void handle_input(ViewerState *v, int ui_capture) {
 
     // WASD
     int dx = 0, dy = 0;
-    if (!v->ui.chat_focused) {
+    if (!v->ui.chat_focused && !v->ui.bank_amount_source) {
         if (IsKeyDown(KEY_W)) dy = 1;
         if (IsKeyDown(KEY_S)) dy = -1;
         if (IsKeyDown(KEY_A)) dx = -1;
@@ -9440,7 +9462,7 @@ static RcWorldConfig viewer_world_config(
     cfg.subsystems = RC_SUB_INVENTORY | RC_SUB_EQUIPMENT | RC_SUB_LOOT |
                      RC_SUB_COMBAT | RC_SUB_PRAYER | RC_SUB_OBJECTS |
                      RC_SUB_REGIONS | RC_SUB_TRAVERSAL | RC_SUB_STORAGE |
-                     RC_SUB_ENCOUNTER;
+                     RC_SUB_ENCOUNTER | RC_SUB_CONSUMABLES;
     cfg.npc_defs_path = env_path("RUNEC_NPC_DEFS", "data/defs/npc_defs.bin");
     cfg.items_path = env_path("RUNEC_ITEMS", "data/defs/items.bin");
     cfg.drops_path = env_path("RUNEC_DROPS", "data/defs/drops.bin");
@@ -9933,18 +9955,17 @@ int main(int argc, char **argv) {
         if (v.ui.last_intent.kind == RUNEC_UI_INTENT_RUN_TOGGLE) {
             (void)rc_player_set_running(v.world, !p->running);
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_BANK_WITHDRAW) {
-            int quantity = runec_dev_validation_bank_withdraw_quantity(
-                v.world, v.ui.last_intent.primary);
-            if (quantity < 0)
-                quantity = v.ui.last_intent.secondary;
-            if (quantity > 0)
-                rc_bank_withdraw_slot(v.world, v.ui.last_intent.primary,
-                                      quantity);
+            rc_bank_withdraw_slot(v.world, v.ui.last_intent.primary,
+                                  v.ui.last_intent.secondary);
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_BANK_DEPOSIT) {
             rc_bank_deposit_slot(v.world, v.ui.last_intent.primary,
                                  v.ui.last_intent.secondary);
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_BANK_CLOSE) {
             rc_player_close_storage(v.world);
+        } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_BANK_EXAMINE) {
+            const RcItemDef *def = rc_item_def_get(v.ui.last_intent.primary);
+            if (def) runec_ui_add_chat_message(&v.ui, def->examine[0]
+                ? def->examine : "Examine text is unavailable for this item.");
         } else if (v.ui.last_intent.kind == RUNEC_UI_INTENT_SCENE_PLANE) {
             if (v.ui.last_intent.primary < 0) {
                 v.scene_plane_override = -1;
@@ -9982,7 +10003,16 @@ int main(int argc, char **argv) {
             } else if (slot >= 0 && slot < RC_INVENTORY_SIZE
                     && p->inventory[slot].item_id >= 0) {
                 const RcItemDef *def = rc_item_def_get(p->inventory[slot].item_id);
-                if (def && def->equippable && def->equipable_by_player)
+                int consume_op = -1;
+                for (int i = 0; i < RC_ITEM_ACTION_COUNT; i++) {
+                    if (rc_consumable_action(p->inventory[slot].item_id, i)) {
+                        consume_op = i;
+                        break;
+                    }
+                }
+                if (consume_op >= 0)
+                    rc_player_interact_inventory_item(v.world, slot, consume_op);
+                else if (def && def->equippable && def->equipable_by_player)
                     rc_player_equip(v.world, slot);
                 else if (previous >= 0 && previous != slot)
                     rc_player_move_inventory_item(v.world, previous, slot);
@@ -10136,6 +10166,7 @@ int main(int argc, char **argv) {
                 &v.tick_pacing, 1.0 / TPS);
         }
         viewer_sync_interaction_outcome(&v);
+        viewer_sync_consumption(&v);
         viewer_sync_traversal_event(&v);
         viewer_sync_traversal_outcome(&v);
         float presentation_dt = v.paused ? 0.0f : GetFrameTime();

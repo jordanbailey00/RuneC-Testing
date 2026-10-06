@@ -369,6 +369,70 @@ static void test_ground_item_appearances(void) {
     free(v);
 }
 
+static void test_consumable_projection(RcWorld *world) {
+    assert(world->enabled & RC_SUB_CONSUMABLES);
+    rc_content_consumables_register(world);
+    assert(world->consumable_count > 100);
+    ViewerState *v = calloc(1,sizeof(*v));
+    assert(v);
+    v->world = world;
+    world->player.skills.base_level[SKILL_HITPOINTS] = 99;
+    world->player.max_hp = 990;
+    world->player.current_hp = 300;
+    assert(rc_player_inventory_add(world,385,1,0).code == RC_ITEM_RESULT_OK);
+    int slot = rc_inv_find(world->player.inventory,385);
+    RuneCUiSlot item;
+    sync_ui_slot(v,&item,&world->player.inventory[slot],UI_ITEM_CONTAINER_INVENTORY);
+    assert(!strcmp(item.actions[0],"Eat") && item.action_ops[0] == 0);
+    assert(rc_player_interact_inventory_item(world,slot,item.action_ops[0]));
+    assert(!world->player.consume_sequence);
+    rc_world_tick(world);
+    viewer_sync_consumption(v);
+    assert(world->player.consume_result == RC_CONSUME_OK && v->player_action_anim_id == 829);
+    assert(rc_player_inventory_add(world,2434,1,0).code == RC_ITEM_RESULT_OK);
+    slot = rc_inv_find(world->player.inventory,2434);
+    sync_ui_slot(v,&item,&world->player.inventory[slot],UI_ITEM_CONTAINER_INVENTORY);
+    assert(!strcmp(item.actions[0],"Drink"));
+    assert(rc_player_interact_inventory_item(world,slot,item.action_ops[0]));
+    rc_world_tick(world);
+    viewer_sync_consumption(v);
+    assert(v->player_action_anim_id == 830 && world->player.inventory[slot].item_id == 139);
+    assert(rc_player_inventory_add(world,2452,1,0).code == RC_ITEM_RESULT_OK);
+    slot = rc_inv_find(world->player.inventory,2452);
+    assert(!rc_player_drink(world,slot));
+    viewer_sync_consumption(v);
+    assert(v->consume_outcome_seen == world->player.consume_outcome_sequence);
+    assert(v->ui.chat_line_count == 1 && strstr(v->ui.chat_lines[0],"not implemented"));
+    assert(runec_hitsplat_catalog_load(&v->hitsplat_catalog, "data/defs/hitsplats.bin") > 0);
+    assert(rc_player_inventory_add(world,23685,1,0).code == RC_ITEM_RESULT_OK);
+    slot = rc_inv_find(world->player.inventory,23685);
+    world->tick = world->player.potion_ready_tick;
+    world->player.current_hp = 500;
+    assert(rc_player_drink(world,slot));
+    rc_world_tick(world);
+    viewer_sync_consumption(v);
+    viewer_update_combat_overlays(v,0);
+    assert(v->player_action_anim_id == 830 && world->player.current_hp == 400);
+    RuneCHitsplatSlot *splat = &v->player_overlay.hitsplats.slots[0];
+    assert(splat->active && splat->amount == 10 && splat->definition_id == 28);
+    assert(runec_health_bar_visible(&v->player_overlay.health_bar));
+    assert(v->player_overlay.health_bar.current_hp == 400);
+    uint64_t sequence = splat->sequence;
+    viewer_update_combat_overlays(v,0);
+    assert(splat->sequence == sequence && !v->player_overlay.hitsplats.slots[1].active);
+    world->tick = world->player.food_ready_tick;
+    assert(rc_player_inventory_add(world,385,1,0).code == RC_ITEM_RESULT_OK);
+    assert(rc_player_eat(world,rc_inv_find(world->player.inventory,385)));
+    rc_world_tick(world);
+    viewer_update_combat_overlays(v,0);
+    assert(v->player_overlay.health_bar.current_hp == world->player.current_hp);
+    assert(v->player_overlay.hitsplats.last_sequence == sequence);
+    AnimCache *anims = anim_cache_load("data/anims/all.anims");
+    assert(anims && anim_get_sequence(anims,829) && anim_get_sequence(anims,830));
+    anim_cache_free(anims);
+    free(v);
+}
+
 int main(void) {
     RcWorldConfig cfg = viewer_world_config(rc_world_streaming_config_default(),
         "data/defs/combat_visuals.tsv");
@@ -377,6 +441,7 @@ int main(void) {
     assert(world && "the actual viewer config must initialize without a window");
     world->player.x = world->player.y = 3208;
     rc_test_open_mapsquare(world, 3208, 3208, 0);
+    test_consumable_projection(world);
     assert(runec_dev_validation_set_god_mode(world, true));
     test_installed_reward_delivery(world);
     test_viewer_death_drops(world);

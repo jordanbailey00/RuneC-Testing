@@ -20,6 +20,7 @@ typedef enum RcBenchMode {
     RC_BENCH_PRAYER = 2,
     RC_BENCH_MAGIC = 3,
     RC_BENCH_RANGED = 4,
+    RC_BENCH_CONSUMABLES = 5,
 } RcBenchMode;
 
 static double rc_now_seconds(void) {
@@ -40,6 +41,7 @@ static int rc_parse_positive(const char *arg, const char *value, int fallback) {
 
 static const char *rc_mode_name(RcBenchMode mode) {
     return mode == RC_BENCH_PRAYER ? "prayer"
+         : mode == RC_BENCH_CONSUMABLES ? "consumables"
          : mode == RC_BENCH_MAGIC ? "magic" : mode == RC_BENCH_RANGED ? "ranged"
          : mode == RC_BENCH_COMBAT ? "combat" : "idle";
 }
@@ -65,11 +67,12 @@ static RcWorld *rc_make_world(int seed, RcBenchMode mode, int *npc_def_idx) {
         cfg.player_actions_path = "data/defs/player_actions.bin";
     }
     cfg.seed = (uint64_t)seed;
-    if (mode == RC_BENCH_MAGIC || mode == RC_BENCH_RANGED) {
+    if (mode == RC_BENCH_MAGIC || mode == RC_BENCH_RANGED || mode == RC_BENCH_CONSUMABLES) {
         cfg.subsystems |= RC_SUB_INVENTORY | RC_SUB_EQUIPMENT;
         cfg.items_path = "data/defs/items.bin";
         cfg.spells_path = "data/defs/spells.bin";
     }
+    if (mode == RC_BENCH_CONSUMABLES) cfg.subsystems |= RC_SUB_CONSUMABLES;
 
     RcWorld *world = rc_world_create_config(&cfg);
     if (!world) {
@@ -88,6 +91,7 @@ static RcWorld *rc_make_world(int seed, RcBenchMode mode, int *npc_def_idx) {
         world->player.skills.boosted_level[i] = 99;
     }
     rc_player_set_attack_style(world, 0);
+    if (mode == RC_BENCH_CONSUMABLES) rc_content_consumables_register(world);
     if (mode == RC_BENCH_MAGIC || mode == RC_BENCH_RANGED) {
         rc_content_combat_register(world);
         world->player.equipment[EQUIP_WEAPON] = (RcInvSlot){.item_id = mode == RC_BENCH_MAGIC ? 1381 : 861, .quantity = 1};
@@ -132,7 +136,7 @@ static RcWorld *rc_make_world(int seed, RcBenchMode mode, int *npc_def_idx) {
 
 static void rc_print_usage(const char *argv0) {
     fprintf(stderr,
-            "usage: %s [--mode idle|combat|prayer|magic|ranged] [--envs N] [--steps N] [--warmup N]\n",
+            "usage: %s [--mode idle|combat|prayer|magic|ranged|consumables] [--envs N] [--steps N] [--warmup N]\n",
             argv0);
 }
 
@@ -155,6 +159,8 @@ int main(int argc, char **argv) {
                 mode = RC_BENCH_MAGIC;
             } else if (strcmp(argv[i], "ranged") == 0) {
                 mode = RC_BENCH_RANGED;
+            } else if (strcmp(argv[i], "consumables") == 0) {
+                mode = RC_BENCH_CONSUMABLES;
             } else {
                 rc_print_usage(argv[0]);
                 return 2;
@@ -187,6 +193,14 @@ int main(int argc, char **argv) {
 
     for (int step = 0; step < warmup; step++) {
         for (int env = 0; env < envs; env++) {
+            if (mode == RC_BENCH_CONSUMABLES && step % 10 == 0) {
+                RcWorld *w = worlds[env];
+                if (rc_player_inventory_add(w,385,1,0).code != RC_ITEM_RESULT_OK
+                        || !rc_player_eat(w,rc_inv_find(w->player.inventory,385))) {
+                    fprintf(stderr,"consumables benchmark: stocking or eating failed\n");
+                    return 1;
+                }
+            }
             rc_world_tick(worlds[env]);
         }
     }
@@ -194,12 +208,25 @@ int main(int argc, char **argv) {
     double start = rc_now_seconds();
     for (int step = 0; step < steps; step++) {
         for (int env = 0; env < envs; env++) {
+            if (mode == RC_BENCH_CONSUMABLES && step % 10 == 0) {
+                RcWorld *w = worlds[env];
+                if (rc_player_inventory_add(w,385,1,0).code != RC_ITEM_RESULT_OK
+                        || !rc_player_eat(w,rc_inv_find(w->player.inventory,385))) {
+                    fprintf(stderr,"consumables benchmark: stocking or eating failed\n");
+                    return 1;
+                }
+            }
             rc_world_tick(worlds[env]);
         }
     }
     double elapsed = rc_now_seconds() - start;
 
     for (int env = 0; mode != RC_BENCH_IDLE && env < envs; env++) {
+        if (mode == RC_BENCH_CONSUMABLES && (!worlds[env]->player.consume_sequence
+                || rc_inv_find(worlds[env]->player.inventory,385) >= 0)) {
+            fprintf(stderr,"consumables benchmark: queued consumption did not commit\n");
+            return 1;
+        }
         if (worlds[env]->npcs[0].current_hp >= 1000000000) {
             fprintf(stderr, "combat benchmark failed: env %d inflicted no damage\n", env);
             return 1;

@@ -1,9 +1,30 @@
 #include "../../rc-viewer/ui.h"
+#include <stdio.h>
 #include <string.h>
 
 // Context hit tests need dimensions and text metrics, not a graphics context.
 static int test_screen_width(void) { return 1280; }
 static int test_screen_height(void) { return 720; }
+static Vector2 input_mouse;
+static int input_button = -1, input_key = -1, input_shift;
+static const char *input_text = "";
+static Vector2 test_mouse(void) { return input_mouse; }
+static bool test_button(int button) { return button == input_button; }
+static bool test_key(int key) { return key == input_key; }
+static bool test_key_down(int key) { return input_shift && key == KEY_LEFT_SHIFT; }
+static int test_character(void) { return *input_text ? *input_text++ : 0; }
+static float test_zero(void) { return 0; }
+static bool test_no_button(int button) { (void)button; return false; }
+static int hover_draw_count;
+static char hover_draw_text[6][180];
+static Color hover_draw_colors[6];
+static void test_draw_text(Font font, const char *text, Vector2 pos, float size, float spacing, Color color) {
+    (void)font; (void)pos; (void)size; (void)spacing;
+    if (hover_draw_count < 6) {
+        snprintf(hover_draw_text[hover_draw_count], 180, "%s", text);
+        hover_draw_colors[hover_draw_count++] = color;
+    }
+}
 static int drawn_x, drawn_y, drawn_icon, unloaded_icon;
 static void test_draw_texture(Texture2D texture, int x, int y, Color tint) {
     (void)tint;
@@ -22,6 +43,16 @@ static Vector2 test_measure_text(Font font, const char *text, float size, float 
 }
 #define GetScreenWidth test_screen_width
 #define GetScreenHeight test_screen_height
+#define GetMousePosition test_mouse
+#define IsMouseButtonPressed test_button
+#define IsMouseButtonReleased test_no_button
+#define IsMouseButtonDown test_no_button
+#define IsKeyPressed test_key
+#define IsKeyDown test_key_down
+#define GetCharPressed test_character
+#define GetMouseWheelMove test_zero
+#define GetFrameTime test_zero
+#define DrawTextEx test_draw_text
 #define MeasureTextEx test_measure_text
 #define DrawTexture test_draw_texture
 #define UnloadTexture test_unload_texture
@@ -36,6 +67,176 @@ static Vector2 test_measure_text(Font font, const char *text, float size, float 
 
 #include "../../rc-content/content.h"
 #include "items.h"
+#include "storage.h"
+
+static void test_bank_ui(RcWorld *world) {
+    RuneCUiState *ui = calloc(1, sizeof(*ui));
+    assert(ui);
+    ui->active_tab = RUNEC_UI_TAB_INVENTORY;
+    ui->bank_open = 1;
+    ui->bank[4] = (RuneCUiSlot){.item_id=23685,.quantity=10000,.enabled=1,.generation=7};
+    strcpy(ui->bank[4].label, "Divine super combat potion(4)");
+    ui->inventory[0] = (RuneCUiSlot){.item_id=385,.quantity=1,.enabled=1,.generation=3,.action_count=4};
+    strcpy(ui->inventory[0].label,"Shark");
+    strcpy(ui->inventory[0].actions[0],"Eat");
+    RuneCUiLayout layout;
+    ui_layout(1280,720,&layout);
+    Rectangle panel = bank_panel_rect(1280,720,&layout);
+    Rectangle cell = bank_slot_rect(panel,0);
+    Vector2 bank_mouse = {cell.x+10,cell.y+10};
+    RuneCUiItemHover hover;
+    assert(item_hover_text(ui,&layout,1280,720,bank_mouse,0,&hover));
+    assert(!strcmp(hover.action,"Withdraw-1") && hover.more_options == 6);
+    assert(!strcmp(hover.target,"Divine super combat potion(4)"));
+    assert(item_hover_text(ui,&layout,1280,720,bank_mouse,1,&hover));
+    assert(!strcmp(hover.action,"Withdraw-All"));
+    input_mouse = bank_mouse;
+    draw_item_hover(ui,&layout,1280,720);
+    assert(hover_draw_count == 6 && !strcmp(hover_draw_text[1],"Withdraw-1"));
+    assert(!strcmp(hover_draw_text[3]," Divine super combat potion(4)"));
+    assert(!strcmp(hover_draw_text[5]," / 6 more options"));
+    assert(hover_draw_colors[3].r == 255 && hover_draw_colors[3].g == 144 && hover_draw_colors[3].b == 64);
+    assert(hover_draw_colors[1].g == 255 && hover_draw_colors[5].g == 255);
+    assert(!item_hover_text(ui,&layout,1280,720,(Vector2){panel.x+2,panel.y+2},0,&hover));
+    assert(!bank_source_slot(ui,RUNEC_UI_CONTEXT_BANK,-1));
+    assert(!bank_source_slot(ui,RUNEC_UI_CONTEXT_NONE,0));
+    set_bank_context(ui,input_mouse,RUNEC_UI_CONTEXT_BANK,3);
+    assert(!ui->context_open);
+
+    // Native input translation executes headlessly, including menu priority over the bank below it.
+    input_button = MOUSE_BUTTON_RIGHT;
+    assert(runec_ui_handle_input(ui,1280,720));
+    assert(ui->context_open && ui->context_action_count == 8 && ui->context_source_slot == 4);
+    assert(!item_hover_text(ui,&layout,1280,720,bank_mouse,0,&hover));
+    RuneCContextMenuLayout menu = context_menu_layout_for_ui(ui);
+    input_mouse = (Vector2){menu.x+8, menu.y+RUNEC_CONTEXT_MENU_HEADER_HEIGHT+RUNEC_CONTEXT_MENU_ROW_HEIGHT+5};
+    input_button = MOUSE_BUTTON_LEFT;
+    assert(runec_ui_handle_input(ui,1280,720));
+    assert(!ui->context_open && ui->last_intent.kind == RUNEC_UI_INTENT_BANK_WITHDRAW);
+    assert(ui->last_intent.primary == 4 && ui->last_intent.secondary == 5);
+    world->enabled |= RC_SUB_STORAGE;
+    world->player.storage_kind = RC_STORAGE_BANK;
+    world->player.bank[4] = (RcInvSlot){.item_id=23685,.quantity=10000};
+    assert(rc_bank_withdraw_slot(world,ui->last_intent.primary,ui->last_intent.secondary));
+    rc_world_tick(world);
+    assert(world->player.bank[4].quantity == 9995);
+    int withdrawn = 0;
+    for (int i = 0; i < RC_INVENTORY_SIZE; i++)
+        if (world->player.inventory[i].item_id == 23685) withdrawn += world->player.inventory[i].quantity;
+    assert(withdrawn == 5);
+
+    clear_intent(ui);
+    ui->bank[4].quantity = 1;
+    submit_bank_action(ui,RUNEC_UI_CONTEXT_BANK,4,23685,7,BANK_ALL_BUT_ONE);
+    assert(ui->last_intent.kind == RUNEC_UI_INTENT_NONE);
+    ui->bank[4].quantity = 10000;
+    submit_bank_action(ui,RUNEC_UI_CONTEXT_BANK,4,23685,7,BANK_ALL_BUT_ONE);
+    assert(ui->last_intent.secondary == 9999);
+    clear_intent(ui);
+    submit_bank_action(ui,RUNEC_UI_CONTEXT_BANK,4,23685,6,1);
+    assert(ui->last_intent.kind == RUNEC_UI_INTENT_NONE);
+    submit_bank_action(ui,RUNEC_UI_CONTEXT_BANK,4,23685,7,RUNEC_UI_ITEM_OP_EXAMINE);
+    assert(ui->last_intent.kind == RUNEC_UI_INTENT_BANK_EXAMINE && ui->last_intent.primary == 23685);
+    submit_bank_action(ui,RUNEC_UI_CONTEXT_BANK,4,23685,7,BANK_AMOUNT_X);
+    assert(!item_hover_text(ui,&layout,1280,720,bank_mouse,0,&hover));
+    input_button = -1;
+    input_key = KEY_ENTER;
+    input_text = "0";
+    assert(runec_ui_handle_input(ui,1280,720) && ui->bank_amount_source);
+    input_key = KEY_BACKSPACE;
+    assert(runec_ui_handle_input(ui,1280,720) && !ui->bank_amount_text[0]);
+    input_key = KEY_ENTER;
+    input_text = "9999999999";
+    assert(runec_ui_handle_input(ui,1280,720) && ui->bank_amount_source);
+    ui->bank_amount_text[0] = 0;
+    input_text = "7";
+    assert(runec_ui_handle_input(ui,1280,720) && !ui->bank_amount_source);
+    assert(ui->last_intent.kind == RUNEC_UI_INTENT_BANK_WITHDRAW && ui->last_intent.secondary == 7);
+    input_key = -1;
+
+    cell = inv_slot_rect(&layout,0);
+    input_mouse = (Vector2){cell.x+8,cell.y+8};
+    input_button = MOUSE_BUTTON_RIGHT;
+    assert(runec_ui_handle_input(ui,1280,720));
+    assert(ui->context_source_kind == RUNEC_UI_CONTEXT_BANK_INVENTORY);
+    assert(ui->context_action_count == 7 && !strcmp(ui->context_actions[0],"Deposit-1"));
+    // Deposit through the same menu/input path, using the item just withdrawn.
+    ui->inventory[0].item_id = world->player.inventory[0].item_id;
+    ui->inventory[0].generation = world->player.inventory[0].generation;
+    set_bank_context(ui,input_mouse,RUNEC_UI_CONTEXT_BANK_INVENTORY,0);
+    menu = context_menu_layout_for_ui(ui);
+    Vector2 inventory_mouse = input_mouse;
+    input_mouse = (Vector2){menu.x+8,menu.y+RUNEC_CONTEXT_MENU_HEADER_HEIGHT+5};
+    input_button = MOUSE_BUTTON_LEFT;
+    assert(runec_ui_handle_input(ui,1280,720));
+    assert(ui->last_intent.kind == RUNEC_UI_INTENT_BANK_DEPOSIT && ui->last_intent.secondary == 1);
+    assert(rc_bank_deposit_slot(world,ui->last_intent.primary,ui->last_intent.secondary));
+    rc_world_tick(world);
+    assert(world->player.bank[4].quantity == 9996 && world->player.inventory[0].item_id == -1);
+    ui->inventory[0].item_id = 385;
+    ui->inventory[0].generation = 3;
+    input_mouse = inventory_mouse;
+    close_context(ui);
+    assert(item_hover_text(ui,&layout,1280,720,input_mouse,0,&hover));
+    assert(!strcmp(hover.action,"Deposit-1") && hover.more_options == 5);
+    submit_bank_action(ui,RUNEC_UI_CONTEXT_BANK_INVENTORY,0,385,3,0);
+    assert(ui->last_intent.kind == RUNEC_UI_INTENT_BANK_DEPOSIT && !ui->last_intent.secondary);
+    submit_bank_action(ui,RUNEC_UI_CONTEXT_BANK_INVENTORY,0,385,3,BANK_AMOUNT_X);
+    input_key = KEY_ESCAPE;
+    input_button = -1;
+    assert(runec_ui_handle_input(ui,1280,720) && !ui->bank_amount_source);
+    set_bank_context(ui,input_mouse,RUNEC_UI_CONTEXT_BANK_INVENTORY,0);
+    menu = context_menu_layout_for_ui(ui);
+    input_mouse = (Vector2){menu.x+8,menu.y+RUNEC_CONTEXT_MENU_HEADER_HEIGHT+6*RUNEC_CONTEXT_MENU_ROW_HEIGHT+5};
+    input_key = -1;
+    input_button = MOUSE_BUTTON_LEFT;
+    assert(runec_ui_handle_input(ui,1280,720));
+    assert(!ui->context_open && ui->last_intent.kind == RUNEC_UI_INTENT_NONE);
+    input_mouse = inventory_mouse;
+    input_button = -1;
+    input_key = -1;
+    ui->bank_open = 0;
+    assert(item_hover_text(ui,&layout,1280,720,input_mouse,0,&hover));
+    assert(!strcmp(hover.action,"Eat") && hover.more_options == 3);
+    set_selected_item_target(ui,0);
+    assert(item_hover_text(ui,&layout,1280,720,input_mouse,0,&hover));
+    assert(!strcmp(hover.action,"Use") && !strcmp(hover.target,"Shark -> Shark") && !hover.more_options);
+    hover_draw_count = 0;
+    draw_item_hover(ui,&layout,1280,720);
+    assert(hover_draw_count == 6 && !hover_draw_text[5][0]);
+    runec_ui_clear_selected_target(ui);
+    ui->inventory[0].action_count = 0;
+    assert(!item_hover_text(ui,&layout,1280,720,input_mouse,0,&hover));
+    ui->active_tab = RUNEC_UI_TAB_SKILLS;
+    assert(!item_hover_text(ui,&layout,1280,720,input_mouse,0,&hover));
+    ui->active_tab = RUNEC_UI_TAB_INVENTORY;
+    assert(!item_hover_text(ui,&layout,1280,720,(Vector2){0,0},0,&hover));
+    ui->drag.active = 1;
+    assert(!item_hover_text(ui,&layout,1280,720,input_mouse,0,&hover));
+    hover_draw_count = 0;
+    draw_item_hover(ui,&layout,1280,720);
+    assert(!hover_draw_count);
+    ui->drag.active = 0;
+    ui->inventory[0].enabled = 0;
+    assert(!item_hover_text(ui,&layout,1280,720,input_mouse,0,&hover));
+    ui->bank_open = 1;
+    for (int i = 0; i < RUNEC_UI_BANK_SLOT_COUNT; i++) {
+        ui->bank[i] = (RuneCUiSlot){.item_id=385,.quantity=10000,.enabled=1};
+        strcpy(ui->bank[i].label,"Shark");
+    }
+    ui->bank_scroll = RUNEC_UI_BANK_SLOT_COUNT - RUNEC_UI_BANK_VISIBLE_SLOTS;
+    cell = bank_slot_rect(panel,RUNEC_UI_BANK_VISIBLE_SLOTS-1);
+    input_mouse = (Vector2){cell.x+8,cell.y+8};
+    assert(bank_slot_at(ui,panel,input_mouse) == RUNEC_UI_BANK_SLOT_COUNT-1);
+    clock_t start = clock();
+    for (int i = 0; i < 100000; i++)
+        assert(item_hover_text(ui,&layout,1280,720,input_mouse,0,&hover));
+    printf("Full-bank hover: %.3f us/frame (100000 queries)\n",
+        1000000.0 * (clock()-start) / CLOCKS_PER_SEC / 100000);
+    free(ui);
+    world->player.storage_kind = RC_STORAGE_NONE;
+    for (int i = 0; i < RC_INVENTORY_SIZE; i++) world->player.inventory[i] = (RcInvSlot){.item_id=-1};
+}
 
 static void equip(RcWorld *w, int id) {
     w->player.equipment[EQUIP_WEAPON] = (RcInvSlot){.item_id = -1};
@@ -89,6 +290,7 @@ int main(void) {
     cfg.varbits_path = RC_TEST_SOURCE_DIR "/data/defs/varbits.bin";
     RcWorld *world = rc_world_create_config(&cfg);
     assert(world);
+    test_bank_ui(world);
     rc_content_combat_register(world);
     for (int i = 0; i < SKILL_COUNT; i++)
         world->player.skills.base_level[i] = world->player.skills.boosted_level[i] = 99;

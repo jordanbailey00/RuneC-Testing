@@ -23,7 +23,13 @@ static void test_hit_trigger_and_timing(void) {
     assert(state.remaining_cycles == RUNEC_HEALTH_BAR_DISPLAY_CYCLES);
     assert(state.current_hp == 17 && state.maximum_hp == 25);
 
-    runec_health_bar_advance(&state, 299.0f);
+    runec_health_bar_advance(&state, 100.0f);
+    runec_health_bar_sync(&state, hits, 2, 22, 25);
+    assert(state.current_hp == 22 && state.remaining_cycles == 200.0f);
+    runec_health_bar_sync(&state, NULL, 0, 30, 25);
+    assert(state.current_hp == 25 && state.remaining_cycles == 200.0f);
+
+    runec_health_bar_advance(&state, 199.0f);
     assert(runec_health_bar_visible(&state));
     runec_health_bar_advance(&state, 1.0f);
     assert(!runec_health_bar_visible(&state));

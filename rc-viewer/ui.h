@@ -77,6 +77,7 @@ typedef enum RuneCUiIntentKind {
     RUNEC_UI_INTENT_BANK_WITHDRAW,
     RUNEC_UI_INTENT_BANK_DEPOSIT,
     RUNEC_UI_INTENT_BANK_CLOSE,
+    RUNEC_UI_INTENT_BANK_EXAMINE,
     RUNEC_UI_INTENT_SCENE_PLANE,
     RUNEC_UI_INTENT_DEV_TRANSPORT,
     RUNEC_UI_INTENT_DEV_SPELLBOOK
@@ -104,7 +105,8 @@ typedef struct RuneCUiSlot {
     uint32_t item_id;
     uint32_t icon_item_id;
     int quantity;
-    char label[24];
+    char label[64];
+    uint32_t generation;
     int enabled;
     int category;
     int action_count;
@@ -150,7 +152,9 @@ typedef enum RuneCUiContextSourceKind {
     RUNEC_UI_CONTEXT_EQUIPMENT,
     RUNEC_UI_CONTEXT_PRAYER,
     RUNEC_UI_CONTEXT_SPELL,
-    RUNEC_UI_CONTEXT_COMPONENT
+    RUNEC_UI_CONTEXT_COMPONENT,
+    RUNEC_UI_CONTEXT_BANK,
+    RUNEC_UI_CONTEXT_BANK_INVENTORY
 } RuneCUiContextSourceKind;
 
 typedef enum RuneCUiSelectedTargetKind {
@@ -211,6 +215,10 @@ typedef struct RuneCUiState {
     int bank_kind;
     int bank_scroll;
     int bank_active_tab;
+    RuneCUiContextSourceKind bank_amount_source;
+    int bank_amount_slot;
+    uint32_t bank_amount_item_id, bank_amount_generation;
+    char bank_amount_text[11];
     char bank_tab_labels[RUNEC_UI_BANK_TAB_COUNT][RUNEC_UI_BANK_TAB_LABEL_LEN];
     int selected_inventory_slot;
     int selected_equipment_slot;
@@ -276,6 +284,7 @@ typedef struct RuneCUiState {
     RuneCUiContextSourceKind context_source_kind;
     int context_source_slot;
     uint32_t context_source_item_id;
+    uint32_t context_source_generation;
     uint32_t context_source_component_id;
 
     RuneCUiSelectedTarget selected_target;

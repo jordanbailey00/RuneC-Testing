@@ -106,8 +106,9 @@ RcSpellResult rc_player_set_spellbook(RcWorld *world, int spellbook);
 RcSpellResult rc_player_select_spell(RcWorld *world, int spell_idx);
 RcSpellResult rc_player_set_autocast_spell(RcWorld *world, int spell_idx,
                                   int defensive);
-void rc_player_eat(RcWorld *world, int inv_slot);
-void rc_player_drink(RcWorld *world, int inv_slot);
+// Queued consumption; detailed failure is in player.consume_result.
+int rc_player_eat(RcWorld *world, int inv_slot);
+int rc_player_drink(RcWorld *world, int inv_slot);
 RcItemActionResult rc_player_move_inventory_item(RcWorld *world,
                                                  int from_slot, int to_slot);
 RcItemActionResult rc_player_equip(RcWorld *world, int inv_slot);

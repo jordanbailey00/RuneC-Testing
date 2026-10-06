@@ -7,6 +7,7 @@
 #include "items.h"
 #include "npc.h"
 #include "combat.h"
+#include "consumables.h"
 #include "combat_hit.h"
 #include "prayer.h"
 #include "skills.h"
@@ -81,19 +82,21 @@ static int player_agility_level(const RcPlayer *player) {
     return level;
 }
 
-static int player_run_energy_loss(const RcPlayer *player) {
+static int player_run_energy_loss(const RcWorld *world) {
+    const RcPlayer *player = &world->player;
     int kilograms = player && player->weight > 0
         ? player->weight / 1000 : 0;
     if (kilograms > 64) kilograms = 64;
     int loss = (60 + (67 * kilograms) / 64)
              * (300 - player_agility_level(player)) / 300;
+    if (world->tick < player->stamina_until) loss = loss * 30 / 100;
     return loss > 0 ? loss : 1;
 }
 
-static void update_player_run_energy(RcPlayer *player, int ran_two_steps) {
-    if (!player) return;
+static void update_player_run_energy(RcWorld *world, int ran_two_steps) {
+    RcPlayer *player = &world->player;
     if (ran_two_steps) {
-        player->run_energy -= player_run_energy_loss(player);
+        player->run_energy -= player_run_energy_loss(world);
         if (player->run_energy <= 0) {
             player->run_energy = 0;
             player->running = false;
@@ -128,17 +131,17 @@ static void process_player_movement(RcWorld *world) {
     RcPlayer *p = &world->player;
     p->movement_step_count = 0;
     if (p->route_idx >= p->route_len && !continue_player_route(world)) {
-        update_player_run_energy(p, 0);
+        update_player_run_energy(world, 0);
         return;
     }
     if (world->player_action.active
             && world->player_action.category == RC_ACTION_CATEGORY_STRONG
             && world->player_action.ready_tick > world->tick) {
-        update_player_run_energy(p, 0);
+        update_player_run_energy(world, 0);
         return;
     }
     if (rc_player_is_frozen(world)) {
-        update_player_run_energy(p, 0);
+        update_player_run_energy(world, 0);
         return;
     }
     p->prev_x = p->x;
@@ -189,7 +192,7 @@ static void process_player_movement(RcWorld *world) {
         p->movement_result = RC_MOVEMENT_MOVED;
         if (p->x == nx && p->y == ny) p->route_idx++;
     }
-    update_player_run_energy(p, p->movement_step_count == 2);
+    update_player_run_energy(world, p->movement_step_count == 2);
     if (p->route_idx >= p->route_len && !p->route_continue) {
         p->movement_result = p->route_status == RC_ROUTE_ALTERNATIVE
             ? RC_MOVEMENT_NO_ROUTE : RC_MOVEMENT_ARRIVED;
@@ -941,6 +944,7 @@ void rc_world_tick(RcWorld *world) {
     rc_combat_clear_attack_events(world);
 
     // Phase 1 — input (base): always runs.
+    if (on & RC_SUB_CONSUMABLES) rc_consumables_tick(world);
     process_player_input(world);
 
     // Phase 2 — route planning (base): always runs.
@@ -1576,8 +1580,6 @@ RcSpellResult rc_player_set_autocast_spell(RcWorld *world, int spell_idx, int de
     rc_refresh_player_combat_style(&world->player);
     return spell_result(world, RC_SPELL_OK);
 }
-void rc_player_eat(RcWorld *world, int inv_slot) { (void)world; (void)inv_slot; }
-void rc_player_drink(RcWorld *world, int inv_slot) { (void)world; (void)inv_slot; }
 void rc_player_interact_npc(RcWorld *world, int npc_uid, int opt) {
     if (rc_player_command_should_queue(world)) {
         (void)queue_player_command(world, RC_PLAYER_COMMAND_INTERACT_NPC,
@@ -2512,6 +2514,11 @@ int rc_player_interact_object_placement(RcWorld *world, int obj_id, int x,
 
 int rc_player_interact_inventory_item(RcWorld *world, int inv_slot,
                                       int option) {
+    if (world && inv_slot >= 0 && inv_slot < RC_INVENTORY_SIZE) {
+        int action = rc_consumable_action(world->player.inventory[inv_slot].item_id, option);
+        if (action) return action == 2 ? rc_player_drink(world, inv_slot)
+                                      : rc_player_eat(world, inv_slot);
+    }
     if (rc_player_command_should_queue(world)) {
         uint32_t generation = world && inv_slot >= 0
                             && inv_slot < RC_INVENTORY_SIZE

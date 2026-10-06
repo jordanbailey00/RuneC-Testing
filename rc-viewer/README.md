@@ -121,7 +121,9 @@ death diagnostic; enabling loot is not a claim that every table is verified.
 - `dev_validation.c` / `dev_validation.h`
   - viewer-only combat testing helpers
   - owns the temporary validation bank seed, Clan-tab boss transports,
-    Varrock-bank combat dummy spawn, and leave-one validation withdraw policy
+    and Varrock-bank combat dummy spawn
+  - food/potion testing stock starts at 10,000 per supplied identity; withdrawals
+    use the selected ordinary quantity, including the final item
   - god mode subscribes to core damage events before death processing; it is
     a development override, not a gameplay immunity rule
   - bank lookup prefers player-equippable variants; charged Tonalztics stock
@@ -253,6 +255,9 @@ remainder use the cache sprite colors exactly, with no decorative border. Bars
 project from stable base-model logical height plus the client's 15-unit head
 clearance; hitsplats remain centered on the model. Target selection alone does
 not show a bar, and missing health does not leave one visible indefinitely.
+While visible, bars track healing and other HP changes without restarting
+their lifetime or inventing a damage splat. Divine-potion self-damage uses the
+same sequenced hit path as other damage.
 Special encounter/interface bars are separate authored content.
 
 Scene and UI context options use right-click. The applicable OSRS-style menu
@@ -263,6 +268,14 @@ a readable display scale using crisp 16-pixel bold text, a 24-pixel header, and
 and NPC/object/item target colors. Moving beyond the client's 10-pixel margin
 dismisses it. NPCs, objects, ground items, bare scene tiles, inventory,
 equipment, prayers, spells, and decoded widgets share that presentation.
+Bank slots offer Withdraw-1/5/10/X/All/All-but-1, Examine and Cancel;
+inventory slots inside the bank offer the corresponding deposit actions.
+X accepts a positive whole-number amount in the chat input area; Escape cancels.
+Left-click transfers one; Shift-click transfers all. Menus/amount prompts reject
+changed item identities. Transfers still go through the existing queued storage
+API; this does not implement the pending banking audit's notes/access/result work.
+Inventory and bank hover labels show the default action, full orange item name,
+and white additional-option count at top left, using the existing crisp bold font.
 Examine, selected item/spell actions, distant ground-item Take, and Walk here
 remain submissions to core. Selection clears only after accepted input, and
 sequenced core interaction messages/failures are appended to chat. The viewer

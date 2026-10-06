@@ -19,7 +19,8 @@ void runec_health_bar_advance(RuneCHealthBarState *state,
 void runec_health_bar_sync(RuneCHealthBarState *state,
                            const RcCombatRecentHit *hits, int hit_count,
                            int current_hp, int maximum_hp) {
-    if (!state || !hits || hit_count <= 0) return;
+    if (!state) return;
+    if (!hits) hit_count = 0;
     if (hit_count > 4) hit_count = 4;
 
     int received_update = 0;
@@ -29,13 +30,13 @@ void runec_health_bar_sync(RuneCHealthBarState *state,
         state->last_sequence = sequence;
         received_update = 1;
     }
-    if (!received_update || maximum_hp <= 0) return;
+    if (maximum_hp <= 0 || (!received_update && !runec_health_bar_visible(state))) return;
 
     if (current_hp < 0) current_hp = 0;
     if (current_hp > maximum_hp) current_hp = maximum_hp;
     state->current_hp = current_hp;
     state->maximum_hp = maximum_hp;
-    state->remaining_cycles = RUNEC_HEALTH_BAR_DISPLAY_CYCLES;
+    if (received_update) state->remaining_cycles = RUNEC_HEALTH_BAR_DISPLAY_CYCLES;
 }
 
 int runec_health_bar_visible(const RuneCHealthBarState *state) {

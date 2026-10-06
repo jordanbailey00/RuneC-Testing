@@ -72,6 +72,10 @@ subsystems**.
 - **equipment** — worn items, equipment bonuses, weapon stance
 - **inventory** — 28-slot inventory, stacks, item ops
 - **consumables** — food heal, potion boost/drain
+- Consumables use `consumables.h`: queued generation-checked Eat/Drink, atomic
+  replacements, resource effects and player-owned deadlines. Register reviewed
+  definitions through `rc-content` after creation/reset. Unsupported cache
+  actions reject without consuming. See [the contract and support inventory](../docs/consumables.md).
 - **loot** — drop table rolls, ground items, pickup
 - **skills** — XP table, level-up, recipes, skill-drop sources, and
   gathering-node lookup

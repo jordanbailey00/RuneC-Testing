@@ -2,6 +2,7 @@
 
 #include "api.h"
 #include "combat.h"
+#include "consumables.h"
 #include "interaction.h"
 #include "items.h"
 #include "pathfinding.h"
@@ -14,7 +15,7 @@
 static int command_args_valid(RcPlayerCommandKind kind,
                               RcActionCategory category) {
     return kind > RC_PLAYER_COMMAND_NONE
-        && kind <= RC_PLAYER_COMMAND_TOGGLE_QUICK_PRAYERS
+        && kind <= RC_PLAYER_COMMAND_CONSUME
         && category >= RC_ACTION_CATEGORY_SOFT
         && category <= RC_ACTION_CATEGORY_STRONG;
 }
@@ -218,6 +219,9 @@ void rc_player_action_refresh(RcWorld *world) {
 static int execute_command(RcWorld *world, const RcPlayerCommand *command) {
     const int *a = command->args;
     switch ((RcPlayerCommandKind)command->kind) {
+    case RC_PLAYER_COMMAND_CONSUME:
+        return rc_consume_accepted(rc_player_consume_expected(
+            world, a[0], (uint32_t)a[1], a[2]));
     case RC_PLAYER_COMMAND_WALK_TO:
         if (!rc_world_coord_valid(a[0]) || !rc_world_coord_valid(a[1]))
             return 0;
@@ -401,6 +405,7 @@ void rc_player_command_process(RcWorld *world) {
         if (world->player_action.active
                 && world->player_action.category == RC_ACTION_CATEGORY_STRONG
                 && world->player_action.ready_tick > world->tick
+                && pending[i].kind != RC_PLAYER_COMMAND_CONSUME
                 && pending[i].category != RC_ACTION_CATEGORY_SOFT) {
             queue->last_sequence = pending[i].sequence;
             queue->last_result = RC_COMMAND_RESULT_REJECTED_BUSY;
@@ -412,6 +417,7 @@ void rc_player_command_process(RcWorld *world) {
                             || pending[i].kind == RC_PLAYER_COMMAND_STEP;
         if (pending[i].category >= RC_ACTION_CATEGORY_NORMAL
                 && !movement_command
+                && pending[i].kind != RC_PLAYER_COMMAND_CONSUME
                 && !command_uses_interaction_admission(
                     (RcPlayerCommandKind)pending[i].kind)) {
             rc_player_cancel_action(world, RC_ACTION_CANCEL_REPLACED);

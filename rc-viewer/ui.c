@@ -3,12 +3,14 @@
 #include "ui_reference.h"
 
 #include <ctype.h>
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define OSRS_ORANGE ((Color){255, 152, 31, 255})
+#define OSRS_ITEM_TARGET ((Color){255, 144, 64, 255})
 #define OSRS_YELLOW ((Color){255, 255, 0, 255})
 #define OSRS_GREEN  ((Color){0, 255, 0, 255})
 #define OSRS_RED    ((Color){255, 40, 25, 255})
@@ -954,13 +956,122 @@ static RuneCContextMenuLayout context_menu_layout_for_ui(
 
 static void set_item_slot_context(RuneCUiState *ui, Vector2 pos,
                                   const RuneCUiSlot *slot) {
-    const char *actions[RUNEC_UI_ITEM_ACTIONS];
+    const char *actions[RUNEC_UI_ITEM_ACTIONS + 1];
     int count = slot ? slot->action_count : 0;
     if (count > RUNEC_UI_ITEM_ACTIONS) count = RUNEC_UI_ITEM_ACTIONS;
     for (int i = 0; i < count; i++) actions[i] = slot->actions[i];
-    set_context(ui, pos, slot ? slot->label : "Item", actions, count);
+    actions[count] = "Cancel";
+    set_context(ui, pos, slot ? slot->label : "Item", actions, count + 1);
     for (int i = 0; slot && i < count; i++)
         set_context_action_op(ui, i, slot->action_ops[i]);
+    for (int i = 0; i < count; i++) ui->context_target_colors[i] = OSRS_ITEM_TARGET;
+}
+
+enum { BANK_AMOUNT_X = -10, BANK_ALL_BUT_ONE = -11 };
+static const struct {
+    const char *withdraw, *deposit;
+    int amount;
+} bank_actions[] = {
+    {"Withdraw-1", "Deposit-1", 1},
+    {"Withdraw-5", "Deposit-5", 5},
+    {"Withdraw-10", "Deposit-10", 10},
+    {"Withdraw-X", "Deposit-X", BANK_AMOUNT_X},
+    {"Withdraw-All", "Deposit-All", 0},
+    {"Withdraw-All-but-1", NULL, BANK_ALL_BUT_ONE},
+    {"Examine", "Examine", RUNEC_UI_ITEM_OP_EXAMINE},
+};
+
+static const RuneCUiSlot *bank_source_slot(const RuneCUiState *ui,
+                                          RuneCUiContextSourceKind kind, int slot) {
+    if (!ui->bank_open || slot < 0) return NULL;
+    if (kind == RUNEC_UI_CONTEXT_BANK && slot < RUNEC_UI_BANK_SLOT_COUNT)
+        return &ui->bank[slot];
+    if (kind == RUNEC_UI_CONTEXT_BANK_INVENTORY && slot < RUNEC_UI_INV_SLOT_COUNT)
+        return &ui->inventory[slot];
+    return NULL;
+}
+
+static void set_bank_context(RuneCUiState *ui, Vector2 pos,
+                             RuneCUiContextSourceKind kind, int slot) {
+    const RuneCUiSlot *item = bank_source_slot(ui, kind, slot);
+    if (!item || !item->enabled) return;
+    const char *actions[RUNEC_UI_CONTEXT_ACTIONS];
+    int ops[RUNEC_UI_CONTEXT_ACTIONS], count = 0;
+    for (unsigned i = 0; i < sizeof(bank_actions)/sizeof(bank_actions[0]); i++) {
+        const char *action = kind == RUNEC_UI_CONTEXT_BANK
+            ? bank_actions[i].withdraw : bank_actions[i].deposit;
+        if (action) { actions[count] = action; ops[count++] = bank_actions[i].amount; }
+    }
+    actions[count] = "Cancel";
+    set_context(ui, pos, item->label, actions, count + 1);
+    for (int i = 0; i < count; i++) {
+        set_context_action_op(ui, i, ops[i]);
+        ui->context_target_colors[i] = OSRS_ITEM_TARGET;
+    }
+    set_context_source(ui, kind, slot, item->item_id);
+    ui->context_source_generation = item->generation;
+    runec_ui_clear_selected_target(ui);
+    ui->drag.active = 0;
+}
+
+static void submit_bank_action(RuneCUiState *ui, RuneCUiContextSourceKind kind,
+                                int slot, uint32_t id, uint32_t generation, int amount) {
+    const RuneCUiSlot *item = bank_source_slot(ui, kind, slot);
+    if (!item || !item->enabled || item->item_id != id || item->generation != generation) {
+        ui_add_chat(ui, "That item changed. Choose it again.");
+        return;
+    }
+    if (amount == BANK_AMOUNT_X) {
+        ui->bank_amount_source = kind;
+        ui->bank_amount_slot = slot;
+        ui->bank_amount_item_id = id;
+        ui->bank_amount_generation = generation;
+        ui->bank_amount_text[0] = 0;
+        ui->chat_focused = 0;
+        return;
+    }
+    if (amount == RUNEC_UI_ITEM_OP_EXAMINE) {
+        ui->last_intent.kind = RUNEC_UI_INTENT_BANK_EXAMINE;
+        ui->last_intent.primary = (int)id;
+        return;
+    }
+    if (amount == BANK_ALL_BUT_ONE) {
+        amount = item->quantity - 1;
+        if (amount <= 0) { ui_add_chat(ui, "There is only one item left."); return; }
+    }
+    ui->last_intent.kind = kind == RUNEC_UI_CONTEXT_BANK
+        ? RUNEC_UI_INTENT_BANK_WITHDRAW : RUNEC_UI_INTENT_BANK_DEPOSIT;
+    ui->last_intent.primary = slot;
+    ui->last_intent.secondary = amount;
+}
+
+static int handle_bank_amount_input(RuneCUiState *ui) {
+    if (!ui->bank_amount_source) return 0;
+    if (!ui->bank_open || IsKeyPressed(KEY_ESCAPE)) {
+        ui->bank_amount_source = RUNEC_UI_CONTEXT_NONE;
+        return 1;
+    }
+    int ch;
+    while ((ch = GetCharPressed()) > 0) {
+        size_t len = strlen(ui->bank_amount_text);
+        if (ch >= '0' && ch <= '9' && len + 1 < sizeof(ui->bank_amount_text)) {
+            ui->bank_amount_text[len] = (char)ch;
+            ui->bank_amount_text[len + 1] = 0;
+        }
+    }
+    size_t len = strlen(ui->bank_amount_text);
+    if (IsKeyPressed(KEY_BACKSPACE) && len) ui->bank_amount_text[len - 1] = 0;
+    if (IsKeyPressed(KEY_ENTER)) {
+        long long amount = strtoll(ui->bank_amount_text, NULL, 10);
+        if (amount <= 0 || amount > INT_MAX) {
+            ui_add_chat(ui, "Enter an amount from 1 to 2147483647.");
+            return 1;
+        }
+        submit_bank_action(ui, ui->bank_amount_source, ui->bank_amount_slot,
+            ui->bank_amount_item_id, ui->bank_amount_generation, (int)amount);
+        ui->bank_amount_source = RUNEC_UI_CONTEXT_NONE;
+    }
+    return 1;
 }
 
 void runec_ui_open_context(RuneCUiState *ui, Vector2 pos, const char *title,
@@ -1637,7 +1748,15 @@ static int handle_context_click(RuneCUiState *ui, Vector2 mouse) {
             int i = clicked_action;
             const char *action = ui->context_actions[i];
             int op = ui->context_action_op[i];
-            if (ui->context_source_kind == RUNEC_UI_CONTEXT_INVENTORY) {
+            if (strcmp(action, "Cancel") == 0) {
+                close_context(ui);
+                return 1;
+            }
+            if (ui->context_source_kind == RUNEC_UI_CONTEXT_BANK
+                    || ui->context_source_kind == RUNEC_UI_CONTEXT_BANK_INVENTORY) {
+                submit_bank_action(ui, ui->context_source_kind, ui->context_source_slot,
+                    ui->context_source_item_id, ui->context_source_generation, op);
+            } else if (ui->context_source_kind == RUNEC_UI_CONTEXT_INVENTORY) {
                 if (strcmp(action, "Use") == 0) {
                     set_selected_item_target(ui, ui->context_source_slot);
                     ui->last_intent.kind = RUNEC_UI_INTENT_SELECTED_ITEM;
@@ -1914,11 +2033,8 @@ static Rectangle bank_slot_rect(Rectangle panel, int visible_slot) {
 static int bank_slot_at(RuneCUiState *ui, Rectangle panel, Vector2 mouse) {
     clamp_bank_scroll(ui);
     for (int i = 0; i < RUNEC_UI_BANK_VISIBLE_SLOTS; i++) {
-        int slot = bank_slot_for_visible_index(ui, ui->bank_scroll + i);
-        if (slot < 0)
-            break;
         if (CheckCollisionPointRec(mouse, bank_slot_rect(panel, i)))
-            return slot;
+            return bank_slot_for_visible_index(ui, ui->bank_scroll + i);
     }
     return -1;
 }
@@ -2578,6 +2694,21 @@ static int handle_bank_input(RuneCUiState *ui, const RuneCUiLayout *layout,
         return 1;
     }
 
+    if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+        int slot = bank_slot_at(ui, panel, mouse);
+        if (slot >= 0) {
+            set_bank_context(ui, mouse, RUNEC_UI_CONTEXT_BANK, slot);
+            return 1;
+        }
+        if (ui->active_tab == RUNEC_UI_TAB_INVENTORY) {
+            slot = ui_inventory_slot_at(ui, layout, mouse);
+            if (slot >= 0) {
+                set_bank_context(ui, mouse, RUNEC_UI_CONTEXT_BANK_INVENTORY, slot);
+                return 1;
+            }
+        }
+    }
+
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         if (CheckCollisionPointRec(mouse, close)) {
             ui->last_intent.kind = RUNEC_UI_INTENT_BANK_CLOSE;
@@ -2632,7 +2763,7 @@ static int handle_bank_input(RuneCUiState *ui, const RuneCUiLayout *layout,
             CheckCollisionPointRec(mouse, panel)) {
         return 1;
     }
-    return 0;
+    return CheckCollisionPointRec(mouse, panel);
 }
 
 static Rectangle side_clan_plane_follow_rect(const RuneCUiLayout *layout) {
@@ -2875,6 +3006,14 @@ int runec_ui_handle_input(RuneCUiState *ui, int screen_w, int screen_h) {
             ui->tab_press_timer[i] = 0.0f;
     }
 
+    if (handle_bank_amount_input(ui)) return 1;
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && handle_context_click(ui, mouse))
+        return 1;
+    if (ui->context_open) {
+        if (IsKeyPressed(KEY_ESCAPE)) close_context(ui);
+        return 1;
+    }
+
     if (ui->chat_focused) {
         int ch = GetCharPressed();
         while (ch > 0) {
@@ -2967,9 +3106,6 @@ int runec_ui_handle_input(RuneCUiState *ui, int screen_w, int screen_h) {
     }
 
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-        if (handle_context_click(ui, mouse))
-            return 1;
-
         RuneCUiHitResult modal_hit = {0};
         if (decoded_modal_hit(ui, &layout, screen_w, screen_h, mouse,
                               &modal_hit)) {
@@ -3478,6 +3614,8 @@ static void draw_chat(RuneCUiState *ui, const RuneCUiLayout *layout) {
     const char *prompt = ui->chat_focused ? ">" : "Click here to chat";
     char input[160];
     snprintf(input, sizeof(input), "%s %s", prompt, ui->chat_input);
+    if (ui->bank_amount_source)
+        snprintf(input, sizeof(input), "Enter amount: %s*", ui->bank_amount_text);
     draw_text_shadow(ui, input, layout->chat_input.x, layout->chat_input.y, 14, WHITE);
 
     runec_ui_draw_asset(&ui->assets, "main_stones_bottom", layout->chat_controls, WHITE);
@@ -4050,6 +4188,72 @@ static void draw_side(RuneCUiState *ui, const RuneCUiLayout *layout) {
     }
 }
 
+typedef struct {
+    char action[RUNEC_UI_ITEM_ACTION_LEN];
+    char target[160];
+    int more_options;
+} RuneCUiItemHover;
+
+static int item_hover_text(RuneCUiState *ui, const RuneCUiLayout *layout,
+                           int width, int height, Vector2 mouse, int shift,
+                           RuneCUiItemHover *hover) {
+    memset(hover, 0, sizeof(*hover));
+    if (ui->context_open || ui->drag.active || ui->bank_amount_source) return 0;
+    const RuneCUiSlot *item = NULL;
+    int withdraw = 0;
+    if (ui->bank_open) {
+        Rectangle panel = bank_panel_rect(width, height, layout);
+        if (CheckCollisionPointRec(mouse, panel)) {
+            int slot = bank_slot_at(ui, panel, mouse);
+            if (slot < 0) return 0;
+            item = &ui->bank[slot];
+            withdraw = 1;
+        }
+    }
+    if (!item && ui->active_tab == RUNEC_UI_TAB_INVENTORY) {
+        int slot = ui_inventory_slot_at(ui, layout, mouse);
+        if (slot >= 0) item = &ui->inventory[slot];
+    }
+    if (!item || !item->enabled) return 0;
+    copy_text(hover->target, sizeof(hover->target), item->label);
+    if (ui->bank_open) {
+        int primary = shift ? 4 : 0;
+        copy_text(hover->action, sizeof(hover->action), withdraw
+            ? bank_actions[primary].withdraw : bank_actions[primary].deposit);
+        for (unsigned i = 0; i < sizeof(bank_actions)/sizeof(bank_actions[0]); i++)
+            if (withdraw || bank_actions[i].deposit) hover->more_options++;
+        hover->more_options--;
+    } else if (ui->selected_target.kind != RUNEC_UI_SELECTED_NONE) {
+        copy_text(hover->action, sizeof(hover->action), ui->selected_target.verb);
+        snprintf(hover->target, sizeof(hover->target), "%s -> %s",
+            ui->selected_target.label, item->label);
+    } else if (item->action_count) {
+        copy_text(hover->action, sizeof(hover->action), item->actions[0]);
+        hover->more_options = item->action_count - 1;
+    } else return 0;
+    return 1;
+}
+
+static void draw_item_hover(RuneCUiState *ui, const RuneCUiLayout *layout,
+                            int width, int height) {
+    RuneCUiItemHover hover;
+    if (!item_hover_text(ui, layout, width, height, GetMousePosition(),
+            IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT), &hover)) return;
+    char target[sizeof(hover.target) + 2], suffix[40] = "";
+    snprintf(target, sizeof(target), " %s", hover.target);
+    if (hover.more_options > 0)
+        snprintf(suffix, sizeof(suffix), " / %d more options", hover.more_options);
+    const char *parts[] = {hover.action, target, suffix};
+    const Color colors[] = {WHITE, OSRS_ITEM_TARGET, WHITE};
+    Font font = runec_ui_bold_font(&ui->assets);
+    float x = 4;
+    for (int i = 0; i < 3; i++) {
+        DrawTextEx(font, parts[i], (Vector2){x + 1, 5}, RUNEC_CONTEXT_MENU_FONT_SIZE, 0, BLACK);
+        DrawTextEx(font, parts[i], (Vector2){x, 4}, RUNEC_CONTEXT_MENU_FONT_SIZE, 0, colors[i]);
+        x += MeasureTextEx(font, parts[i], RUNEC_CONTEXT_MENU_FONT_SIZE, 0).x;
+    }
+}
+
 static void draw_context(const RuneCUiState *ui) {
     if (!ui->context_open)
         return;
@@ -4194,4 +4398,5 @@ void runec_ui_draw(RuneCUiState *ui, int screen_w, int screen_h) {
     draw_bank(ui, screen_w, screen_h, &layout);
     draw_selected_target(ui);
     draw_context(ui);
+    draw_item_hover(ui, &layout, screen_w, screen_h);
 }
